@@ -17,8 +17,26 @@ import {
   getSupabaseClient
 } from "./supabase-db";
 
-import initialUsers from "./users-db.json";
-import initialTickets from "./tickets-db.json";
+// Dynamically read initial users and tickets configuration at runtime to avoid build errors on Vercel
+let initialUsers: any[] = [];
+try {
+  const usersPath = path.join(process.cwd(), "users-db.json");
+  if (fs.existsSync(usersPath)) {
+    initialUsers = JSON.parse(fs.readFileSync(usersPath, "utf-8"));
+  }
+} catch (err) {
+  console.warn("Failed to load initial users in server.ts:", err);
+}
+
+let initialTickets: any[] = [];
+try {
+  const ticketsPath = path.join(process.cwd(), "tickets-db.json");
+  if (fs.existsSync(ticketsPath)) {
+    initialTickets = JSON.parse(fs.readFileSync(ticketsPath, "utf-8"));
+  }
+} catch (err) {
+  console.warn("Failed to load initial tickets in server.ts:", err);
+}
 
 const app = express();
 const PORT = 3000;

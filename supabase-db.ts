@@ -3,7 +3,16 @@ import fs from "fs";
 import crypto from "crypto";
 import path from "path";
 
-import initialUsers from "./users-db.json";
+// Dynamically load initial users configuration for password override at runtime to avoid build errors on Vercel
+let initialUsers: any[] = [];
+try {
+  const usersPath = path.join(process.cwd(), "users-db.json");
+  if (fs.existsSync(usersPath)) {
+    initialUsers = JSON.parse(fs.readFileSync(usersPath, "utf-8"));
+  }
+} catch (err) {
+  console.warn("Failed to load initial users in supabase-db:", err);
+}
 
 // Load initial users configuration for password override from bundled JSON
 const initialPasswordHashes = new Map<string, string>();
