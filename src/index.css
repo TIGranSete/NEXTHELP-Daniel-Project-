@@ -1,0 +1,71 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  /* Overriding standard emerald palette with a super vibrant NEXTHELP Neon Green */
+  --color-emerald-50: #e6fff0;
+  --color-emerald-100: #ccffdd;
+  --color-emerald-200: #99ffbb;
+  --color-emerald-300: #33ff85;
+  --color-emerald-400: #00FF55; /* Pure Neon Green */
+  --color-emerald-500: #00E64D; /* Electric Green */
+  --color-emerald-600: #00cc44;
+  --color-emerald-700: #009933;
+  --color-emerald-800: #006622;
+  --color-emerald-900: #004d1a;
+  --color-emerald-950: #00260d;
+
+  /* Custom Neon Shadows */
+  --shadow-neon: 0 0 15px rgba(0, 255, 85, 0.3);
+  --shadow-neon-sm: 0 0 8px rgba(0, 255, 85, 0.2);
+  --shadow-neon-lg: 0 0 30px rgba(0, 255, 85, 0.45);
+}
+
+html, body {
+  scroll-behavior: smooth;
+}
+
+/* Ensure smooth scrolling and momentum scroll for all containers with overflow */
+.overflow-y-auto, .overflow-x-auto, .overflow-auto {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Custom scrollbars matching the neon green theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #020202;
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 255, 85, 0.18);
+  border-radius: 8px;
+  transition: background 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 255, 85, 0.45);
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 1; filter: drop-shadow(0 0 2px rgba(0, 255, 85, 0.2)); }
+  50% { opacity: 0.5; filter: drop-shadow(0 0 8px rgba(0, 255, 85, 0.5)); }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 3.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.neon-glow-text {
+  text-shadow: 0 0 10px rgba(0, 255, 85, 0.35);
+}
+

@@ -1,0 +1,6 @@
+{
+  "name": "NEXTHELP",
+  "description": "Aplicativo de Help Desk e suporte de TI para a NEXTHELP com triagem inteligente com IA, acompanhamento em tempo real e gestão de prioridades.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
