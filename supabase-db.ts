@@ -3,22 +3,17 @@ import fs from "fs";
 import crypto from "crypto";
 import path from "path";
 
-// Load initial users configuration for password override
-const USERS_FILE = path.join(process.cwd(), "users-db.json");
+import initialUsers from "./users-db.json";
+
+// Load initial users configuration for password override from bundled JSON
 const initialPasswordHashes = new Map<string, string>();
 try {
-  if (fs.existsSync(USERS_FILE)) {
-    const data = fs.readFileSync(USERS_FILE, "utf-8").trim();
-    if (data) {
-      const parsed = JSON.parse(data);
-      if (Array.isArray(parsed)) {
-        parsed.forEach((u: any) => {
-          if (u.email && u.password) {
-            initialPasswordHashes.set(u.email.toLowerCase().trim(), u.password);
-          }
-        });
+  if (Array.isArray(initialUsers)) {
+    initialUsers.forEach((u: any) => {
+      if (u.email && u.password) {
+        initialPasswordHashes.set(u.email.toLowerCase().trim(), u.password);
       }
-    }
+    });
   }
 } catch (err) {
   console.error("Failed to load initial password hashes in supabase-db:", err);

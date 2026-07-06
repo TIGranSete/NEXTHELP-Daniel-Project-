@@ -17,6 +17,9 @@ import {
   getSupabaseClient
 } from "./supabase-db";
 
+import initialUsers from "./users-db.json";
+import initialTickets from "./tickets-db.json";
+
 const app = express();
 const PORT = 3000;
 const DB_FILE = path.join(process.cwd(), "tickets-db.json");
@@ -30,18 +33,12 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 const initialPasswordHashes = new Map<string, string>();
 try {
-  if (fs.existsSync(USERS_FILE)) {
-    const data = fs.readFileSync(USERS_FILE, "utf-8").trim();
-    if (data) {
-      const parsed = JSON.parse(data);
-      if (Array.isArray(parsed)) {
-        parsed.forEach((u: any) => {
-          if (u.email && u.password) {
-            initialPasswordHashes.set(u.email.toLowerCase().trim(), u.password);
-          }
-        });
+  if (Array.isArray(initialUsers)) {
+    initialUsers.forEach((u: any) => {
+      if (u.email && u.password) {
+        initialPasswordHashes.set(u.email.toLowerCase().trim(), u.password);
       }
-    }
+    });
   }
 } catch (err) {
   console.error("Failed to load initial password hashes in server.ts:", err);
@@ -128,11 +125,11 @@ async function loadTickets(): Promise<Ticket[]> {
   } catch (error) {
     console.error("Erro ao ler banco de dados de chamados local, reiniciando com semente:", error);
   }
-  // Initialize with seed data if file doesn't exist or is invalid
+  // Initialize with static seed data if file doesn't exist or is invalid
   try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(DEFAULT_TICKETS, null, 2), "utf-8");
+    fs.writeFileSync(DB_FILE, JSON.stringify(initialTickets, null, 2), "utf-8");
   } catch (e) {}
-  return DEFAULT_TICKETS;
+  return initialTickets as any as Ticket[];
 }
 
 async function saveTickets(tickets: Ticket[], singleChangedTicket?: Ticket) {
@@ -184,6 +181,11 @@ async function loadUsers(): Promise<User[]> {
     }
   } catch (error) {
     console.error("Erro ao ler banco de dados de usuários local:", error);
+  }
+
+  // Fallback to static seed data if empty
+  if (localUsers.length === 0) {
+    localUsers = JSON.parse(JSON.stringify(initialUsers)) as any as User[];
   }
 
   // Automatically migrate/secure any plain-text passwords in memory
