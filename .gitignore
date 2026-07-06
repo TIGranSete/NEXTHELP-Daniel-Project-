@@ -6,5 +6,3 @@ coverage/
 *.log
 .env*
 !.env.example
-users-db.json
-tickets-db.json

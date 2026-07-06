@@ -111,8 +111,21 @@ interface Ticket {
 // Default Seed Data
 const DEFAULT_TICKETS: Ticket[] = [];
 
+// Memory cache for Supabase reads to minimize egress/bandwidth and avoid free tier overage limits
+let cachedTickets: Ticket[] | null = null;
+let lastTicketsCacheTime = 0;
+let cachedUsers: User[] | null = null;
+let lastUsersCacheTime = 0;
+
+const CACHE_TTL_MS = 15000; // 15 seconds Cache TTL
+
 // Helper to load/save database
 async function loadTickets(): Promise<Ticket[]> {
+  const now = Date.now();
+  if (cachedTickets !== null && (now - lastTicketsCacheTime < CACHE_TTL_MS)) {
+    return cachedTickets;
+  }
+
   let tickets: any = null;
 
   if (isSupabaseConfigured()) {
@@ -123,6 +136,9 @@ async function loadTickets(): Promise<Ticket[]> {
         try {
           fs.writeFileSync(DB_FILE, JSON.stringify(tickets, null, 2), "utf-8");
         } catch (e) {}
+        
+        cachedTickets = tickets;
+        lastTicketsCacheTime = now;
         return tickets;
       }
     } catch (error) {
@@ -136,6 +152,8 @@ async function loadTickets(): Promise<Ticket[]> {
       if (data) {
         tickets = JSON.parse(data);
         if (Array.isArray(tickets)) {
+          cachedTickets = tickets;
+          lastTicketsCacheTime = now;
           return tickets;
         }
       }
@@ -147,10 +165,18 @@ async function loadTickets(): Promise<Ticket[]> {
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(initialTickets, null, 2), "utf-8");
   } catch (e) {}
-  return initialTickets as any as Ticket[];
+  
+  const seed = initialTickets as any as Ticket[];
+  cachedTickets = seed;
+  lastTicketsCacheTime = now;
+  return seed;
 }
 
 async function saveTickets(tickets: Ticket[], singleChangedTicket?: Ticket) {
+  // Update in-memory cache immediately
+  cachedTickets = tickets;
+  lastTicketsCacheTime = Date.now();
+
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(tickets, null, 2), "utf-8");
   } catch (error) {
@@ -186,6 +212,11 @@ function hashPassword(password: string): string {
 
 // Helper to load/save users database
 async function loadUsers(): Promise<User[]> {
+  const now = Date.now();
+  if (cachedUsers !== null && (now - lastUsersCacheTime < CACHE_TTL_MS)) {
+    return cachedUsers;
+  }
+
   let localUsers: User[] = [];
   try {
     if (fs.existsSync(USERS_FILE)) {
@@ -247,6 +278,9 @@ async function loadUsers(): Promise<User[]> {
             fs.writeFileSync(USERS_FILE, JSON.stringify(merged, null, 2), "utf-8");
           } catch (e) {}
         }
+
+        cachedUsers = merged;
+        lastUsersCacheTime = now;
         return merged;
       }
     } catch (error) {
@@ -260,6 +294,8 @@ async function loadUsers(): Promise<User[]> {
     } catch (e) {}
   }
 
+  cachedUsers = localUsers;
+  lastUsersCacheTime = now;
   return localUsers;
 }
 
@@ -269,6 +305,10 @@ async function saveUsers(users: User[], changedUser?: User | User[]) {
     ...u,
     password: u.password ? hashPassword(u.password) : undefined
   }));
+
+  // Update in-memory cache immediately
+  cachedUsers = securedUsers;
+  lastUsersCacheTime = Date.now();
 
   try {
     fs.writeFileSync(USERS_FILE, JSON.stringify(securedUsers, null, 2), "utf-8");

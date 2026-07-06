@@ -363,7 +363,7 @@ export default function App() {
     }
   }, [currentSession]);
 
-  // Poll tickets and users every 5 seconds for real-time fidelity
+  // Poll tickets and users every 15 seconds for real-time fidelity with low egress overhead
   useEffect(() => {
     fetchTickets();
     fetchUsers();
@@ -387,7 +387,7 @@ export default function App() {
       fetchTickets(true);
       fetchUsers();
       sendHeartbeat();
-    }, 5000);
+    }, 15000);
     return () => clearInterval(interval);
   }, [currentSession?.email]);
 

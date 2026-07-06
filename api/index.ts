@@ -1,4 +1,9 @@
 // @ts-ignore
-import app from "../dist/server.cjs";
+import server from "../dist/server.cjs";
 
-export default app;
+// Resolve the actual Express app instance dynamically
+const app = (server && typeof server === "object" && "default" in server) ? server.default : server;
+
+export default (req: any, res: any) => {
+  return app(req, res);
+};
