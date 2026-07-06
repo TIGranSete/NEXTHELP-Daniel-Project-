@@ -39,7 +39,12 @@ try {
 }
 
 const app = express();
-const PORT = 3000;
+
+// Detect if running inside the AI Studio sandbox.
+// In the AI Studio container, we must strictly bind to port 3000 (nginx proxy expects 3000).
+// In other hosts like Hostinger or generic Node servers, we should read process.env.PORT.
+const isAIStudio = !!process.env.APPLET_ID || process.env.DISABLE_HMR === "true";
+const PORT = (!isAIStudio && process.env.PORT) ? Number(process.env.PORT) : 3000;
 const DB_FILE = path.join(process.cwd(), "tickets-db.json");
 const USERS_FILE = path.join(process.cwd(), "users-db.json");
 

@@ -10,6 +10,7 @@ import {
   Eye,
   EyeOff
 } from "lucide-react";
+import { changeUserPassword } from "../lib/supabase-client-db";
 import loginBg from "../assets/images/WALLPAPER GRAN7 4.png";
 import logoImg from "../assets/images/7.png";
 
@@ -53,25 +54,9 @@ export default function ChangePasswordScreen({ session, onPasswordChanged, onLog
     setLoading(true);
 
     try {
-      const response = await fetch("/api/change-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: session.email,
-          newPassword
-        })
-      });
+      const isSuccess = await changeUserPassword(session.email, newPassword);
 
-      const errText = await response.text();
-      let errorMsg = "Ocorreu um erro ao definir sua nova senha.";
-      let parsedData: any = {};
-      try {
-        parsedData = JSON.parse(errText);
-      } catch (e) {
-        // Not JSON
-      }
-
-      if (response.ok) {
+      if (isSuccess) {
         setSuccess(true);
         // Wait a moment so the user sees the success state
         setTimeout(() => {
@@ -81,11 +66,11 @@ export default function ChangePasswordScreen({ session, onPasswordChanged, onLog
           });
         }, 2000);
       } else {
-        setError(parsedData.error || `Erro no servidor (${response.status}): ${errText.substring(0, 80)}`);
+        setError("Ocorreu um erro ao salvar a nova senha no banco de dados.");
       }
     } catch (err: any) {
       console.error("Erro ao alterar senha:", err);
-      setError(`Erro de conexão ao servidor: ${err.message || err}`);
+      setError(`Erro ao salvar nova senha: ${err.message || err}`);
     } finally {
       setLoading(false);
     }
