@@ -1,17 +1,17 @@
 import React, { useState } from "react";
 import { UserSession, User } from "../types";
+import { getApiUrl } from "../lib/api";
 import { 
   Shield, 
   Lock, 
   Mail, 
   ArrowRight, 
   AlertCircle, 
-  RefreshCw
+  RefreshCw,
+  Database
 } from "lucide-react";
 import loginBg from "../assets/images/WALLPAPER GRAN7 4.png";
-import logoImg from "../assets/images/logo.png";
-
-import { authenticateUser } from "../lib/supabase-client-db";
+import logoImg from "../assets/images/7.png";
 
 interface LoginScreenProps {
   users: User[];
@@ -25,6 +25,7 @@ export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps)
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [logoError, setLogoError] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,11 +38,35 @@ export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps)
     setError("");
 
     try {
-      const session = await authenticateUser(email, password);
-      onLoginSuccess(session);
+      const response = await fetch(getApiUrl("/api/login"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+
+      if (response.ok) {
+        const user = await response.json();
+        onLoginSuccess({
+          name: user.name,
+          department: user.department,
+          role: user.role,
+          email: user.email,
+          mustChangePassword: user.mustChangePassword
+        });
+      } else {
+        const errText = await response.text();
+        let errorMsg = "Credenciais inválidas. Verifique seu e-mail e senha.";
+        try {
+          const errData = JSON.parse(errText);
+          errorMsg = errData.error || errorMsg;
+        } catch (e) {
+          errorMsg = `Erro no servidor (${response.status}): ${errText.substring(0, 80)}`;
+        }
+        setError(errorMsg);
+      }
     } catch (err: any) {
-      console.error("Erro na autenticação:", err);
-      setError(err.message || "Credenciais inválidas. Verifique seu e-mail e senha.");
+      console.error("Erro na requisição de login:", err);
+      setError(`Erro de conexão ao servidor: ${err.message || err}`);
     } finally {
       setLoading(false);
     }
@@ -61,13 +86,29 @@ export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps)
         
         {/* App Logo & Header */}
         <div className="text-center space-y-2">
-          <div className="flex justify-center mb-6">
-            <img 
-              src="/assets/logo.png" 
-              alt="GRAN7 HELP" 
-              className="h-24 w-auto object-contain max-w-full transition-transform hover:scale-105 duration-300"
-            />
-          </div>
+          {!logoError ? (
+            <div className="flex justify-center mb-6">
+              <img 
+                src="/assets/logo.png" 
+                alt="GRAN7 HELP" 
+                className="h-20 w-auto object-contain max-w-full"
+                onError={() => setLogoError(true)}
+              />
+            </div>
+          ) : (
+            <>
+              <div className="inline-flex w-16 h-16 items-center justify-center mb-3">
+                <img 
+                  src={logoImg} 
+                  alt="GRAN7" 
+                  className="w-16 h-16 object-contain rounded-2xl shadow-2xl shadow-emerald-500/20 border border-emerald-400/30"
+                />
+              </div>
+              <h1 className="font-display font-extrabold text-3xl tracking-tight text-white">
+                GRAN<span className="text-emerald-400 font-bold italic tracking-wide text-3xl">7</span><span className="text-emerald-400 font-light tracking-widest text-2xl"> HELP</span>
+              </h1>
+            </>
+          )}
           {/* Subtitle removed as requested */}
         </div>
 

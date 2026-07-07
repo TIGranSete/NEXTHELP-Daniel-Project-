@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { UserSession } from "../types";
+import { getApiUrl } from "../lib/api";
 import { 
   Lock, 
   CheckCircle2, 
@@ -10,9 +11,8 @@ import {
   Eye,
   EyeOff
 } from "lucide-react";
-import { changeUserPassword } from "../lib/supabase-client-db";
 import loginBg from "../assets/images/WALLPAPER GRAN7 4.png";
-import logoImg from "../assets/images/logo.png";
+import logoImg from "../assets/images/7.png";
 
 interface ChangePasswordScreenProps {
   session: UserSession;
@@ -54,9 +54,25 @@ export default function ChangePasswordScreen({ session, onPasswordChanged, onLog
     setLoading(true);
 
     try {
-      const isSuccess = await changeUserPassword(session.email, newPassword);
+      const response = await fetch(getApiUrl("/api/change-password"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: session.email,
+          newPassword
+        })
+      });
 
-      if (isSuccess) {
+      const errText = await response.text();
+      let errorMsg = "Ocorreu um erro ao definir sua nova senha.";
+      let parsedData: any = {};
+      try {
+        parsedData = JSON.parse(errText);
+      } catch (e) {
+        // Not JSON
+      }
+
+      if (response.ok) {
         setSuccess(true);
         // Wait a moment so the user sees the success state
         setTimeout(() => {
@@ -66,11 +82,11 @@ export default function ChangePasswordScreen({ session, onPasswordChanged, onLog
           });
         }, 2000);
       } else {
-        setError("Ocorreu um erro ao salvar a nova senha no banco de dados.");
+        setError(parsedData.error || `Erro no servidor (${response.status}): ${errText.substring(0, 80)}`);
       }
     } catch (err: any) {
       console.error("Erro ao alterar senha:", err);
-      setError(`Erro ao salvar nova senha: ${err.message || err}`);
+      setError(`Erro de conexão ao servidor: ${err.message || err}`);
     } finally {
       setLoading(false);
     }
@@ -89,11 +105,11 @@ export default function ChangePasswordScreen({ session, onPasswordChanged, onLog
         
         {/* App Logo & Header */}
         <div className="text-center space-y-2">
-          <div className="flex justify-center mb-4">
+          <div className="inline-flex w-16 h-16 items-center justify-center mb-3">
             <img 
-              src="/assets/logo.png" 
+              src={logoImg} 
               alt="GRAN7" 
-              className="h-20 w-auto object-contain max-w-full transition-transform hover:scale-105 duration-300"
+              className="w-16 h-16 object-contain rounded-2xl shadow-2xl shadow-emerald-500/20 border border-emerald-400/30"
             />
           </div>
           <h1 className="font-display font-extrabold text-2xl tracking-tight text-white">
