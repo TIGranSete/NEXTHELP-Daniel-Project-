@@ -1,17 +1,17 @@
 import React, { useState } from "react";
 import { UserSession, User } from "../types";
+import { getApiUrl } from "../lib/api";
 import { 
   Shield, 
   Lock, 
   Mail, 
   ArrowRight, 
   AlertCircle, 
-  RefreshCw
+  RefreshCw,
+  Database
 } from "lucide-react";
 import loginBg from "../assets/images/WALLPAPER GRAN7 4.png";
 import logoImg from "../assets/images/7.png";
-
-import { authenticateUser } from "../lib/supabase-client-db";
 
 interface LoginScreenProps {
   users: User[];
@@ -38,11 +38,35 @@ export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps)
     setError("");
 
     try {
-      const session = await authenticateUser(email, password);
-      onLoginSuccess(session);
+      const response = await fetch(getApiUrl("/api/login"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+
+      if (response.ok) {
+        const user = await response.json();
+        onLoginSuccess({
+          name: user.name,
+          department: user.department,
+          role: user.role,
+          email: user.email,
+          mustChangePassword: user.mustChangePassword
+        });
+      } else {
+        const errText = await response.text();
+        let errorMsg = "Credenciais inválidas. Verifique seu e-mail e senha.";
+        try {
+          const errData = JSON.parse(errText);
+          errorMsg = errData.error || errorMsg;
+        } catch (e) {
+          errorMsg = `Erro no servidor (${response.status}): ${errText.substring(0, 80)}`;
+        }
+        setError(errorMsg);
+      }
     } catch (err: any) {
-      console.error("Erro na autenticação:", err);
-      setError(err.message || "Credenciais inválidas. Verifique seu e-mail e senha.");
+      console.error("Erro na requisição de login:", err);
+      setError(`Erro de conexão ao servidor: ${err.message || err}`);
     } finally {
       setLoading(false);
     }
