@@ -17,25 +17,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential python3
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          # Automatically handles secure and efficient caching for npm
+          cache: 'npm'
 
-      - name: Clean npm cache
-        run: |
-          npm cache clean --force
-          rm -rf node_modules package-lock.json
-
+      # Using 'npm ci' is faster, cleaner, and strictly respects your lockfile
+      # while fetching the correct platform-specific binaries.
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
-        env:
-          npm_config_build_from_source: true
+        run: npm ci --legacy-peer-deps
 
       - name: Lint check
         run: npm run lint
