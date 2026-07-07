@@ -76,6 +76,42 @@ function writeDatabaseFile(filename: "tickets-db.json" | "users-db.json", data: 
   }
 }
 
+// Helper to read data from the dynamic /tmp path, falling back to the workspace path.
+// This is essential so that when users download/deploy the project, the database state
+// is correctly read from their local files!
+function readDatabaseFile(filename: "tickets-db.json" | "users-db.json"): string | null {
+  const tmpPath = path.join(os.tmpdir(), filename);
+  const workspacePath = path.join(process.cwd(), filename);
+
+  // 1. Try reading from the temporary folder (contains the latest live runtime changes)
+  if (fs.existsSync(tmpPath)) {
+    try {
+      const content = fs.readFileSync(tmpPath, "utf-8").trim();
+      if (content) return content;
+    } catch (error) {
+      console.error(`Erro ao ler do arquivo temporário ${filename}:`, error);
+    }
+  }
+
+  // 2. Try reading from the workspace folder (contains persisted downloaded/exported changes)
+  if (fs.existsSync(workspacePath)) {
+    try {
+      const content = fs.readFileSync(workspacePath, "utf-8").trim();
+      if (content) {
+        // Cache/write back into the temp path for fast subsequent accesses
+        try {
+          fs.writeFileSync(tmpPath, content, "utf-8");
+        } catch (e) {}
+        return content;
+      }
+    } catch (error) {
+      console.error(`Erro ao ler do arquivo de workspace ${filename}:`, error);
+    }
+  }
+
+  return null;
+}
+
 // Map to track the last activity timestamp (Date.now()) of logged-in users by email
 const activeUsers = new Map<string, number>();
 
@@ -185,15 +221,13 @@ async function loadTickets(): Promise<Ticket[]> {
   }
 
   try {
-    if (fs.existsSync(DB_FILE)) {
-      const data = fs.readFileSync(DB_FILE, "utf-8").trim();
-      if (data) {
-        tickets = JSON.parse(data);
-        if (Array.isArray(tickets)) {
-          cachedTickets = tickets;
-          lastTicketsCacheTime = now;
-          return tickets;
-        }
+    const data = readDatabaseFile("tickets-db.json");
+    if (data) {
+      tickets = JSON.parse(data);
+      if (Array.isArray(tickets)) {
+        cachedTickets = tickets;
+        lastTicketsCacheTime = now;
+        return tickets;
       }
     }
   } catch (error) {
@@ -247,13 +281,11 @@ async function loadUsers(): Promise<User[]> {
 
   let localUsers: User[] = [];
   try {
-    if (fs.existsSync(USERS_FILE)) {
-      const data = fs.readFileSync(USERS_FILE, "utf-8").trim();
-      if (data) {
-        const parsed = JSON.parse(data);
-        if (Array.isArray(parsed)) {
-          localUsers = parsed;
-        }
+    const data = readDatabaseFile("users-db.json");
+    if (data) {
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed)) {
+        localUsers = parsed;
       }
     }
   } catch (error) {
