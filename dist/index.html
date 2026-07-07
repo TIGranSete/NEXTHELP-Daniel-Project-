@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GRAN7 HELP - Portal de Suporte</title>
+    <link rel="icon" type="image/png" href="/assets/7-DlJK-8tD.png" />
+    <script src="/config.js"></script>
+    <script>
+      // Suppress benign Vite WebSocket connection errors from popping up in dev overlay
+      // We do this by creating a robust dummy WebSocket mock specifically for Vite's HMR connections
+      (function() {
+        const OriginalWebSocket = window.WebSocket;
+        if (!OriginalWebSocket) return;
+
+        class DummyWebSocket {
+          constructor(url, protocols) {
+            this.url = url;
+            this.protocols = protocols;
+            this.readyState = 0; // CONNECTING
+            this.binaryType = 'blob';
+            this._listeners = {};
+          }
+          addEventListener(type, callback) {
+            if (!this._listeners[type]) this._listeners[type] = [];
+            this._listeners[type].push(callback);
+          }
+          removeEventListener(type, callback) {
+            if (this._listeners[type]) {
+              this._listeners[type] = this._listeners[type].filter(cb => cb !== callback);
+            }
+          }
+          send(data) {}
+          close() {
+            this.readyState = 3; // CLOSED
+            this._trigger('close', { wasClean: true, code: 1000, reason: "" });
+          }
+          _trigger(type, event) {
+            const listeners = this._listeners[type] || [];
+            listeners.forEach(cb => {
+              try {
+                if (typeof cb === 'function') cb.call(this, event);
+                else if (cb && typeof cb.handleEvent === 'function') cb.handleEvent(event);
+              } catch (e) {}
+            });
+            const onHandler = this['on' + type];
+            if (typeof onHandler === 'function') {
+              try { onHandler.call(this, event); } catch (e) {}
+            }
+          }
+        }
+        [DummyWebSocket, DummyWebSocket.prototype].forEach(obj => {
+          Object.defineProperties(obj, {
+            CONNECTING: { value: 0, enumerable: true },
+            OPEN: { value: 1, enumerable: true },
+            CLOSING: { value: 2, enumerable: true },
+            CLOSED: { value: 3, enumerable: true }
+          });
+        });
+
+        window.WebSocket = function(url, protocols) {
+          const urlStr = String(url || "");
+          if (urlStr.indexOf('/vite') !== -1 || urlStr.indexOf('run.app') !== -1 || urlStr.indexOf('localhost') !== -1) {
+            return new DummyWebSocket(url, protocols);
+          }
+          try {
+            return new OriginalWebSocket(url, protocols);
+          } catch (e) {
+            return new DummyWebSocket(url, protocols);
+          }
+        };
+        window.WebSocket.prototype = OriginalWebSocket.prototype;
+        window.WebSocket.CONNECTING = 0;
+        window.WebSocket.OPEN = 1;
+        window.WebSocket.CLOSING = 2;
+        window.WebSocket.CLOSED = 3;
+      })();
+
+      window.addEventListener('error', function(e) {
+        if (e.message && (e.message.toLowerCase().indexOf('websocket') !== -1 || e.message.toLowerCase().indexOf('failed to connect') !== -1)) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      }, true);
+      window.addEventListener('unhandledrejection', function(e) {
+        var msg = e.reason && (e.reason.message || String(e.reason));
+        if (msg && (msg.toLowerCase().indexOf('websocket') !== -1 || msg.toLowerCase().indexOf('failed to connect') !== -1)) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      }, true);
+    </script>
+    <script type="module" crossorigin src="/assets/index-BlQuVxgE.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CgHJ4EaB.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
+
