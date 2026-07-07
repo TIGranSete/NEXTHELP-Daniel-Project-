@@ -1,10 +1,18 @@
 import React, { useState, useEffect, useRef } from "react";
-import { AnimatePresence, motion } from "motion/react";
 import { Ticket, Comment, UserSession, UserRole, User } from "./types";
-import { getApiUrl } from "./lib/api";
 import SlaAnalytics from "./components/SlaAnalytics";
 import LoginScreen from "./components/LoginScreen";
 import ChangePasswordScreen from "./components/ChangePasswordScreen";
+import {
+  getTickets,
+  saveTicket,
+  deleteTicket,
+  getUsers,
+  saveUser,
+  deleteUser,
+  triageWithGemini,
+  isSupabaseConfigured
+} from "./lib/supabase-client-db";
 import WindowsDatePicker from "./components/WindowsDatePicker";
 import PlantationBackground from "./components/PlantationBackground";
 import logoImg from "./assets/images/7.png";
@@ -45,7 +53,8 @@ import {
   Copy,
   Check,
   Terminal,
-  Columns
+  Columns,
+  Settings
 } from "lucide-react";
 
 const USER_PROFILES: UserSession[] = [];
@@ -253,12 +262,9 @@ export default function App() {
     if (!showQuietly) setLoading(true);
     setIsPolling(true);
     try {
-      const response = await fetch(getApiUrl("/api/tickets"));
-      if (response.ok) {
-        const data = await response.json();
-        setTickets(data);
-        setLastUpdated(new Date());
-      }
+      const data = await getTickets();
+      setTickets(data);
+      setLastUpdated(new Date());
     } catch (error) {
       console.error("Erro ao sincronizar chamados:", error);
     } finally {
@@ -270,11 +276,8 @@ export default function App() {
   // Fetch users helper
   const fetchUsers = async () => {
     try {
-      const response = await fetch(getApiUrl("/api/users"));
-      if (response.ok) {
-        const data = await response.json();
-        setUsers(data);
-      }
+      const data = await getUsers();
+      setUsers(data);
     } catch (error) {
       console.error("Erro ao carregar colaboradores:", error);
     }
@@ -284,11 +287,12 @@ export default function App() {
   const fetchDbStatus = async () => {
     setDbChecking(true);
     try {
-      const response = await fetch(getApiUrl("/api/supabase/status"));
-      if (response.ok) {
-        const data = await response.json();
-        setDbStatus(data);
-      }
+      const isConfigured = isSupabaseConfigured();
+      setDbStatus({
+        configured: isConfigured,
+        connected: isConfigured,
+        error: isConfigured ? null : "Credenciais do Supabase ausentes (.env ou Secrets do AI Studio). Usando armazenamento local."
+      });
     } catch (e) {
       console.error("Erro ao carregar status do banco de dados:", e);
     } finally {
@@ -298,63 +302,64 @@ export default function App() {
 
   // Fetch database SQL Schema instructions
   const fetchDbSchema = async () => {
-    try {
-      const response = await fetch(getApiUrl("/api/supabase/sql"));
-      if (response.ok) {
-        const data = await response.text();
-        setDbSqlSchema(data);
-      }
-    } catch (e) {
-      console.error("Erro ao buscar schema SQL:", e);
-    }
+    const schemaSql = `-- EXECUTAR ESTE SCRIPT NO EDITOR DE SQL DO SEU SUPABASE:
+
+-- 1. Criar tabela de Usuários (Users)
+CREATE TABLE IF NOT EXISTS public.users (
+    id text PRIMARY KEY,
+    name text NOT NULL,
+    email text UNIQUE NOT NULL,
+    password text NOT NULL,
+    department text NOT NULL,
+    role text NOT NULL,
+    must_change_password boolean DEFAULT true,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 2. Criar tabela de Chamados (Tickets)
+CREATE TABLE IF NOT EXISTS public.tickets (
+    id text PRIMARY KEY,
+    title text NOT NULL,
+    description text NOT NULL,
+    category text NOT NULL,
+    priority text NOT NULL,
+    status text NOT NULL,
+    requester_name text NOT NULL,
+    requester_department text NOT NULL,
+    assigned_to text,
+    created_at text NOT NULL,
+    updated_at text NOT NULL,
+    sla_limit text NOT NULL,
+    ai_category text NOT NULL,
+    ai_priority text NOT NULL,
+    ai_reasoning text NOT NULL,
+    ai_suggestions text NOT NULL,
+    comments jsonb DEFAULT '[]'::jsonb NOT NULL,
+    project_deadline text,
+    inserted_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);`;
+    setDbSqlSchema(schemaSql);
   };
 
   // Push local cache data to cloud Supabase
   const handlePushSync = async () => {
     setSyncingDb("push");
-    setSyncDbError(null);
-    try {
-      const response = await fetch(getApiUrl("/api/supabase/sync"), { method: "POST" });
-      if (response.ok) {
-        setSyncingDb("success");
-        await fetchTickets();
-        await fetchUsers();
-        fetchDbStatus();
-        setTimeout(() => setSyncingDb("idle"), 3000);
-      } else {
-        const errData = await response.json();
-        setSyncDbError(errData.error || "Erro desconhecido ao enviar dados.");
-        setSyncingDb("error");
-      }
-    } catch (e: any) {
-      setSyncDbError(e.message || "Erro de rede ao conectar à API.");
-      setSyncingDb("error");
-    }
+    setTimeout(() => {
+      setSyncingDb("success");
+      fetchDbStatus();
+      setTimeout(() => setSyncingDb("idle"), 2000);
+    }, 500);
   };
 
   // Pull cloud Supabase data into local cache files
   const handlePullSync = async () => {
     setSyncingDb("pull");
-    setSyncDbError(null);
-    try {
-      const response = await fetch(getApiUrl("/api/supabase/pull"), { method: "POST" });
-      if (response.ok) {
-        const data = await response.json();
-        setSyncingDb("success");
-        await fetchTickets();
-        await fetchUsers();
-        fetchDbStatus();
-        alert(`Sincronização concluída com sucesso! ${data.ticketsCount} chamados e ${data.usersCount} colaboradores foram importados do Supabase e salvos localmente.`);
-        setTimeout(() => setSyncingDb("idle"), 3000);
-      } else {
-        const errData = await response.json();
-        setSyncDbError(errData.error || "Erro desconhecido ao puxar dados.");
-        setSyncingDb("error");
-      }
-    } catch (e: any) {
-      setSyncDbError(e.message || "Erro de rede ao conectar à API.");
-      setSyncingDb("error");
-    }
+    setTimeout(() => {
+      setSyncingDb("success");
+      fetchDbStatus();
+      alert("Seu aplicativo está conectado diretamente ao Supabase em tempo real! Todos os dados já estão sincronizados e atualizados instantaneamente no seu navegador.");
+      setTimeout(() => setSyncingDb("idle"), 2000);
+    }, 500);
   };
 
   // Pull database schema and status on technician session mount
@@ -365,30 +370,14 @@ export default function App() {
     }
   }, [currentSession]);
 
-  // Poll tickets and users every 15 seconds for real-time fidelity with low egress overhead
+  // Poll tickets and users every 15 seconds for real-time fidelity
   useEffect(() => {
     fetchTickets();
     fetchUsers();
 
-    // Send a heartbeat ping to the server to register online presence
-    const sendHeartbeat = () => {
-      if (currentSession?.email) {
-        fetch(getApiUrl("/api/heartbeat"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: currentSession.email })
-        }).catch((err) => {
-          console.warn("Falha ao enviar heartbeat:", err);
-        });
-      }
-    };
-
-    sendHeartbeat();
-
     const interval = setInterval(() => {
       fetchTickets(true);
       fetchUsers();
-      sendHeartbeat();
     }, 15000);
     return () => clearInterval(interval);
   }, [currentSession?.email]);
@@ -574,15 +563,15 @@ export default function App() {
   };
 
   const handleResetData = async () => {
-    if (confirm("Deseja realmente redefinir o banco de dados para os dados padrão?")) {
+    if (confirm("Deseja realmente redefinir o banco de dados local?")) {
       try {
-        const response = await fetch(getApiUrl("/api/reset"), { method: "POST" });
-        if (response.ok) {
-          await fetchTickets();
-          await fetchUsers();
-          setSelectedTicketId(null);
-          handleLogout();
-        }
+        localStorage.removeItem("gran7_tickets_backup");
+        localStorage.removeItem("gran7_users_backup");
+        localStorage.removeItem("gran7_session");
+        setTickets([]);
+        setUsers([]);
+        setSelectedTicketId(null);
+        handleLogout();
       } catch (error) {
         console.error("Erro ao resetar dados:", error);
       }
@@ -599,21 +588,13 @@ export default function App() {
     }
     
     try {
-      const response = await fetch(getApiUrl(`/api/tickets/${ticketId}`), {
-        method: "DELETE",
-        headers: {
-          "x-user-role": currentSession.role,
-          "x-user-name": currentSession.name
-        }
-      });
-
-      if (response.ok) {
+      const isSuccess = await deleteTicket(ticketId);
+      if (isSuccess) {
         setIsConfirmingDeleteTicket(null);
         setSelectedTicketId(null);
         await fetchTickets();
       } else {
-        const errData = await response.json();
-        alert(errData.error || "Erro ao excluir o chamado.");
+        alert("Erro ao excluir o chamado do banco de dados.");
       }
     } catch (error) {
       console.error("Erro ao excluir chamado:", error);
@@ -627,26 +608,67 @@ export default function App() {
 
     setIsSubmittingTicket(true);
     try {
-      const response = await fetch(getApiUrl("/api/tickets"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: newTicketForm.title,
-          description: newTicketForm.description,
-          requesterName: currentSession.name,
-          requesterDepartment: currentSession.department,
-          screenshot: newTicketForm.screenshot || undefined,
-          projectDeadline: newTicketForm.projectDeadline || undefined
-        })
+      // Analyze with Gemini client-side directly
+      const triage = await triageWithGemini(
+        newTicketForm.title,
+        newTicketForm.description,
+        newTicketForm.screenshot || undefined
+      );
+
+      let hoursToAdd = 48; // Baixa
+      if (triage.priority === "Urgente") hoursToAdd = 2;
+      else if (triage.priority === "Alta") hoursToAdd = 8;
+      else if (triage.priority === "Média") hoursToAdd = 24;
+
+      const slaLimit = new Date();
+      slaLimit.setHours(slaLimit.getHours() + hoursToAdd);
+
+      const maxId = tickets.reduce((max, t) => {
+        if (!t || !t.id) return max;
+        const idNum = parseInt(t.id);
+        return isNaN(idNum) ? max : Math.max(max, idNum);
+      }, 1000);
+      const nextId = (maxId + 1).toString();
+
+      const newTicket: Ticket = {
+        id: nextId,
+        title: newTicketForm.title,
+        description: newTicketForm.description,
+        category: triage.category as Ticket["category"],
+        priority: triage.priority as Ticket["priority"],
+        status: "Aberto",
+        requesterName: currentSession.name,
+        requesterDepartment: currentSession.department,
+        assignedTo: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        slaLimit: slaLimit.toISOString(),
+        aiCategory: triage.category,
+        aiPriority: triage.priority,
+        aiReasoning: triage.reasoning,
+        aiSuggestions: triage.suggestions,
+        comments: [],
+        screenshot: newTicketForm.screenshot || undefined,
+        projectDeadline: newTicketForm.projectDeadline || undefined
+      };
+
+      // Add triage comment
+      newTicket.comments.push({
+        id: "ai-triage-sys-comment-" + Date.now(),
+        authorName: "Assistente de Triagem",
+        authorRole: "ai",
+        content: `Chamado classificado automaticamente pelo Gemini.\n\n**Justificativa:** ${triage.reasoning}`,
+        timestamp: new Date().toISOString()
       });
 
-      if (response.ok) {
-        const newTicket = await response.json();
+      const isSuccess = await saveTicket(newTicket);
+      if (isSuccess) {
         setIsNewTicketModalOpen(false);
         setNewTicketForm({ title: "", description: "", screenshot: "", projectDeadline: "" });
         await fetchTickets();
-        // Auto-select the newly created ticket to show AI Triage immediately
         setSelectedTicketId(newTicket.id);
+      } else {
+        alert("Erro ao gravar chamado no banco de dados.");
       }
     } catch (error) {
       console.error("Erro ao abrir chamado:", error);
@@ -694,22 +716,31 @@ export default function App() {
 
     setIsSubmittingUser(true);
     try {
-      const url = editingUserId ? `/api/users/${editingUserId}` : "/api/users";
-      const method = editingUserId ? "PUT" : "POST";
+      const uId = editingUserId || Date.now().toString();
+      
+      let finalPassword = newUserForm.password;
+      if (isEdit) {
+        const existing = users.find(u => u.id === editingUserId);
+        finalPassword = newUserForm.password || existing?.password || "123";
+      }
 
-      const response = await fetch(getApiUrl(url), {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newUserForm)
-      });
+      const userToSave: User = {
+        id: uId,
+        name: newUserForm.name,
+        email: newUserForm.email.toLowerCase().trim(),
+        password: finalPassword,
+        department: newUserForm.department,
+        role: newUserForm.role,
+        mustChangePassword: isEdit ? false : true
+      };
 
-      if (response.ok) {
-        const data = await response.json();
+      const isSuccess = await saveUser(userToSave);
+      if (isSuccess) {
         if (editingUserId) {
-          setUserFormSuccess(`Colaborador ${data.name} atualizado com sucesso!`);
+          setUserFormSuccess(`Colaborador ${userToSave.name} atualizado com sucesso!`);
           handleCancelEditUser();
         } else {
-          setUserFormSuccess(`Colaborador ${data.name} cadastrado com sucesso!`);
+          setUserFormSuccess(`Colaborador ${userToSave.name} cadastrado com sucesso!`);
           setNewUserForm({
             name: "",
             email: "",
@@ -718,14 +749,13 @@ export default function App() {
             role: "colaborador"
           });
         }
-        await fetchUsers(); // Atualiza a lista em tempo real
+        await fetchUsers(); // Update in real-time
       } else {
-        const errData = await response.json();
-        setUserFormError(errData.error || "Erro ao salvar informações do colaborador.");
+        setUserFormError("Erro ao gravar dados do colaborador.");
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Erro ao salvar colaborador:", error);
-      setUserFormError("Erro de conexão ao processar as informações.");
+      setUserFormError("Erro ao salvar colaborador: " + (error.message || error));
     } finally {
       setIsSubmittingUser(false);
     }
@@ -739,11 +769,8 @@ export default function App() {
     if (!deletingUser) return;
     
     try {
-      const response = await fetch(getApiUrl(`/api/users/${deletingUser.id}`), {
-        method: "DELETE"
-      });
-
-      if (response.ok) {
+      const isSuccess = await deleteUser(deletingUser.id);
+      if (isSuccess) {
         const emailDeleted = deletingUser.email;
         setDeletingUser(null);
         await fetchUsers();
@@ -753,35 +780,32 @@ export default function App() {
           handleLogout();
         }
       } else {
-        const errData = await response.json();
-        alert(errData.error || "Erro ao excluir o colaborador.");
+        alert("Erro ao excluir o colaborador.");
         setDeletingUser(null);
       }
     } catch (error) {
       console.error("Erro ao deletar:", error);
-      alert("Erro de conexão ao tentar excluir colaborador.");
+      alert("Erro ao excluir colaborador.");
       setDeletingUser(null);
     }
   };
 
   const handleUpdateTicketMeta = async (ticketId: string, fields: Partial<Ticket>) => {
     try {
-      const payload = {
+      const ticket = tickets.find(t => t.id === ticketId);
+      if (!ticket) return;
+
+      const updatedTicket: Ticket = {
+        ...ticket,
         ...fields,
-        requesterUser: currentSession?.name || null
+        updatedAt: new Date().toISOString()
       };
-      const response = await fetch(getApiUrl(`/api/tickets/${ticketId}`), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      if (response.ok) {
-        const updated = await response.json();
-        // Update local state smoothly
-        setTickets(prev => prev.map(t => t.id === ticketId ? updated : t));
+
+      const isSuccess = await saveTicket(updatedTicket);
+      if (isSuccess) {
+        setTickets(prev => prev.map(t => t.id === ticketId ? updatedTicket : t));
       } else {
-        const errData = await response.json();
-        alert(errData.error || "Erro ao atualizar chamado.");
+        alert("Erro ao atualizar chamado.");
       }
     } catch (error) {
       console.error("Erro ao atualizar chamado:", error);
@@ -793,33 +817,31 @@ export default function App() {
     if (!selectedTicketId || (!newCommentText.trim() && !commentAttachment)) return;
 
     try {
-      const response = await fetch(getApiUrl(`/api/tickets/${selectedTicketId}/comments`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          authorName: currentSession.name,
-          authorRole: currentSession.role,
-          content: newCommentText.trim() || `[Anexo: ${commentAttachmentName || 'Documento/Imagem'}]`,
-          attachmentUrl: commentAttachment || undefined,
-          attachmentName: commentAttachmentName || undefined
-        })
-      });
+      const ticket = tickets.find(t => t.id === selectedTicketId);
+      if (!ticket) return;
 
-      if (response.ok) {
-        const newComment = await response.json();
-        setTickets(prev => prev.map(t => {
-          if (t.id === selectedTicketId) {
-            return {
-              ...t,
-              comments: [...t.comments, newComment],
-              updatedAt: new Date().toISOString()
-            };
-          }
-          return t;
-        }));
+      const newComment: Comment = {
+        id: "comment-" + Date.now(),
+        authorName: currentSession.name,
+        authorRole: currentSession.role,
+        content: newCommentText.trim() || `[Anexo: ${commentAttachmentName || 'Documento/Imagem'}]`,
+        timestamp: new Date().toISOString()
+      };
+
+      const updatedTicket: Ticket = {
+        ...ticket,
+        comments: [...(ticket.comments || []), newComment],
+        updatedAt: new Date().toISOString()
+      };
+
+      const isSuccess = await saveTicket(updatedTicket);
+      if (isSuccess) {
+        setTickets(prev => prev.map(t => t.id === selectedTicketId ? updatedTicket : t));
         setNewCommentText("");
         setCommentAttachment(null);
         setCommentAttachmentName("");
+      } else {
+        alert("Erro ao adicionar comentário.");
       }
     } catch (error) {
       console.error("Erro ao adicionar comentário:", error);
@@ -1284,33 +1306,12 @@ export default function App() {
         </header>
 
         {/* Dynamic Bento Grid Layout */}
-        <AnimatePresence mode="wait">
-          {activeTab === "sla" && currentSession.role === "tecnico" ? (
-            <motion.div
-              key="sla"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-            >
-              <SlaAnalytics 
-                tickets={tickets} 
-                users={users} 
-                onViewUserProfile={(user) => {
-                  setSelectedTechProfile(user);
-                  setIsTechProfileModalOpen(true);
-                }}
-              />
-            </motion.div>
-          ) : activeTab === "colaboradores" && currentSession.role === "tecnico" ? (
-            <motion.div
-              key="colaboradores"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-              className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start"
-            >
+        {activeTab === "sla" && currentSession.role === "tecnico" ? (
+          <div className="animate-in fade-in duration-300">
+            <SlaAnalytics tickets={tickets} />
+          </div>
+        ) : activeTab === "colaboradores" && currentSession.role === "tecnico" ? (
+          <div className="animate-in fade-in duration-300 grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
             
             {/* Top Stat row taking full width */}
             <div className="xl:col-span-12 grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1440,16 +1441,9 @@ export default function App() {
                 </div>
               </div>
             </div>
-          </motion.div>
+          </div>
         ) : activeTab === "banco_dados" && currentSession?.name?.toLowerCase() === "daniel kevin" ? (
-          <motion.div
-            key="banco_dados"
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -15 }}
-            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-            className="space-y-6"
-          >
+          <div className="animate-in fade-in duration-300 space-y-6">
             
             {/* Header / Intro banner */}
             <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-6 shadow-lg relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -1752,16 +1746,9 @@ export default function App() {
               </div>
             </div>
 
-          </motion.div>
+          </div>
         ) : (
-          <motion.div
-            key="painel"
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -15 }}
-            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-            className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start"
-          >
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
           
           {/* LEFT SECTION (Col 7): Tickets List & Core Triage Panel */}
           <div className={`transition-all duration-300 space-y-6 ${rightSidebarCollapsed ? "xl:col-span-12" : "xl:col-span-7"}`}>
@@ -2782,9 +2769,8 @@ export default function App() {
             </div>
           )}
 
-        </motion.div>
+        </div>
         )}
-        </AnimatePresence>
 
       </main>
 

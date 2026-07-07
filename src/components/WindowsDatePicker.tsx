@@ -5,8 +5,6 @@ interface WindowsDatePickerProps {
   value: string | undefined;
   onChange: (date: string | undefined) => void;
   disabled?: boolean;
-  placeholder?: string;
-  headerText?: string;
 }
 
 const MONTHS_PT = [
@@ -36,13 +34,7 @@ const DAYS_OF_WEEK_FULL_PT = [
   "sábado"
 ];
 
-export default function WindowsDatePicker({ 
-  value, 
-  onChange, 
-  disabled = false,
-  placeholder = "Escolha uma data limite...",
-  headerText = "Data do Projeto"
-}: WindowsDatePickerProps) {
+export default function WindowsDatePicker({ value, onChange, disabled = false }: WindowsDatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'days' | 'months' | 'years'>('days');
   const containerRef = useRef<HTMLDivElement>(null);
@@ -236,7 +228,7 @@ export default function WindowsDatePicker({
           disabled={disabled}
           value={getFormattedDisplayDate()}
           onClick={() => !disabled && setIsOpen(!isOpen)}
-          placeholder={placeholder}
+          placeholder="Escolha uma data limite..."
           className="w-full bg-black border border-neutral-900 rounded-lg py-2 pl-10 pr-10 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 cursor-pointer select-none transition-all hover:bg-neutral-950"
         />
         
@@ -274,7 +266,7 @@ export default function WindowsDatePicker({
           <div className="pb-3 mb-3 border-b border-neutral-900 flex justify-between items-start">
             <div>
               <span className="text-[11px] text-slate-500 uppercase tracking-widest font-bold block mb-1">
-                {headerText}
+                Data do Projeto
               </span>
               <span className="text-sm font-semibold text-white capitalize">
                 {getWindowsHeaderDateText()}
