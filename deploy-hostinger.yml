@@ -17,14 +17,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js\
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Clean install dependencies
+        run: |
+          rm -rf node_modules package-lock.json
+          npm install
 
       - name: Lint check
         run: npm run lint
@@ -43,7 +44,12 @@ jobs:
           state-name: .ftp-deploy-sync-state.json
           dangerous-clean-slate: false
 
-      - name: Notify deployment
+      - name: Notify deployment success
+        if: success()
         run: |
           echo "✅ Deploy para Hostinger realizado com sucesso!"
-          echo "App disponível em: ${{ secrets.SITE_URL }}"
+
+      - name: Notify deployment failure
+        if: failure()
+        run: |
+          echo "❌ Deploy para Hostinger falhou!"
