@@ -37,14 +37,74 @@ function hashPassword(password: string): string {
   return crypto.createHash("sha256").update(password).digest("hex");
 }
 
+// Helper to clean surrounding quotes and whitespace
+function cleanConfigValue(val: string): string {
+  if (!val) return "";
+  let cleaned = val.trim();
+  if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
+    cleaned = cleaned.slice(1, -1).trim();
+  }
+  if (cleaned.startsWith("'") && cleaned.endsWith("'")) {
+    cleaned = cleaned.slice(1, -1).trim();
+  }
+  return cleaned;
+}
+
+// Helper to read config from public/config.js on the backend
+export function getBackendConfig() {
+  let url = cleanConfigValue(process.env.SUPABASE_URL || "");
+  let key = cleanConfigValue(process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "");
+  let gemini = cleanConfigValue(process.env.GEMINI_API_KEY || "");
+
+  try {
+    const configPath = path.join(process.cwd(), "public", "config.js");
+    if (fs.existsSync(configPath)) {
+      const content = fs.readFileSync(configPath, "utf-8");
+      
+      const urlMatch = content.match(/SUPABASE_URL\s*:\s*["']([^"']+)["']/);
+      const keyMatch = content.match(/SUPABASE_KEY\s*:\s*["']([^"']+)["']/);
+      const geminiMatch = content.match(/GEMINI_API_KEY\s*:\s*["']([^"']+)["']/);
+
+      const parsedUrl = urlMatch ? cleanConfigValue(urlMatch[1]) : "";
+      const parsedKey = keyMatch ? cleanConfigValue(keyMatch[1]) : "";
+      const parsedGemini = geminiMatch ? cleanConfigValue(geminiMatch[1]) : "";
+
+      if (parsedUrl && (parsedUrl.startsWith("http://") || parsedUrl.startsWith("https://")) && !parsedUrl.includes("your-selfhosted-") && !parsedUrl.includes("SUA_URL_SUPABASE_AQUI")) {
+        url = parsedUrl;
+      }
+      if (parsedKey && !parsedKey.includes("SUA_CHAVE_")) {
+        key = parsedKey;
+      }
+      if (parsedGemini && !parsedGemini.includes("SUA_CHAVE_")) {
+        gemini = parsedGemini;
+      }
+    }
+  } catch (err) {
+    console.warn("Falha ao ler configuração dinâmica do config.js no backend:", err);
+  }
+
+  // Post-processing validation to ensure we don't return invalid or placeholder values
+  if (url && (!url.startsWith("http://") && !url.startsWith("https://") || url.includes("SUA_URL_SUPABASE_AQUI") || url.includes("your-selfhosted-"))) {
+    console.warn("getBackendConfig: URL do Supabase inválida ou placeholder detectada e ignorada:", url);
+    url = "";
+  }
+  if (key && (key.includes("SUA_CHAVE_") || key.includes("your-anon-key"))) {
+    key = "";
+  }
+  if (gemini && gemini.includes("SUA_CHAVE_")) {
+    gemini = "";
+  }
+
+  return { url, key, gemini };
+}
+
 // Initialize Supabase lazily
 let supabaseInstance: SupabaseClient | null = null;
 
 export function getSupabaseClient(): SupabaseClient | null {
   if (supabaseInstance) return supabaseInstance;
 
-  const url = process.env.SUPABASE_URL || "";
-  const key = process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "";
+  const { url, key } = getBackendConfig();
 
   if (!url || !key) {
     return null;
@@ -64,8 +124,7 @@ export function getSupabaseClient(): SupabaseClient | null {
 }
 
 export function isSupabaseConfigured(): boolean {
-  const url = process.env.SUPABASE_URL || "";
-  const key = process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "";
+  const { url, key } = getBackendConfig();
   return !!(url && key);
 }
 

@@ -1,7 +1,11 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import express from "express";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import os from "os";
 import { GoogleGenAI, Type } from "@google/genai";
 import {
   isSupabaseConfigured,
@@ -14,7 +18,8 @@ import {
   deleteSupabaseTicket,
   seedSupabaseData,
   SUPABASE_SQL_SCHEMA,
-  getSupabaseClient
+  getSupabaseClient,
+  getBackendConfig
 } from "./supabase-db";
 
 // Dynamically read initial users and tickets configuration at runtime to avoid build errors on Vercel
@@ -44,9 +49,11 @@ const app = express();
 // In the AI Studio container, we must strictly bind to port 3000 (nginx proxy expects 3000).
 // In other hosts like Hostinger or generic Node servers, we should read process.env.PORT.
 const isAIStudio = !!process.env.APPLET_ID || process.env.DISABLE_HMR === "true";
-const PORT = (!isAIStudio && process.env.PORT) ? Number(process.env.PORT) : 3000;
-const DB_FILE = path.join(process.cwd(), "tickets-db.json");
-const USERS_FILE = path.join(process.cwd(), "users-db.json");
+const PORT: string | number = (!isAIStudio && process.env.PORT)
+  ? (isNaN(Number(process.env.PORT)) ? process.env.PORT : Number(process.env.PORT))
+  : 3000;
+const DB_FILE = path.join(os.tmpdir(), "tickets-db.json");
+const USERS_FILE = path.join(os.tmpdir(), "users-db.json");
 
 // Map to track the last activity timestamp (Date.now()) of logged-in users by email
 const activeUsers = new Map<string, number>();
@@ -69,6 +76,16 @@ try {
 
 app.use("/assets", express.static(path.join(process.cwd(), "assets")));
 
+// Secure password hashing helper
+function hashPassword(password: string): string {
+  if (!password) return "";
+  // Check if already a 64-character hex SHA-256 string
+  if (/^[a-f0-9]{64}$/i.test(password)) {
+    return password;
+  }
+  return crypto.createHash("sha256").update(password).digest("hex");
+}
+
 interface User {
   id: string;
   name: string;
@@ -79,8 +96,6 @@ interface User {
   mustChangePassword?: boolean;
   updatedAt?: string;
 }
-
-const DEFAULT_USERS: User[] = [];
 
 // Ticket Type Definition
 interface Comment {
@@ -112,9 +127,6 @@ interface Ticket {
   screenshot?: string;
   projectDeadline?: string;
 }
-
-// Default Seed Data
-const DEFAULT_TICKETS: Ticket[] = [];
 
 // Memory cache for Supabase reads to minimize egress/bandwidth and avoid free tier overage limits
 let cachedTickets: Ticket[] | null = null;
@@ -203,16 +215,6 @@ async function saveTickets(tickets: Ticket[], singleChangedTicket?: Ticket) {
       console.error("Erro ao sincronizar chamados com o Supabase:", error);
     }
   }
-}
-
-// Secure password hashing helper
-function hashPassword(password: string): string {
-  if (!password) return "";
-  // Check if already a 64-character hex SHA-256 string
-  if (/^[a-f0-9]{64}$/i.test(password)) {
-    return password;
-  }
-  return crypto.createHash("sha256").update(password).digest("hex");
 }
 
 // Helper to load/save users database
@@ -385,8 +387,9 @@ function defaultLocalTriage(title: string, description: string) {
 
 // AI Triage via Gemini API
 async function triageWithGemini(title: string, description: string, screenshot?: string) {
-  if (!process.env.GEMINI_API_KEY) {
-    console.log("GEMINI_API_KEY não configurada. Usando triagem padrão local.");
+  const { gemini: geminiKey } = getBackendConfig();
+  if (!geminiKey) {
+    console.log("Gemini API Key não configurada. Usando triagem padrão local.");
     return defaultLocalTriage(title, description);
   }
 
@@ -394,7 +397,7 @@ async function triageWithGemini(title: string, description: string, screenshot?:
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const ai = new GoogleGenAI({
-        apiKey: process.env.GEMINI_API_KEY,
+        apiKey: geminiKey,
         httpOptions: {
           headers: {
             "User-Agent": "aistudio-build",
@@ -479,7 +482,160 @@ Use os seguintes critérios de prioridade:
   return defaultLocalTriage(title, description);
 }
 
+// Route to dynamically serve config.js so self-hosted users can edit public/config.js and see changes instantly
+app.get("/config.js", (req, res) => {
+  const customPath = path.join(process.cwd(), "public", "config.js");
+  if (fs.existsSync(customPath)) {
+    res.setHeader("Content-Type", "application/javascript");
+    return res.sendFile(customPath);
+  }
+  const distConfigPath = path.join(process.cwd(), "dist", "config.js");
+  if (fs.existsSync(distConfigPath)) {
+    res.setHeader("Content-Type", "application/javascript");
+    return res.sendFile(distConfigPath);
+  }
+  res.setHeader("Content-Type", "application/javascript");
+  res.send("// Dynamic configuration not found");
+});
+
+// Proxy route to secure and relay client requests to self-hosted Supabase instances (eliminates CORS / Mixed Content issues)
+app.all("/api/supabase-proxy/*", async (req, res) => {
+  try {
+    const { url: supabaseUrl, key: supabaseKey } = getBackendConfig();
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ error: "Supabase não está configurado no servidor." });
+    }
+
+    // Extract target path from request path
+    const targetPath = req.path.replace(/^\/api\/supabase-proxy/, "");
+    
+    // Construct target URL
+    const normalizedBase = supabaseUrl.endsWith("/") ? supabaseUrl.slice(0, -1) : supabaseUrl;
+    const normalizedPath = targetPath.startsWith("/") ? targetPath : "/" + targetPath;
+    
+    const queryString = req.url.includes("?") ? req.url.substring(req.url.indexOf("?")) : "";
+    const targetFullUrl = normalizedBase + normalizedPath + queryString;
+
+    // Filter headers to forward
+    const headers: Record<string, string> = {};
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (typeof value === "string") {
+        const lowerKey = key.toLowerCase();
+        if (["host", "connection", "accept-encoding", "origin", "referer", "host-header", "x-forwarded-for", "x-forwarded-proto", "x-forwarded-port", "cookie"].includes(lowerKey)) {
+          continue;
+        }
+        headers[key] = value;
+      }
+    }
+
+    // Enforce correct credentials from backend
+    headers["apikey"] = supabaseKey;
+    if (req.headers["authorization"]) {
+      headers["authorization"] = req.headers["authorization"] as string;
+    } else {
+      headers["authorization"] = `Bearer ${supabaseKey}`;
+    }
+
+    let body: any = undefined;
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method || "")) {
+      if (req.body && typeof req.body === "object") {
+        body = JSON.stringify(req.body);
+      } else {
+        body = req.body;
+      }
+    }
+
+    const response = await fetch(targetFullUrl, {
+      method: req.method,
+      headers: headers,
+      body: body,
+    });
+
+    res.status(response.status);
+
+    // Copy essential response headers
+    const responseHeadersToForward = ["content-type", "content-range", "preference-applied"];
+    responseHeadersToForward.forEach(headerName => {
+      const headerVal = response.headers.get(headerName);
+      if (headerVal) {
+        res.setHeader(headerName, headerVal);
+      }
+    });
+
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const json = await response.json();
+      return res.json(json);
+    } else {
+      const text = await response.text();
+      return res.send(text);
+    }
+  } catch (error: any) {
+    console.error("[Supabase Proxy Error]:", error);
+    return res.status(500).json({ error: "Erro ao intermediar requisição para o Supabase", message: error.message });
+  }
+});
+
 // REST API Endpoints
+
+// Secure bulk ticket saving / upserting endpoint
+app.post("/api/tickets/save", async (req, res) => {
+  try {
+    const ticket = req.body;
+    if (!ticket || !ticket.id) {
+      return res.status(400).json({ error: "Dados do chamado inválidos." });
+    }
+    const tickets = await loadTickets();
+    const idx = tickets.findIndex(t => t.id === ticket.id);
+    if (idx >= 0) {
+      tickets[idx] = ticket;
+    } else {
+      tickets.push(ticket);
+    }
+    await saveTickets(tickets, ticket);
+    res.json({ success: true, ticket });
+  } catch (error) {
+    console.error("Erro ao salvar chamado via API:", error);
+    res.status(500).json({ error: "Erro interno ao salvar chamado." });
+  }
+});
+
+// Secure bulk user saving / upserting endpoint
+app.post("/api/users/save", async (req, res) => {
+  try {
+    const user = req.body;
+    if (!user || !user.id) {
+      return res.status(400).json({ error: "Dados do colaborador inválidos." });
+    }
+    const users = await loadUsers();
+    const idx = users.findIndex(u => u.id === user.id);
+    if (idx >= 0) {
+      users[idx] = user;
+    } else {
+      users.push(user);
+    }
+    await saveUsers(users, user);
+    res.json({ success: true, user });
+  } catch (error) {
+    console.error("Erro ao salvar colaborador via API:", error);
+    res.status(500).json({ error: "Erro interno ao salvar colaborador." });
+  }
+});
+
+// Secure client-side Gemini Triage API proxy
+app.post("/api/triage", async (req, res) => {
+  try {
+    const { title, description, screenshot } = req.body;
+    if (!title || !description) {
+      return res.status(400).json({ error: "Título e descrição do chamado são obrigatórios para triagem." });
+    }
+    const triage = await triageWithGemini(title, description, screenshot);
+    res.json(triage);
+  } catch (error) {
+    console.error("Erro ao processar triagem inteligente via API:", error);
+    res.status(500).json({ error: "Erro interno ao realizar triagem." });
+  }
+});
 
 // Supabase diagnostics and setup endpoints
 app.get("/api/supabase/status", async (req, res) => {
@@ -556,6 +712,12 @@ app.post("/api/supabase/pull", async (req, res) => {
 
     fs.writeFileSync(USERS_FILE, JSON.stringify(securedUsers, null, 2), "utf-8");
     fs.writeFileSync(DB_FILE, JSON.stringify(supabaseTickets, null, 2), "utf-8");
+
+    cachedUsers = securedUsers;
+    lastUsersCacheTime = Date.now();
+
+    cachedTickets = supabaseTickets;
+    lastTicketsCacheTime = Date.now();
 
     res.json({
       message: "Dados importados do Supabase com sucesso!",
@@ -1439,8 +1601,8 @@ app.post("/api/reset", async (req, res) => {
       }
     }
     
-    await saveTickets(DEFAULT_TICKETS);
-    await saveUsers(DEFAULT_USERS);
+    await saveTickets(initialTickets);
+    await saveUsers(initialUsers);
     res.json({ message: "Banco de dados e lista de colaboradores reiniciados com sucesso." });
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Erro ao resetar banco de dados." });
@@ -1457,9 +1619,15 @@ if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
     });
     app.use(vite.middlewares);
     
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`[NEXTHELP Backend] Server rodando em desenvolvimento na porta ${PORT}`);
-    });
+    if (typeof PORT === "string") {
+      app.listen(PORT, () => {
+        console.log(`[NEXTHELP Backend] Server rodando em desenvolvimento no socket ${PORT}`);
+      });
+    } else {
+      app.listen(PORT, "0.0.0.0", () => {
+        console.log(`[NEXTHELP Backend] Server rodando em desenvolvimento na porta ${PORT}`);
+      });
+    }
   };
   startVite();
 } else {
@@ -1471,9 +1639,15 @@ if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
       res.sendFile(path.join(distPath, "index.html"));
     });
 
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`[NEXTHELP Backend] Server rodando em produção na porta ${PORT}`);
-    });
+    if (typeof PORT === "string") {
+      app.listen(PORT, () => {
+        console.log(`[NEXTHELP Backend] Server rodando em produção no socket ${PORT}`);
+      });
+    } else {
+      app.listen(PORT, "0.0.0.0", () => {
+        console.log(`[NEXTHELP Backend] Server rodando em produção na porta ${PORT}`);
+      });
+    }
   }
 }
 

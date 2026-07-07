@@ -1,6 +1,13 @@
 const path = require("path");
 const fs = require("fs");
 
+// Load .env file for production environments (like Hostinger)
+try {
+  require("dotenv").config();
+} catch (e) {
+  // Ignore if dotenv is not installed or fails
+}
+
 // Ensure production environment on Hostinger/Vercel/etc.
 if (!process.env.NODE_ENV) {
   process.env.NODE_ENV = "production";

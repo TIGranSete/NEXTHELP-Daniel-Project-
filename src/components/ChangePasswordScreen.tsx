@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { changeUserPassword } from "../lib/supabase-client-db";
 import loginBg from "../assets/images/WALLPAPER GRAN7 4.png";
-import logoImg from "../assets/images/7.png";
+import logoImg from "../assets/images/logo.png";
 
 interface ChangePasswordScreenProps {
   session: UserSession;
@@ -89,11 +89,11 @@ export default function ChangePasswordScreen({ session, onPasswordChanged, onLog
         
         {/* App Logo & Header */}
         <div className="text-center space-y-2">
-          <div className="inline-flex w-16 h-16 items-center justify-center mb-3">
+          <div className="flex justify-center mb-4">
             <img 
-              src={logoImg} 
+              src="/assets/logo.png" 
               alt="GRAN7" 
-              className="w-16 h-16 object-contain rounded-2xl shadow-2xl shadow-emerald-500/20 border border-emerald-400/30"
+              className="h-20 w-auto object-contain max-w-full transition-transform hover:scale-105 duration-300"
             />
           </div>
           <h1 className="font-display font-extrabold text-2xl tracking-tight text-white">

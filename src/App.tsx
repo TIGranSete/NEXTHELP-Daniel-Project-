@@ -16,6 +16,7 @@ import {
 import WindowsDatePicker from "./components/WindowsDatePicker";
 import PlantationBackground from "./components/PlantationBackground";
 import logoImg from "./assets/images/7.png";
+import logoFullImg from "./assets/images/logo.png";
 import { 
   Shield, 
   Users, 
@@ -53,7 +54,8 @@ import {
   Copy,
   Check,
   Terminal,
-  Columns
+  Columns,
+  Settings
 } from "lucide-react";
 
 const USER_PROFILES: UserSession[] = [];
@@ -286,14 +288,23 @@ export default function App() {
   const fetchDbStatus = async () => {
     setDbChecking(true);
     try {
-      const isConfigured = isSupabaseConfigured();
+      const response = await fetch("/api/supabase/status");
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
       setDbStatus({
-        configured: isConfigured,
-        connected: isConfigured,
-        error: isConfigured ? null : "Credenciais do Supabase ausentes (.env ou Secrets do AI Studio). Usando armazenamento local."
+        configured: data.configured,
+        connected: data.connected,
+        error: data.error || (data.configured ? null : "Credenciais do Supabase ausentes (.env ou Secrets do AI Studio). Usando armazenamento local.")
       });
     } catch (e) {
       console.error("Erro ao carregar status do banco de dados:", e);
+      setDbStatus({
+        configured: false,
+        connected: false,
+        error: "Não foi possível conectar ao servidor para verificar o banco de dados."
+      });
     } finally {
       setDbChecking(false);
     }

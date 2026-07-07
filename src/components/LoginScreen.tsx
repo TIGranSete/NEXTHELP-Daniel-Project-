@@ -6,11 +6,10 @@ import {
   Mail, 
   ArrowRight, 
   AlertCircle, 
-  RefreshCw,
-  Database
+  RefreshCw
 } from "lucide-react";
 import loginBg from "../assets/images/WALLPAPER GRAN7 4.png";
-import logoImg from "../assets/images/7.png";
+import logoImg from "../assets/images/logo.png";
 
 import { authenticateUser } from "../lib/supabase-client-db";
 
@@ -26,7 +25,6 @@ export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps)
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [logoError, setLogoError] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,29 +61,13 @@ export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps)
         
         {/* App Logo & Header */}
         <div className="text-center space-y-2">
-          {!logoError ? (
-            <div className="flex justify-center mb-6">
-              <img 
-                src="/assets/logo.png" 
-                alt="GRAN7 HELP" 
-                className="h-20 w-auto object-contain max-w-full"
-                onError={() => setLogoError(true)}
-              />
-            </div>
-          ) : (
-            <>
-              <div className="inline-flex w-16 h-16 items-center justify-center mb-3">
-                <img 
-                  src={logoImg} 
-                  alt="GRAN7" 
-                  className="w-16 h-16 object-contain rounded-2xl shadow-2xl shadow-emerald-500/20 border border-emerald-400/30"
-                />
-              </div>
-              <h1 className="font-display font-extrabold text-3xl tracking-tight text-white">
-                GRAN<span className="text-emerald-400 font-bold italic tracking-wide text-3xl">7</span><span className="text-emerald-400 font-light tracking-widest text-2xl"> HELP</span>
-              </h1>
-            </>
-          )}
+          <div className="flex justify-center mb-6">
+            <img 
+              src="/assets/logo.png" 
+              alt="GRAN7 HELP" 
+              className="h-24 w-auto object-contain max-w-full transition-transform hover:scale-105 duration-300"
+            />
+          </div>
           {/* Subtitle removed as requested */}
         </div>
 

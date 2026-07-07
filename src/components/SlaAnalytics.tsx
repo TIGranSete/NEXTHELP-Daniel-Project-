@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Ticket } from "../types";
-import { AlertCircle, Clock, CheckCircle2, TrendingUp, HelpCircle, Activity, Download, Calendar, User, Users, X, FileText, Layers } from "lucide-react";
+import { AlertCircle, Clock, CheckCircle2, TrendingUp, HelpCircle, Activity, Download, Calendar, User, Users, X, FileText, Layers, Search } from "lucide-react";
 import { jsPDF } from "jspdf";
+import WindowsDatePicker from "./WindowsDatePicker";
 
 interface SlaAnalyticsProps {
   tickets: Ticket[];
@@ -14,6 +15,21 @@ export default function SlaAnalytics({ tickets }: SlaAnalyticsProps) {
   const [selectedTechForExport, setSelectedTechForExport] = useState<string>("all");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
+  const [selectedUserForProfile, setSelectedUserForProfile] = useState<string | null>(null);
+  const [profileSearchTerm, setProfileSearchTerm] = useState<string>("");
+  const [profileStatusFilter, setProfileStatusFilter] = useState<string>("all");
+
+  // Find the latest ticket date to make filters robust against old database/seed records
+  const latestTicketTime = tickets.reduce((max, t) => {
+    if (!t.createdAt) return max;
+    const time = new Date(t.createdAt).getTime();
+    return !isNaN(time) && time > max ? time : max;
+  }, 0);
+
+  // Use the latest ticket date as reference if it is older than 7 days, otherwise use Date.now()
+  const referenceTime = (latestTicketTime > 0 && (Date.now() - latestTicketTime > 7 * 24 * 60 * 60 * 1000))
+    ? latestTicketTime
+    : Date.now();
 
   // Get all unique technicians who have been assigned tickets
   const technicians = Array.from(
@@ -44,7 +60,7 @@ export default function SlaAnalytics({ tickets }: SlaAnalyticsProps) {
           if (ticketDate.getTime() > end.getTime()) return false;
         }
       } else {
-        const diffMs = Date.now() - ticketDate.getTime();
+        const diffMs = referenceTime - ticketDate.getTime();
         const diffDays = diffMs / (1000 * 60 * 60 * 24);
         if (period === "7d" && diffDays > 7) return false;
         if (period === "30d" && diffDays > 30) return false;
@@ -99,7 +115,7 @@ export default function SlaAnalytics({ tickets }: SlaAnalyticsProps) {
 
   // Calculate average resolution or active tickets ratio
   const activeSlaTickets = filteredTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado");
-  const overdueCount = activeSlaTickets.filter(t => new Date(t.slaLimit).getTime() < Date.now()).length;
+  const overdueCount = activeSlaTickets.filter(t => new Date(t.slaLimit).getTime() < referenceTime).length;
 
   // Category counts for visual charting
   const categories: Record<Ticket["category"], number> = {
@@ -122,8 +138,79 @@ export default function SlaAnalytics({ tickets }: SlaAnalyticsProps) {
   const categoryEntries = Object.entries(categories) as [Ticket["category"], number][];
   const maxCategoryCount = Math.max(...Object.values(categories), 1);
 
+  // Setor / Departamento counts
+  const sectorCounts: Record<string, number> = {};
+  // Usuário counts
+  const userCounts: Record<string, { count: number; department: string }> = {};
+
+  filteredTickets.forEach(t => {
+    const dept = t.requesterDepartment ? t.requesterDepartment.trim() : "Outros";
+    sectorCounts[dept] = (sectorCounts[dept] || 0) + 1;
+
+    const name = t.requesterName ? t.requesterName.trim() : "Usuário Desconhecido";
+    if (!userCounts[name]) {
+      userCounts[name] = { count: 0, department: dept };
+    }
+    userCounts[name].count++;
+  });
+
+  const sortedSectors = Object.entries(sectorCounts)
+    .map(([sector, count]) => ({ sector, count }))
+    .sort((a, b) => b.count - a.count);
+
+  const maxSectorCount = Math.max(...sortedSectors.map(s => s.count), 1);
+
+  const sortedUsers = Object.entries(userCounts)
+    .map(([name, data]) => ({ name, count: data.count, department: data.department }))
+    .sort((a, b) => b.count - a.count);
+
+  const maxUserCount = Math.max(...sortedUsers.map(u => u.count), 1);
+
   // SLA compliance rate (Resolved tickets within deadline)
   const slaCompliancePercent = total > 0 ? Math.round(((total - overdueCount) / total) * 100) : 100;
+
+  // Selected User Profile calculations
+  const profileTickets = selectedUserForProfile 
+    ? tickets.filter(t => t.requesterName === selectedUserForProfile)
+    : [];
+
+  const profileTotal = profileTickets.length;
+  const profileOpen = profileTickets.filter(t => t.status === "Aberto").length;
+  const profileInProgress = profileTickets.filter(t => t.status === "Em Atendimento").length;
+  const profileResolved = profileTickets.filter(t => t.status === "Resolvido" || t.status === "Fechado").length;
+
+  const profileActiveSla = profileTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado");
+  const profileOverdue = profileActiveSla.filter(t => new Date(t.slaLimit).getTime() < referenceTime).length;
+  const profileSlaCompliance = profileTotal > 0 ? Math.round(((profileTotal - profileOverdue) / profileTotal) * 100) : 100;
+  
+  // Department of user
+  const profileUserDepartment = profileTickets[0]?.requesterDepartment || "Outros";
+
+  // Filter and search profile tickets in the modal's list
+  const filteredProfileTickets = profileTickets.filter(t => {
+    // Search term check
+    if (profileSearchTerm.trim() !== "") {
+      const term = profileSearchTerm.toLowerCase();
+      const matchTitle = t.title.toLowerCase().includes(term);
+      const matchDesc = t.description?.toLowerCase().includes(term) || false;
+      const matchId = t.id.toLowerCase().includes(term);
+      if (!matchTitle && !matchDesc && !matchId) return false;
+    }
+
+    // Status filter
+    if (profileStatusFilter !== "all") {
+      if (profileStatusFilter === "open" && t.status !== "Aberto") return false;
+      if (profileStatusFilter === "progress" && t.status !== "Em Atendimento") return false;
+      if (profileStatusFilter === "resolved" && t.status !== "Resolvido" && t.status !== "Fechado") return false;
+      if (profileStatusFilter === "overdue") {
+        const isClosed = t.status === "Resolvido" || t.status === "Fechado";
+        const isOverdue = !isClosed && new Date(t.slaLimit).getTime() < referenceTime;
+        if (!isOverdue) return false;
+      }
+    }
+
+    return true;
+  });
 
   // Export to PDF function
   const exportToPdf = () => {
@@ -281,7 +368,7 @@ export default function SlaAnalytics({ tickets }: SlaAnalyticsProps) {
         
         const shortId = t.id ? t.id.substring(0, 8) : "N/A";
         const titleStr = t.title.length > 30 ? t.title.substring(0, 28) + "..." : t.title;
-        const isOverdue = t.status !== "Resolvido" && t.status !== "Fechado" && new Date(t.slaLimit).getTime() < Date.now();
+        const isOverdue = t.status !== "Resolvido" && t.status !== "Fechado" && new Date(t.slaLimit).getTime() < referenceTime;
         const slaStatus = isOverdue ? "Atrasado" : "No Prazo";
         
         doc.setFont("helvetica", "normal");
@@ -405,7 +492,7 @@ export default function SlaAnalytics({ tickets }: SlaAnalyticsProps) {
               if (ticketDate.getTime() > end.getTime()) return false;
             }
           } else {
-            const diffMs = Date.now() - ticketDate.getTime();
+            const diffMs = referenceTime - ticketDate.getTime();
             const diffDays = diffMs / (1000 * 60 * 60 * 24);
             if (period === "7d" && diffDays > 7) return false;
             if (period === "30d" && diffDays > 30) return false;
@@ -417,7 +504,7 @@ export default function SlaAnalytics({ tickets }: SlaAnalyticsProps) {
 
       const totalAssigned = techTickets.length;
       const totalResolved = techTickets.filter(t => t.status === "Resolvido" || t.status === "Fechado").length;
-      const overdue = techTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado" && new Date(t.slaLimit).getTime() < Date.now()).length;
+      const overdue = techTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado" && new Date(t.slaLimit).getTime() < referenceTime).length;
       const slaCompliance = totalAssigned > 0 ? Math.round(((totalAssigned - overdue) / totalAssigned) * 100) : 100;
 
       // TMA calculation
@@ -595,7 +682,7 @@ export default function SlaAnalytics({ tickets }: SlaAnalyticsProps) {
             if (ticketDate.getTime() > end.getTime()) return false;
           }
         } else {
-          const diffMs = Date.now() - ticketDate.getTime();
+          const diffMs = referenceTime - ticketDate.getTime();
           const diffDays = diffMs / (1000 * 60 * 60 * 24);
           if (period === "7d" && diffDays > 7) return false;
           if (period === "30d" && diffDays > 30) return false;
@@ -608,7 +695,7 @@ export default function SlaAnalytics({ tickets }: SlaAnalyticsProps) {
     const totalAssigned = techTickets.length;
     const resolvedTickets = techTickets.filter(t => t.status === "Resolvido" || t.status === "Fechado");
     const totalResolved = resolvedTickets.length;
-    const overdue = techTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado" && new Date(t.slaLimit).getTime() < Date.now()).length;
+    const overdue = techTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado" && new Date(t.slaLimit).getTime() < referenceTime).length;
     const slaCompliance = totalAssigned > 0 ? Math.round(((totalAssigned - overdue) / totalAssigned) * 100) : 100;
 
     const resolvedWithTime = techTickets.filter(t => 
@@ -767,7 +854,7 @@ export default function SlaAnalytics({ tickets }: SlaAnalyticsProps) {
                 <Calendar className="h-4 w-4 text-emerald-400" />
                 Período:
               </label>
-              <div className="flex flex-wrap bg-black border border-neutral-900 p-1 rounded-xl shadow-sm">
+              <div className="flex flex-wrap bg-black border border-neutral-900 p-1 rounded-xl shadow-sm relative z-10">
                 {[
                   { id: "7d", label: "Últimos 7 dias" },
                   { id: "30d", label: "Últimos 30 dias" },
@@ -777,8 +864,13 @@ export default function SlaAnalytics({ tickets }: SlaAnalyticsProps) {
                 ].map((p) => (
                   <button
                     key={p.id}
-                    onClick={() => setPeriod(p.id)}
-                    className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setPeriod(p.id);
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer relative z-10 ${
                       period === p.id 
                         ? "bg-emerald-400 text-black font-extrabold shadow-neon-sm" 
                         : "text-slate-400 hover:text-white"
@@ -791,20 +883,24 @@ export default function SlaAnalytics({ tickets }: SlaAnalyticsProps) {
             </div>
 
             {period === "custom" && (
-              <div className="flex items-center gap-2 animate-in fade-in slide-in-from-left-2 duration-200 mt-2 lg:mt-0 bg-black/40 border border-neutral-900/60 rounded-xl p-1.5">
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="bg-black border border-neutral-900 rounded-lg py-1 px-2 text-[10px] text-slate-300 focus:outline-none focus:border-emerald-500 cursor-pointer font-bold uppercase"
-                />
-                <span className="text-[9px] text-slate-500 font-bold uppercase">até</span>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="bg-black border border-neutral-900 rounded-lg py-1 px-2 text-[10px] text-slate-300 focus:outline-none focus:border-emerald-500 cursor-pointer font-bold uppercase"
-                />
+              <div className="flex items-center gap-2 animate-in fade-in slide-in-from-left-2 duration-200 mt-2 lg:mt-0 bg-black/40 border border-neutral-900/60 rounded-xl p-1.5 relative z-20">
+                <div className="w-36 sm:w-40">
+                  <WindowsDatePicker
+                    value={startDate || undefined}
+                    onChange={(date) => setStartDate(date || "")}
+                    placeholder="Início"
+                    headerText="Período Inicial"
+                  />
+                </div>
+                <span className="text-[9px] text-slate-500 font-bold uppercase px-1">até</span>
+                <div className="w-36 sm:w-40">
+                  <WindowsDatePicker
+                    value={endDate || undefined}
+                    onChange={(date) => setEndDate(date || "")}
+                    placeholder="Fim"
+                    headerText="Período Final"
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -1040,9 +1136,121 @@ export default function SlaAnalytics({ tickets }: SlaAnalyticsProps) {
 
       </div>
 
+      {/* Setores e Usuários com Mais Chamados */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 font-mono mt-6">
+        {/* Chamados por Setor */}
+        <div className="bg-[#050505] border border-neutral-900 rounded-2xl p-5 hover:border-emerald-500/10 transition-all flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">Chamados por Setor / Departamento</h3>
+              <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-bold uppercase tracking-wider">
+                {sortedSectors.length} Setores
+              </span>
+            </div>
+            {sortedSectors.length === 0 ? (
+              <div className="text-center py-12 text-xs text-neutral-500 font-semibold">
+                Nenhum chamado registrado neste período
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {sortedSectors.slice(0, 6).map(({ sector, count }) => {
+                  const pct = Math.round((count / maxSectorCount) * 100);
+                  const totalPct = total > 0 ? Math.round((count / total) * 100) : 0;
+                  
+                  return (
+                    <div key={sector} className="flex items-center space-x-3 text-xs">
+                      <div className="w-24 font-semibold text-neutral-300 truncate" title={sector}>
+                        {sector.split(" / ")[0]}
+                      </div>
+                      <div className="flex-1 bg-black border border-neutral-950 h-7 rounded-lg overflow-hidden relative flex items-center px-3">
+                        <div 
+                          className="absolute top-0 left-0 bottom-0 bg-emerald-500 rounded-r-lg transition-all duration-700 opacity-80 shadow-neon-sm"
+                          style={{ width: `${Math.max(pct, 5)}%` }}
+                        ></div>
+                        <span className="relative z-10 text-[10px] font-extrabold text-black uppercase">
+                          {count} chamado{count !== 1 ? "s" : ""}
+                        </span>
+                      </div>
+                      <div className="w-10 text-right text-emerald-400 text-[10px] font-bold">{totalPct}%</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Chamados por Usuário */}
+        <div className="bg-[#050505] border border-neutral-900 rounded-2xl p-5 hover:border-emerald-500/10 transition-all flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">Chamados por Usuário (Top Solicitantes)</h3>
+              <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-bold uppercase tracking-wider">
+                {sortedUsers.length} Usuários
+              </span>
+            </div>
+            {sortedUsers.length === 0 ? (
+              <div className="text-center py-12 text-xs text-neutral-500 font-semibold">
+                Nenhum chamado registrado neste período
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {sortedUsers.slice(0, 6).map(({ name, count, department }) => {
+                  const pct = Math.round((count / maxUserCount) * 100);
+                  const totalPct = total > 0 ? Math.round((count / total) * 100) : 0;
+                  
+                  // Get initials for avatar icon
+                  const initials = name
+                    .split(" ")
+                    .slice(0, 2)
+                    .map(part => part[0])
+                    .join("")
+                    .toUpperCase();
+
+                  return (
+                    <div 
+                      key={name} 
+                      onClick={() => {
+                        setSelectedUserForProfile(name);
+                        setProfileSearchTerm("");
+                        setProfileStatusFilter("all");
+                      }}
+                      className="flex items-center space-x-3 text-xs p-1.5 -mx-1.5 rounded-lg hover:bg-neutral-900/60 cursor-pointer group transition-all"
+                    >
+                      <div className="flex items-center gap-2 w-36 min-w-0 shrink-0">
+                        <div className="h-6 w-6 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center text-[9px] font-bold text-emerald-400 shrink-0 group-hover:border-emerald-500/30 transition-colors">
+                          {initials}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-semibold text-neutral-300 truncate group-hover:text-emerald-400 transition-colors" title={name}>{name}</div>
+                          <div className="text-[8px] text-neutral-500 truncate" title={department}>{department.split(" / ")[0]}</div>
+                        </div>
+                      </div>
+                      <div className="flex-1 bg-black border border-neutral-950 h-7 rounded-lg overflow-hidden relative flex items-center px-3">
+                        <div 
+                          className="absolute top-0 left-0 bottom-0 bg-teal-500 rounded-r-lg transition-all duration-700 opacity-80"
+                          style={{ width: `${Math.max(pct, 5)}%` }}
+                        ></div>
+                        <span className="relative z-10 text-[10px] font-extrabold text-black uppercase">
+                          {count} chamado{count !== 1 ? "s" : ""}
+                        </span>
+                      </div>
+                      <div className="w-10 text-right text-emerald-400 text-[10px] font-bold">{totalPct}%</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Custom Export Modal for Individualization */}
       {isExportModalOpen && (
-        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div 
+          onClick={(e) => { if (e.target === e.currentTarget) setIsExportModalOpen(false); }} 
+          className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4"
+        >
           <div className="bg-[#050505] border border-neutral-900 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl relative animate-in zoom-in-95 duration-200">
             {/* Modal Header */}
             <div className="p-5 border-b border-neutral-900 bg-black/30 flex justify-between items-center">
@@ -1142,6 +1350,160 @@ export default function SlaAnalytics({ tickets }: SlaAnalyticsProps) {
             {/* Modal Footer */}
             <div className="p-4 bg-black/40 border-t border-neutral-900 text-center text-[10px] text-slate-500 font-medium">
               Escolha o formato ideal para a sua auditoria operacional.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Perfil do Usuário / Detalhes de Chamados */}
+      {selectedUserForProfile && (
+        <div 
+          onClick={(e) => { if (e.target === e.currentTarget) setSelectedUserForProfile(null); }} 
+          className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4"
+        >
+          <div className="bg-[#050505] border border-neutral-900 rounded-3xl w-full max-w-3xl overflow-hidden shadow-2xl relative animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-neutral-900 bg-black/30 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="h-12 w-12 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-sm font-bold text-emerald-400">
+                  {selectedUserForProfile.split(" ").slice(0, 2).map(part => part[0]).join("").toUpperCase()}
+                </div>
+                <div>
+                  <h3 className="font-display font-extrabold text-base text-white tracking-wide">
+                    {selectedUserForProfile}
+                  </h3>
+                  <p className="text-[10px] text-neutral-400 font-medium uppercase tracking-widest mt-0.5">
+                    {profileUserDepartment}
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSelectedUserForProfile(null)}
+                className="p-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-850 border border-neutral-800 text-slate-400 hover:text-white transition cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-6 flex-1 min-h-0">
+              {/* KPIs de Performance */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-black border border-neutral-900 rounded-2xl p-4 text-center">
+                  <span className="text-[9px] text-neutral-500 uppercase font-bold tracking-widest block mb-1">Total Chamados</span>
+                  <span className="text-xl font-black text-white">{profileTotal}</span>
+                </div>
+                <div className="bg-black border border-neutral-900 rounded-2xl p-4 text-center">
+                  <span className="text-[9px] text-neutral-500 uppercase font-bold tracking-widest block mb-1">SLA No Prazo</span>
+                  <span className={`text-xl font-black ${profileSlaCompliance >= 90 ? "text-emerald-400" : profileSlaCompliance >= 70 ? "text-amber-400" : "text-red-400"}`}>
+                    {profileSlaCompliance}%
+                  </span>
+                </div>
+                <div className="bg-black border border-neutral-900 rounded-2xl p-4 text-center">
+                  <span className="text-[9px] text-neutral-500 uppercase font-bold tracking-widest block mb-1">Abertos</span>
+                  <span className="text-xl font-black text-red-400">{profileOpen}</span>
+                </div>
+                <div className="bg-black border border-neutral-900 rounded-2xl p-4 text-center">
+                  <span className="text-[9px] text-neutral-500 uppercase font-bold tracking-widest block mb-1">Em Atendimento</span>
+                  <span className="text-xl font-black text-amber-400">{profileInProgress}</span>
+                </div>
+              </div>
+
+              {/* Filtros e Busca */}
+              <div className="flex flex-col sm:flex-row gap-3 items-center bg-black/40 border border-neutral-900 rounded-2xl p-3">
+                <div className="relative flex-1 w-full">
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-neutral-500" />
+                  <input
+                    type="text"
+                    value={profileSearchTerm}
+                    onChange={(e) => setProfileSearchTerm(e.target.value)}
+                    placeholder="Buscar chamados por título, descrição ou ID..."
+                    className="w-full bg-black border border-neutral-900 rounded-xl py-2 pl-9 pr-4 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-emerald-500 transition-all font-sans"
+                  />
+                </div>
+                
+                <div className="flex gap-2 w-full sm:w-auto">
+                  <select
+                    value={profileStatusFilter}
+                    onChange={(e) => setProfileStatusFilter(e.target.value)}
+                    className="bg-black border border-neutral-900 text-[10px] text-slate-300 rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-500 font-bold uppercase tracking-wider transition cursor-pointer w-full sm:w-auto"
+                  >
+                    <option value="all">Todos os Status</option>
+                    <option value="open">Abertos</option>
+                    <option value="progress">Em Atendimento</option>
+                    <option value="resolved">Resolvidos/Fechados</option>
+                    <option value="overdue">Fora do Prazo (SLA)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Lista de Chamados */}
+              <div className="space-y-3">
+                <h4 className="text-[10px] font-bold uppercase tracking-widest text-neutral-500 mb-2">Histórico de Chamados ({filteredProfileTickets.length})</h4>
+                
+                {filteredProfileTickets.length === 0 ? (
+                  <div className="text-center py-12 border border-dashed border-neutral-900 rounded-2xl text-xs text-neutral-500 font-medium">
+                    Nenhum chamado encontrado com os filtros atuais.
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-1">
+                    {filteredProfileTickets.map((ticket) => {
+                      const isClosed = ticket.status === "Resolvido" || ticket.status === "Fechado";
+                      const isOverdue = !isClosed && new Date(ticket.slaLimit).getTime() < referenceTime;
+                      
+                      // Priority color coding
+                      const priorityColor = 
+                        ticket.priority === "Urgente" ? "text-red-400 bg-red-500/10 border-red-500/20" :
+                        ticket.priority === "Alta" ? "text-orange-400 bg-orange-500/10 border-orange-500/20" :
+                        ticket.priority === "Média" ? "text-sky-400 bg-sky-500/10 border-sky-500/20" :
+                        "text-slate-400 bg-slate-500/10 border-slate-500/20";
+
+                      // Status color coding
+                      const statusColor =
+                        ticket.status === "Aberto" ? "text-red-400 bg-red-400/10 border-red-500/10" :
+                        ticket.status === "Em Atendimento" ? "text-amber-400 bg-amber-400/10 border-amber-500/10" :
+                        "text-emerald-400 bg-emerald-400/10 border-emerald-500/10";
+
+                      return (
+                        <div key={ticket.id} className="bg-black/60 border border-neutral-900 rounded-2xl p-4 hover:border-emerald-500/20 transition-all">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[9px] font-bold text-neutral-500 uppercase font-mono">#{ticket.id.substring(0, 8)}</span>
+                              <span className={`text-[9px] px-2 py-0.5 rounded-full border font-bold uppercase ${statusColor}`}>{ticket.status}</span>
+                              <span className={`text-[9px] px-2 py-0.5 rounded-full border font-bold uppercase ${priorityColor}`}>{ticket.priority}</span>
+                            </div>
+                            <span className="text-[9px] text-neutral-500 font-bold uppercase font-mono">
+                              Aberto em: {new Date(ticket.createdAt).toLocaleDateString("pt-BR")}
+                            </span>
+                          </div>
+
+                          <h5 className="text-xs font-bold text-white mb-1">{ticket.title}</h5>
+                          <p className="text-[10px] text-neutral-400 line-clamp-2 mb-3 leading-relaxed">{ticket.description}</p>
+                          
+                          <div className="flex flex-wrap items-center justify-between pt-2 border-t border-neutral-900/60 text-[9px] text-neutral-500 font-bold uppercase gap-2">
+                            <div>
+                              Categoria: <span className="text-emerald-400">{ticket.category}</span>
+                            </div>
+                            <div>
+                              Atribuído a: <span className="text-neutral-300">{ticket.assignedTo || "Sem técnico atrib."}</span>
+                            </div>
+                            {isOverdue && (
+                              <span className="text-red-400 flex items-center gap-1 font-extrabold animate-pulse">
+                                <AlertCircle className="h-3.5 w-3.5" /> SLA Estourado
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-black/40 border-t border-neutral-900 text-center text-[10px] text-slate-500 font-medium shrink-0">
+              Análise operacional para auditoria de solicitações de usuários.
             </div>
           </div>
         </div>
