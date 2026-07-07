@@ -5,7 +5,6 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
-import os from "os";
 import { GoogleGenAI, Type } from "@google/genai";
 import {
   isSupabaseConfigured,
@@ -52,65 +51,8 @@ const isAIStudio = !!process.env.APPLET_ID || process.env.DISABLE_HMR === "true"
 const PORT: string | number = (!isAIStudio && process.env.PORT)
   ? (isNaN(Number(process.env.PORT)) ? process.env.PORT : Number(process.env.PORT))
   : 3000;
-const DB_FILE = path.join(os.tmpdir(), "tickets-db.json");
-const USERS_FILE = path.join(os.tmpdir(), "users-db.json");
-
-// Helper to write data to both the dynamic /tmp path and the workspace path.
-// This ensures that live data updates are persisted back into the workspace directory,
-// so when users download the ZIP or export to GitHub, their real data is included!
-function writeDatabaseFile(filename: "tickets-db.json" | "users-db.json", data: any) {
-  const content = JSON.stringify(data, null, 2);
-  const tmpPath = path.join(os.tmpdir(), filename);
-  const workspacePath = path.join(process.cwd(), filename);
-
-  try {
-    fs.writeFileSync(tmpPath, content, "utf-8");
-  } catch (error) {
-    console.error(`Erro ao salvar no arquivo temporário ${filename}:`, error);
-  }
-
-  try {
-    fs.writeFileSync(workspacePath, content, "utf-8");
-  } catch (error: any) {
-    console.log(`Nota: Não foi possível atualizar o arquivo do workspace ${filename} (esperado em hospedagens read-only):`, error.message);
-  }
-}
-
-// Helper to read data from the dynamic /tmp path, falling back to the workspace path.
-// This is essential so that when users download/deploy the project, the database state
-// is correctly read from their local files!
-function readDatabaseFile(filename: "tickets-db.json" | "users-db.json"): string | null {
-  const tmpPath = path.join(os.tmpdir(), filename);
-  const workspacePath = path.join(process.cwd(), filename);
-
-  // 1. Try reading from the temporary folder (contains the latest live runtime changes)
-  if (fs.existsSync(tmpPath)) {
-    try {
-      const content = fs.readFileSync(tmpPath, "utf-8").trim();
-      if (content) return content;
-    } catch (error) {
-      console.error(`Erro ao ler do arquivo temporário ${filename}:`, error);
-    }
-  }
-
-  // 2. Try reading from the workspace folder (contains persisted downloaded/exported changes)
-  if (fs.existsSync(workspacePath)) {
-    try {
-      const content = fs.readFileSync(workspacePath, "utf-8").trim();
-      if (content) {
-        // Cache/write back into the temp path for fast subsequent accesses
-        try {
-          fs.writeFileSync(tmpPath, content, "utf-8");
-        } catch (e) {}
-        return content;
-      }
-    } catch (error) {
-      console.error(`Erro ao ler do arquivo de workspace ${filename}:`, error);
-    }
-  }
-
-  return null;
-}
+const DB_FILE = path.join(process.cwd(), "tickets-db.json");
+const USERS_FILE = path.join(process.cwd(), "users-db.json");
 
 // Map to track the last activity timestamp (Date.now()) of logged-in users by email
 const activeUsers = new Map<string, number>();
@@ -133,16 +75,6 @@ try {
 
 app.use("/assets", express.static(path.join(process.cwd(), "assets")));
 
-// Secure password hashing helper
-function hashPassword(password: string): string {
-  if (!password) return "";
-  // Check if already a 64-character hex SHA-256 string
-  if (/^[a-f0-9]{64}$/i.test(password)) {
-    return password;
-  }
-  return crypto.createHash("sha256").update(password).digest("hex");
-}
-
 interface User {
   id: string;
   name: string;
@@ -153,6 +85,8 @@ interface User {
   mustChangePassword?: boolean;
   updatedAt?: string;
 }
+
+const DEFAULT_USERS: User[] = [];
 
 // Ticket Type Definition
 interface Comment {
@@ -185,6 +119,9 @@ interface Ticket {
   projectDeadline?: string;
 }
 
+// Default Seed Data
+const DEFAULT_TICKETS: Ticket[] = [];
+
 // Memory cache for Supabase reads to minimize egress/bandwidth and avoid free tier overage limits
 let cachedTickets: Ticket[] | null = null;
 let lastTicketsCacheTime = 0;
@@ -208,7 +145,7 @@ async function loadTickets(): Promise<Ticket[]> {
       if (tickets !== null && Array.isArray(tickets)) {
         // Also save to local JSON file as a cache/backup
         try {
-          writeDatabaseFile("tickets-db.json", tickets);
+          fs.writeFileSync(DB_FILE, JSON.stringify(tickets, null, 2), "utf-8");
         } catch (e) {}
         
         cachedTickets = tickets;
@@ -221,13 +158,15 @@ async function loadTickets(): Promise<Ticket[]> {
   }
 
   try {
-    const data = readDatabaseFile("tickets-db.json");
-    if (data) {
-      tickets = JSON.parse(data);
-      if (Array.isArray(tickets)) {
-        cachedTickets = tickets;
-        lastTicketsCacheTime = now;
-        return tickets;
+    if (fs.existsSync(DB_FILE)) {
+      const data = fs.readFileSync(DB_FILE, "utf-8").trim();
+      if (data) {
+        tickets = JSON.parse(data);
+        if (Array.isArray(tickets)) {
+          cachedTickets = tickets;
+          lastTicketsCacheTime = now;
+          return tickets;
+        }
       }
     }
   } catch (error) {
@@ -235,7 +174,7 @@ async function loadTickets(): Promise<Ticket[]> {
   }
   // Initialize with static seed data if file doesn't exist or is invalid
   try {
-    writeDatabaseFile("tickets-db.json", initialTickets);
+    fs.writeFileSync(DB_FILE, JSON.stringify(initialTickets, null, 2), "utf-8");
   } catch (e) {}
   
   const seed = initialTickets as any as Ticket[];
@@ -250,7 +189,7 @@ async function saveTickets(tickets: Ticket[], singleChangedTicket?: Ticket) {
   lastTicketsCacheTime = Date.now();
 
   try {
-    writeDatabaseFile("tickets-db.json", tickets);
+    fs.writeFileSync(DB_FILE, JSON.stringify(tickets, null, 2), "utf-8");
   } catch (error) {
     console.error("Erro ao salvar banco de dados de chamados local:", error);
   }
@@ -272,6 +211,16 @@ async function saveTickets(tickets: Ticket[], singleChangedTicket?: Ticket) {
   }
 }
 
+// Secure password hashing helper
+function hashPassword(password: string): string {
+  if (!password) return "";
+  // Check if already a 64-character hex SHA-256 string
+  if (/^[a-f0-9]{64}$/i.test(password)) {
+    return password;
+  }
+  return crypto.createHash("sha256").update(password).digest("hex");
+}
+
 // Helper to load/save users database
 async function loadUsers(): Promise<User[]> {
   const now = Date.now();
@@ -281,11 +230,13 @@ async function loadUsers(): Promise<User[]> {
 
   let localUsers: User[] = [];
   try {
-    const data = readDatabaseFile("users-db.json");
-    if (data) {
-      const parsed = JSON.parse(data);
-      if (Array.isArray(parsed)) {
-        localUsers = parsed;
+    if (fs.existsSync(USERS_FILE)) {
+      const data = fs.readFileSync(USERS_FILE, "utf-8").trim();
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed)) {
+          localUsers = parsed;
+        }
       }
     }
   } catch (error) {
@@ -335,7 +286,7 @@ async function loadUsers(): Promise<User[]> {
 
         if (needsRewrite) {
           try {
-            writeDatabaseFile("users-db.json", merged);
+            fs.writeFileSync(USERS_FILE, JSON.stringify(merged, null, 2), "utf-8");
           } catch (e) {}
         }
 
@@ -350,7 +301,7 @@ async function loadUsers(): Promise<User[]> {
 
   if (needsRewrite) {
     try {
-      writeDatabaseFile("users-db.json", localUsers);
+      fs.writeFileSync(USERS_FILE, JSON.stringify(localUsers, null, 2), "utf-8");
     } catch (e) {}
   }
 
@@ -371,7 +322,7 @@ async function saveUsers(users: User[], changedUser?: User | User[]) {
   lastUsersCacheTime = Date.now();
 
   try {
-    writeDatabaseFile("users-db.json", securedUsers);
+    fs.writeFileSync(USERS_FILE, JSON.stringify(securedUsers, null, 2), "utf-8");
   } catch (error) {
     console.error("Erro ao salvar banco de dados de usuários local:", error);
   }
@@ -535,10 +486,18 @@ Use os seguintes critérios de prioridade:
   return defaultLocalTriage(title, description);
 }
 
-// Route to dynamically serve config.js (quiet fallback)
+// Route to dynamically serve config.js using environment variables so we don't expose keys in source control
 app.get("/config.js", (req, res) => {
+  const url = process.env.SUPABASE_URL || "";
+  const key = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY || "";
+  const gemini = process.env.GEMINI_API_KEY || "";
+
   res.setHeader("Content-Type", "application/javascript");
-  res.send("// Configuration disabled");
+  res.send(`window.SUPABASE_CONFIG = {
+  SUPABASE_URL: ${JSON.stringify(url)},
+  SUPABASE_KEY: ${JSON.stringify(key)},
+  GEMINI_API_KEY: ${JSON.stringify(gemini)}
+};`);
 });
 
 // Proxy route to secure and relay client requests to self-hosted Supabase instances (eliminates CORS / Mixed Content issues)
@@ -621,65 +580,6 @@ app.all("/api/supabase-proxy/*", async (req, res) => {
 
 // REST API Endpoints
 
-// Secure bulk ticket saving / upserting endpoint
-app.post("/api/tickets/save", async (req, res) => {
-  try {
-    const ticket = req.body;
-    if (!ticket || !ticket.id) {
-      return res.status(400).json({ error: "Dados do chamado inválidos." });
-    }
-    const tickets = await loadTickets();
-    const idx = tickets.findIndex(t => t.id === ticket.id);
-    if (idx >= 0) {
-      tickets[idx] = ticket;
-    } else {
-      tickets.push(ticket);
-    }
-    await saveTickets(tickets, ticket);
-    res.json({ success: true, ticket });
-  } catch (error) {
-    console.error("Erro ao salvar chamado via API:", error);
-    res.status(500).json({ error: "Erro interno ao salvar chamado." });
-  }
-});
-
-// Secure bulk user saving / upserting endpoint
-app.post("/api/users/save", async (req, res) => {
-  try {
-    const user = req.body;
-    if (!user || !user.id) {
-      return res.status(400).json({ error: "Dados do colaborador inválidos." });
-    }
-    const users = await loadUsers();
-    const idx = users.findIndex(u => u.id === user.id);
-    if (idx >= 0) {
-      users[idx] = user;
-    } else {
-      users.push(user);
-    }
-    await saveUsers(users, user);
-    res.json({ success: true, user });
-  } catch (error) {
-    console.error("Erro ao salvar colaborador via API:", error);
-    res.status(500).json({ error: "Erro interno ao salvar colaborador." });
-  }
-});
-
-// Secure client-side Gemini Triage API proxy
-app.post("/api/triage", async (req, res) => {
-  try {
-    const { title, description, screenshot } = req.body;
-    if (!title || !description) {
-      return res.status(400).json({ error: "Título e descrição do chamado são obrigatórios para triagem." });
-    }
-    const triage = await triageWithGemini(title, description, screenshot);
-    res.json(triage);
-  } catch (error) {
-    console.error("Erro ao processar triagem inteligente via API:", error);
-    res.status(500).json({ error: "Erro interno ao realizar triagem." });
-  }
-});
-
 // Supabase diagnostics and setup endpoints
 app.get("/api/supabase/status", async (req, res) => {
   try {
@@ -753,14 +653,8 @@ app.post("/api/supabase/pull", async (req, res) => {
       password: u.password ? hashPassword(u.password) : undefined
     }));
 
-    writeDatabaseFile("users-db.json", securedUsers);
-    writeDatabaseFile("tickets-db.json", supabaseTickets);
-
-    cachedUsers = securedUsers;
-    lastUsersCacheTime = Date.now();
-
-    cachedTickets = supabaseTickets;
-    lastTicketsCacheTime = Date.now();
+    fs.writeFileSync(USERS_FILE, JSON.stringify(securedUsers, null, 2), "utf-8");
+    fs.writeFileSync(DB_FILE, JSON.stringify(supabaseTickets, null, 2), "utf-8");
 
     res.json({
       message: "Dados importados do Supabase com sucesso!",
@@ -847,7 +741,7 @@ app.post("/api/login", async (req, res) => {
                 const localUsers = await loadUsers();
                 if (!localUsers.some(u => u.email.toLowerCase() === emailLower)) {
                   localUsers.push(loggedUser);
-                  writeDatabaseFile("users-db.json", localUsers);
+                  fs.writeFileSync(USERS_FILE, JSON.stringify(localUsers, null, 2), "utf-8");
                 }
               } catch (cacheErr) {
                 console.error("[Supabase Login] Falha ao atualizar cache local do usuário:", cacheErr);
@@ -1644,8 +1538,8 @@ app.post("/api/reset", async (req, res) => {
       }
     }
     
-    await saveTickets(initialTickets);
-    await saveUsers(initialUsers);
+    await saveTickets(DEFAULT_TICKETS);
+    await saveUsers(DEFAULT_USERS);
     res.json({ message: "Banco de dados e lista de colaboradores reiniciados com sucesso." });
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Erro ao resetar banco de dados." });

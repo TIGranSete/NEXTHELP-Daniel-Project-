@@ -5,4 +5,7 @@ coverage/
 .DS_Store
 *.log
 .env*
+*.htaccess
+.htaccess*
 !.env.example
+
