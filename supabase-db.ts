@@ -50,38 +50,11 @@ function cleanConfigValue(val: string): string {
   return cleaned;
 }
 
-// Helper to read config from public/config.js on the backend
+// Helper to read config from process.env on the backend
 export function getBackendConfig() {
   let url = cleanConfigValue(process.env.SUPABASE_URL || "");
   let key = cleanConfigValue(process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "");
   let gemini = cleanConfigValue(process.env.GEMINI_API_KEY || "");
-
-  try {
-    const configPath = path.join(process.cwd(), "public", "config.js");
-    if (fs.existsSync(configPath)) {
-      const content = fs.readFileSync(configPath, "utf-8");
-      
-      const urlMatch = content.match(/SUPABASE_URL\s*:\s*["']([^"']+)["']/);
-      const keyMatch = content.match(/SUPABASE_KEY\s*:\s*["']([^"']+)["']/);
-      const geminiMatch = content.match(/GEMINI_API_KEY\s*:\s*["']([^"']+)["']/);
-
-      const parsedUrl = urlMatch ? cleanConfigValue(urlMatch[1]) : "";
-      const parsedKey = keyMatch ? cleanConfigValue(keyMatch[1]) : "";
-      const parsedGemini = geminiMatch ? cleanConfigValue(geminiMatch[1]) : "";
-
-      if (parsedUrl && (parsedUrl.startsWith("http://") || parsedUrl.startsWith("https://")) && !parsedUrl.includes("your-selfhosted-") && !parsedUrl.includes("SUA_URL_SUPABASE_AQUI")) {
-        url = parsedUrl;
-      }
-      if (parsedKey && !parsedKey.includes("SUA_CHAVE_")) {
-        key = parsedKey;
-      }
-      if (parsedGemini && !parsedGemini.includes("SUA_CHAVE_")) {
-        gemini = parsedGemini;
-      }
-    }
-  } catch (err) {
-    console.warn("Falha ao ler configuração dinâmica do config.js no backend:", err);
-  }
 
   // Post-processing validation to ensure we don't return invalid or placeholder values
   if (url && (!url.startsWith("http://") && !url.startsWith("https://") || url.includes("SUA_URL_SUPABASE_AQUI") || url.includes("your-selfhosted-"))) {

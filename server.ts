@@ -55,6 +55,27 @@ const PORT: string | number = (!isAIStudio && process.env.PORT)
 const DB_FILE = path.join(os.tmpdir(), "tickets-db.json");
 const USERS_FILE = path.join(os.tmpdir(), "users-db.json");
 
+// Helper to write data to both the dynamic /tmp path and the workspace path.
+// This ensures that live data updates are persisted back into the workspace directory,
+// so when users download the ZIP or export to GitHub, their real data is included!
+function writeDatabaseFile(filename: "tickets-db.json" | "users-db.json", data: any) {
+  const content = JSON.stringify(data, null, 2);
+  const tmpPath = path.join(os.tmpdir(), filename);
+  const workspacePath = path.join(process.cwd(), filename);
+
+  try {
+    fs.writeFileSync(tmpPath, content, "utf-8");
+  } catch (error) {
+    console.error(`Erro ao salvar no arquivo temporário ${filename}:`, error);
+  }
+
+  try {
+    fs.writeFileSync(workspacePath, content, "utf-8");
+  } catch (error: any) {
+    console.log(`Nota: Não foi possível atualizar o arquivo do workspace ${filename} (esperado em hospedagens read-only):`, error.message);
+  }
+}
+
 // Map to track the last activity timestamp (Date.now()) of logged-in users by email
 const activeUsers = new Map<string, number>();
 
@@ -151,7 +172,7 @@ async function loadTickets(): Promise<Ticket[]> {
       if (tickets !== null && Array.isArray(tickets)) {
         // Also save to local JSON file as a cache/backup
         try {
-          fs.writeFileSync(DB_FILE, JSON.stringify(tickets, null, 2), "utf-8");
+          writeDatabaseFile("tickets-db.json", tickets);
         } catch (e) {}
         
         cachedTickets = tickets;
@@ -180,7 +201,7 @@ async function loadTickets(): Promise<Ticket[]> {
   }
   // Initialize with static seed data if file doesn't exist or is invalid
   try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(initialTickets, null, 2), "utf-8");
+    writeDatabaseFile("tickets-db.json", initialTickets);
   } catch (e) {}
   
   const seed = initialTickets as any as Ticket[];
@@ -195,7 +216,7 @@ async function saveTickets(tickets: Ticket[], singleChangedTicket?: Ticket) {
   lastTicketsCacheTime = Date.now();
 
   try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(tickets, null, 2), "utf-8");
+    writeDatabaseFile("tickets-db.json", tickets);
   } catch (error) {
     console.error("Erro ao salvar banco de dados de chamados local:", error);
   }
@@ -282,7 +303,7 @@ async function loadUsers(): Promise<User[]> {
 
         if (needsRewrite) {
           try {
-            fs.writeFileSync(USERS_FILE, JSON.stringify(merged, null, 2), "utf-8");
+            writeDatabaseFile("users-db.json", merged);
           } catch (e) {}
         }
 
@@ -297,7 +318,7 @@ async function loadUsers(): Promise<User[]> {
 
   if (needsRewrite) {
     try {
-      fs.writeFileSync(USERS_FILE, JSON.stringify(localUsers, null, 2), "utf-8");
+      writeDatabaseFile("users-db.json", localUsers);
     } catch (e) {}
   }
 
@@ -318,7 +339,7 @@ async function saveUsers(users: User[], changedUser?: User | User[]) {
   lastUsersCacheTime = Date.now();
 
   try {
-    fs.writeFileSync(USERS_FILE, JSON.stringify(securedUsers, null, 2), "utf-8");
+    writeDatabaseFile("users-db.json", securedUsers);
   } catch (error) {
     console.error("Erro ao salvar banco de dados de usuários local:", error);
   }
@@ -482,20 +503,10 @@ Use os seguintes critérios de prioridade:
   return defaultLocalTriage(title, description);
 }
 
-// Route to dynamically serve config.js so self-hosted users can edit public/config.js and see changes instantly
+// Route to dynamically serve config.js (quiet fallback)
 app.get("/config.js", (req, res) => {
-  const customPath = path.join(process.cwd(), "public", "config.js");
-  if (fs.existsSync(customPath)) {
-    res.setHeader("Content-Type", "application/javascript");
-    return res.sendFile(customPath);
-  }
-  const distConfigPath = path.join(process.cwd(), "dist", "config.js");
-  if (fs.existsSync(distConfigPath)) {
-    res.setHeader("Content-Type", "application/javascript");
-    return res.sendFile(distConfigPath);
-  }
   res.setHeader("Content-Type", "application/javascript");
-  res.send("// Dynamic configuration not found");
+  res.send("// Configuration disabled");
 });
 
 // Proxy route to secure and relay client requests to self-hosted Supabase instances (eliminates CORS / Mixed Content issues)
@@ -710,8 +721,8 @@ app.post("/api/supabase/pull", async (req, res) => {
       password: u.password ? hashPassword(u.password) : undefined
     }));
 
-    fs.writeFileSync(USERS_FILE, JSON.stringify(securedUsers, null, 2), "utf-8");
-    fs.writeFileSync(DB_FILE, JSON.stringify(supabaseTickets, null, 2), "utf-8");
+    writeDatabaseFile("users-db.json", securedUsers);
+    writeDatabaseFile("tickets-db.json", supabaseTickets);
 
     cachedUsers = securedUsers;
     lastUsersCacheTime = Date.now();
@@ -804,7 +815,7 @@ app.post("/api/login", async (req, res) => {
                 const localUsers = await loadUsers();
                 if (!localUsers.some(u => u.email.toLowerCase() === emailLower)) {
                   localUsers.push(loggedUser);
-                  fs.writeFileSync(USERS_FILE, JSON.stringify(localUsers, null, 2), "utf-8");
+                  writeDatabaseFile("users-db.json", localUsers);
                 }
               } catch (cacheErr) {
                 console.error("[Supabase Login] Falha ao atualizar cache local do usuário:", cacheErr);
