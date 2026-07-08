@@ -5,15 +5,36 @@ import { jsPDF } from "jspdf";
 
 interface SlaAnalyticsProps {
   tickets: Ticket[];
+  users?: any[];
+  onViewUserProfile?: (user: any) => void;
 }
 
-export default function SlaAnalytics({ tickets }: SlaAnalyticsProps) {
+export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }: SlaAnalyticsProps) {
   const [period, setPeriod] = useState<string>("all");
   const [selectedTech, setSelectedTech] = useState<string>("all");
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
   const [selectedTechForExport, setSelectedTechForExport] = useState<string>("all");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
+  const [selectedSectorForMembers, setSelectedSectorForMembers] = useState<string | null>(null);
+
+  const handleUserClick = (userName: string, userDepartment: string) => {
+    if (onViewUserProfile) {
+      const foundUser = users.find(u => u.name && u.name.toLowerCase().trim() === userName.toLowerCase().trim());
+      if (foundUser) {
+        onViewUserProfile(foundUser);
+      } else {
+        onViewUserProfile({
+          id: `mock-${userName}`,
+          name: userName,
+          email: `${userName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ".")}@gransete.com`,
+          department: userDepartment || "Geral",
+          role: "colaborador" as const,
+          mustChangePassword: false
+        });
+      }
+    }
+  };
 
   // Get all unique technicians who have been assigned tickets
   const technicians = Array.from(
@@ -121,6 +142,62 @@ export default function SlaAnalytics({ tickets }: SlaAnalyticsProps) {
 
   const categoryEntries = Object.entries(categories) as [Ticket["category"], number][];
   const maxCategoryCount = Math.max(...Object.values(categories), 1);
+
+  // Group by sector (requesterDepartment)
+  const sectorCounts: Record<string, number> = {};
+  filteredTickets.forEach(t => {
+    const dept = t.requesterDepartment ? t.requesterDepartment.trim() : "";
+    if (dept) {
+      sectorCounts[dept] = (sectorCounts[dept] || 0) + 1;
+    }
+  });
+
+  const sortedSectors = Object.entries(sectorCounts)
+    .map(([name, count]) => ({
+      name,
+      count,
+      percentage: total > 0 ? Math.round((count / total) * 100) : 0
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  const uniqueSectorsCount = sortedSectors.length;
+  const maxSectorCount = Math.max(...sortedSectors.map(s => s.count), 1);
+
+  // Group by user (requesterName)
+  const userStats: Record<string, { count: number; department: string }> = {};
+  filteredTickets.forEach(t => {
+    const name = t.requesterName ? t.requesterName.trim() : "";
+    const dept = t.requesterDepartment ? t.requesterDepartment.trim() : "Geral";
+    if (name) {
+      if (!userStats[name]) {
+        userStats[name] = { count: 0, department: dept };
+      }
+      userStats[name].count++;
+      if (dept && dept !== "Geral") {
+        userStats[name].department = dept;
+      }
+    }
+  });
+
+  const sortedUsers = Object.entries(userStats)
+    .map(([name, stats]) => ({
+      name,
+      count: stats.count,
+      department: stats.department,
+      percentage: total > 0 ? Math.round((stats.count / total) * 100) : 0
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  const uniqueUsersCount = sortedUsers.length;
+  const maxUserCount = Math.max(...sortedUsers.map(u => u.count), 1);
+
+  const getInitials = (name: string) => {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return parts[0] ? parts[0][0].toUpperCase() : "U";
+  };
 
   // SLA compliance rate (Resolved tickets within deadline)
   const slaCompliancePercent = total > 0 ? Math.round(((total - overdueCount) / total) * 100) : 100;
@@ -1039,6 +1116,204 @@ export default function SlaAnalytics({ tickets }: SlaAnalyticsProps) {
         </div>
 
       </div>
+
+      {/* Top Sectors and Top Requesters section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 font-mono mt-6">
+        {/* Left Panel: CHAMADOS POR SETOR / DEPARTAMENTO */}
+        <div className="bg-[#050505] border border-neutral-900 rounded-2xl p-5 hover:border-emerald-500/10 transition-all flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">Chamados por Setor / Departamento</h3>
+              <span className="border border-emerald-500/30 text-emerald-400 px-2.5 py-1 rounded-lg text-[10px] font-bold font-mono">
+                {uniqueSectorsCount} Setores
+              </span>
+            </div>
+            
+            <div className="space-y-4">
+              {sortedSectors.slice(0, 6).map((sector) => {
+                const barWidthPct = maxSectorCount > 0 ? (sector.count / maxSectorCount) * 100 : 0;
+                return (
+                  <div key={sector.name} className="flex items-center space-x-3 text-xs">
+                    <div 
+                      onClick={() => setSelectedSectorForMembers(sector.name)}
+                      className="w-24 md:w-32 font-semibold text-neutral-300 truncate cursor-pointer hover:text-emerald-400 hover:underline transition-all flex items-center gap-1"
+                      title="Clique para ver os membros deste setor"
+                    >
+                      {sector.name}
+                    </div>
+                    <div 
+                      onClick={() => setSelectedSectorForMembers(sector.name)}
+                      className="flex-1 bg-black border border-neutral-950 hover:border-emerald-500/30 cursor-pointer h-8 rounded-xl overflow-hidden relative flex items-center px-3.5 transition-all group/bar"
+                      title="Clique para ver os membros deste setor"
+                    >
+                      <div 
+                        className="absolute top-0 left-0 bottom-0 bg-emerald-500 rounded-r-xl transition-all duration-700 opacity-90 shadow-neon-sm group-hover/bar:bg-emerald-400"
+                        style={{ width: `${Math.max(barWidthPct, 5)}%` }}
+                      ></div>
+                      <span className="relative z-10 text-[10px] font-extrabold text-black uppercase">
+                        {sector.count} {sector.count === 1 ? "Chamado" : "Chamados"}
+                      </span>
+                    </div>
+                    <div className="w-10 text-right text-emerald-400 text-xs font-bold font-mono">{sector.percentage}%</div>
+                  </div>
+                );
+              })}
+              {sortedSectors.length === 0 && (
+                <div className="text-center py-6 text-xs text-neutral-500 font-medium">Nenhum chamado registrado por setor.</div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Panel: CHAMADOS POR USUÁRIO (TOP SOLICITANTES) */}
+        <div className="bg-[#050505] border border-neutral-900 rounded-2xl p-5 hover:border-emerald-500/10 transition-all flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">Chamados por Usuário (Top Solicitantes)</h3>
+              <span className="border border-emerald-500/30 text-emerald-400 px-2.5 py-1 rounded-lg text-[10px] font-bold font-mono">
+                {uniqueUsersCount} Usuários
+              </span>
+            </div>
+
+            <div className="space-y-4">
+              {sortedUsers.slice(0, 6).map((user) => {
+                const barWidthPct = maxUserCount > 0 ? (user.count / maxUserCount) * 100 : 0;
+                return (
+                  <div 
+                    key={user.name} 
+                    onClick={() => handleUserClick(user.name, user.department)}
+                    className="flex items-center space-x-3 text-xs p-1.5 rounded-xl hover:bg-white/5 cursor-pointer border border-transparent hover:border-teal-500/10 transition-all group/user"
+                    title="Clique para ver o perfil do usuário"
+                  >
+                    {/* User Avatar */}
+                    <div className="h-9 w-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 group-hover/user:border-teal-500/35 flex items-center justify-center shrink-0 transition-colors">
+                      <span className="text-emerald-400 group-hover/user:text-teal-400 text-xs font-extrabold">{getInitials(user.name)}</span>
+                    </div>
+                    
+                    {/* User Info */}
+                    <div className="flex flex-col flex-1 min-w-0">
+                      <span className="font-bold text-white text-xs truncate group-hover/user:text-teal-400 transition-colors">{user.name}</span>
+                      <span className="text-[10px] text-slate-500 mt-0.5 truncate">{user.department}</span>
+                    </div>
+
+                    {/* Progress Bar with count */}
+                    <div className="w-28 sm:w-44 bg-black border border-neutral-950 h-8 rounded-xl overflow-hidden relative flex items-center px-3.5 shrink-0">
+                      <div 
+                        className="absolute top-0 left-0 bottom-0 bg-teal-500 rounded-r-xl transition-all duration-700 opacity-90 shadow-neon-sm"
+                        style={{ width: `${Math.max(barWidthPct, 5)}%` }}
+                      ></div>
+                      <span className="relative z-10 text-[10px] font-extrabold text-black uppercase">
+                        {user.count} {user.count === 1 ? "Chamado" : "Chamados"}
+                      </span>
+                    </div>
+                    
+                    {/* Percentage */}
+                    <div className="w-10 text-right text-teal-400 text-xs font-bold font-mono shrink-0">{user.percentage}%</div>
+                  </div>
+                );
+              })}
+              {sortedUsers.length === 0 && (
+                <div className="text-center py-6 text-xs text-neutral-500 font-medium">Nenhum chamado registrado por usuário.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Sector Members Modal */}
+      {selectedSectorForMembers && (() => {
+        const sectorTickets = filteredTickets.filter(t => t.requesterDepartment && t.requesterDepartment.trim().toLowerCase() === selectedSectorForMembers.trim().toLowerCase());
+        
+        // Group these by requesterName to get the unique members of this sector and how many tickets they opened
+        const memberStats: Record<string, { count: number; department: string }> = {};
+        sectorTickets.forEach(t => {
+          const name = t.requesterName ? t.requesterName.trim() : "";
+          const dept = t.requesterDepartment ? t.requesterDepartment.trim() : "";
+          if (name) {
+            if (!memberStats[name]) {
+              memberStats[name] = { count: 0, department: dept };
+            }
+            memberStats[name].count++;
+          }
+        });
+
+        const sectorMembers = Object.entries(memberStats).map(([name, info]) => ({
+          name,
+          count: info.count,
+          department: info.department
+        })).sort((a, b) => b.count - a.count);
+
+        return (
+          <div 
+            onClick={() => setSelectedSectorForMembers(null)}
+            className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4 font-mono cursor-pointer"
+          >
+            <div 
+              onClick={(e) => e.stopPropagation()}
+              className="bg-[#050505] border border-neutral-900 w-full max-w-xl rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[85vh] cursor-default"
+            >
+              {/* Modal Header */}
+              <div className="p-5 border-b border-neutral-900 flex items-center justify-between bg-black/50">
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                    <Users className="h-5 w-5 text-emerald-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white uppercase tracking-wider">Membros de {selectedSectorForMembers}</h3>
+                    <p className="text-[10px] text-slate-400 mt-0.5">{sectorMembers.length} colaboradores com chamados abertos</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedSectorForMembers(null)}
+                  className="text-slate-400 hover:text-white text-xs font-bold bg-neutral-900 hover:bg-neutral-800 px-3 py-1.5 rounded-xl transition cursor-pointer border border-neutral-800"
+                >
+                  Fechar
+                </button>
+              </div>
+
+              {/* Members List */}
+              <div className="flex-1 overflow-y-auto p-5 space-y-3 min-h-[150px] max-h-[50vh]">
+                {sectorMembers.length === 0 ? (
+                  <div className="text-center py-12 text-xs text-slate-500">
+                    Nenhum membro encontrado para este setor.
+                  </div>
+                ) : (
+                  sectorMembers.map((member) => (
+                    <div 
+                      key={member.name}
+                      onClick={() => {
+                        handleUserClick(member.name, member.department);
+                        setSelectedSectorForMembers(null);
+                      }}
+                      className="flex items-center justify-between p-3 bg-black border border-neutral-950 hover:border-emerald-500/20 rounded-xl cursor-pointer hover:bg-white/5 transition-all group"
+                      title="Clique para ver o perfil"
+                    >
+                      <div className="flex items-center space-x-3">
+                        <div className="h-8 w-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                          <span className="text-emerald-400 text-xs font-bold">{getInitials(member.name)}</span>
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-bold text-neutral-200 group-hover:text-emerald-400 transition-colors">{member.name}</h4>
+                          <span className="text-[9px] text-slate-500 font-medium">{member.department}</span>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center space-x-3">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase bg-neutral-900 border border-neutral-800 px-2 py-1 rounded-lg">
+                          {member.count} {member.count === 1 ? "Chamado" : "Chamados"}
+                        </span>
+                        <span className="text-[10px] text-emerald-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                          Ver Perfil →
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Custom Export Modal for Individualization */}
       {isExportModalOpen && (
