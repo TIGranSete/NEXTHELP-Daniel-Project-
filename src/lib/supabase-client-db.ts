@@ -331,7 +331,11 @@ export async function getUsers(): Promise<User[]> {
   const client = getSupabaseClient();
   if (client) {
     try {
-      const { data, error } = await client.from("users").select("id, name, email, password, department, role");
+      let queryResult = await client.from("users").select("id, name, email, password, department, role, must_change_password");
+      if (queryResult.error && (queryResult.error.message?.includes("must_change_password") || queryResult.error.message?.includes("column"))) {
+        queryResult = await client.from("users").select("id, name, email, password, department, role");
+      }
+      const { data, error } = queryResult;
       if (!error && data) {
         const mapped = data.map(mapUserFromSupabase);
         saveLocalUsers(mapped);
@@ -404,11 +408,21 @@ export async function authenticateUser(email: string, pass: string): Promise<Use
 
   if (client) {
     try {
-      const { data: dbUser, error } = await client
+      let queryResult = await client
         .from("users")
-        .select("id, name, email, password, department, role")
+        .select("id, name, email, password, department, role, must_change_password")
         .eq("email", emailLower)
         .maybeSingle();
+
+      if (queryResult.error && (queryResult.error.message?.includes("must_change_password") || queryResult.error.message?.includes("column"))) {
+        queryResult = await client
+          .from("users")
+          .select("id, name, email, password, department, role")
+          .eq("email", emailLower)
+          .maybeSingle();
+      }
+
+      const { data: dbUser, error } = queryResult;
 
       if (!error && dbUser) {
         const storedPass = dbUser.password || "";

@@ -939,7 +939,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
     statusText = "Sincronizando fila de chamados...";
     StatusIcon = Layers;
   } else if (preloaderProgress < 95) {
-    statusText = "Verificando conex├Áes de segurança SSL...";
+    statusText = "Verificando conexões de segurança SSL...";
     StatusIcon = Lock;
   } else {
     statusText = "Pronto para iniciar!";
@@ -1032,40 +1032,6 @@ CREATE TABLE IF NOT EXISTS public.tickets (
     </div>
   ) : null;
 
-  if (!currentSession) {
-    return (
-      <>
-        <LoginScreen 
-          users={users} 
-          onLoginSuccess={(session) => {
-            setCurrentSession(session);
-            localStorage.setItem("gran7_session", JSON.stringify(session));
-          }} 
-        />
-        {preloaderJSX}
-      </>
-    );
-  }
-
-  if (currentSession.mustChangePassword) {
-    return (
-      <>
-        <ChangePasswordScreen
-          session={currentSession}
-          onPasswordChanged={(updatedSession) => {
-            setCurrentSession(updatedSession);
-            localStorage.setItem("gran7_session", JSON.stringify(updatedSession));
-          }}
-          onLogout={() => {
-            setCurrentSession(null);
-            localStorage.removeItem("gran7_session");
-          }}
-        />
-        {preloaderJSX}
-      </>
-    );
-  }
-
   // Selected ticket calculation
   const selectedTicket = useMemo(() => {
     return tickets.find(t => t.id === selectedTicketId) || null;
@@ -1096,7 +1062,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
   // Filtered tickets calculation
   const filteredTickets = useMemo(() => {
-    return userVisibleTickets.filter(t => {
+    const filtered = userVisibleTickets.filter(t => {
       // Tab filtering: hide active projects from normal ticket queue and vice versa
       if (activeTab === "painel") {
         // "Fila de Chamados" hides active projects
@@ -1124,6 +1090,26 @@ CREATE TABLE IF NOT EXISTS public.tickets (
         (selectedStatus === "Active" ? (t.status === "Aberto" || t.status === "Em Atendimento") : t.status === selectedStatus);
 
       return matchesSearch && matchesCategory && matchesPriority && matchesStatus;
+    });
+
+    // Ordenação da fila de chamados:
+    // 1. Status ativo (Aberto/Em Atendimento) no topo antes de Resolvido/Fechado.
+    // 2. Maior prioridade primeiro (Urgente > Alta > Média > Baixa).
+    // 3. Mais recentes primeiro (data de criação decrescente).
+    return filtered.sort((a, b) => {
+      const aIsActive = a.status === "Aberto" || a.status === "Em Atendimento";
+      const bIsActive = b.status === "Aberto" || b.status === "Em Atendimento";
+      if (aIsActive && !bIsActive) return -1;
+      if (!aIsActive && bIsActive) return 1;
+
+      const priorityWeights: Record<string, number> = { Urgente: 4, Alta: 3, Média: 2, Baixa: 1 };
+      const aWeight = priorityWeights[a.priority] || 0;
+      const bWeight = priorityWeights[b.priority] || 0;
+      if (aWeight !== bWeight) {
+        return bWeight - aWeight;
+      }
+
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
   }, [userVisibleTickets, activeTab, searchTerm, selectedCategory, selectedPriority, selectedStatus]);
 
@@ -1172,6 +1158,40 @@ CREATE TABLE IF NOT EXISTS public.tickets (
     userVisibleTickets.forEach(t => { if (stats[t.priority] !== undefined) stats[t.priority]++; });
     return stats;
   }, [userVisibleTickets]);
+
+  if (!currentSession) {
+    return (
+      <>
+        <LoginScreen 
+          users={users} 
+          onLoginSuccess={(session) => {
+            setCurrentSession(session);
+            localStorage.setItem("gran7_session", JSON.stringify(session));
+          }} 
+        />
+        {preloaderJSX}
+      </>
+    );
+  }
+
+  if (currentSession.mustChangePassword) {
+    return (
+      <>
+        <ChangePasswordScreen
+          session={currentSession}
+          onPasswordChanged={(updatedSession) => {
+            setCurrentSession(updatedSession);
+            localStorage.setItem("gran7_session", JSON.stringify(updatedSession));
+          }}
+          onLogout={() => {
+            setCurrentSession(null);
+            localStorage.removeItem("gran7_session");
+          }}
+        />
+        {preloaderJSX}
+      </>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-black text-slate-100 flex flex-col md:flex-row font-sans relative">
@@ -1508,7 +1528,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
             </h2>
             <div className="flex items-center gap-2 text-xs text-slate-400 mt-1">
               <span>{currentSession.role === "tecnico" ? "GRAN7 HELP Monitoramento" : `Bem-vindo, ${currentSession.name}`}</span>
-              <span>ÔÇó</span>
+              <span>•</span>
               <div className="flex items-center gap-1 text-slate-300">
                 <RefreshCw className={`h-3 w-3 ${isPolling ? "animate-spin text-emerald-400" : ""}`} />
                 <span>Atualizado: {lastUpdated ? lastUpdated.toLocaleTimeString("pt-BR") : "--:--:--"}</span>
@@ -2066,7 +2086,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
                 <div className="bg-emerald-950/20 border border-emerald-500/10 p-2 rounded-lg text-[9px] text-emerald-400 flex items-start gap-1.5 mt-3 leading-snug">
                   <Shield className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                  <span>Segurança operacional máxima ativada. Suas operaç├Áes são resilientes a falhas de API de terceiros.</span>
+                  <span>Segurança operacional máxima ativada. Suas operações são resilientes a falhas de API de terceiros.</span>
                 </div>
               </div>
 
@@ -2093,7 +2113,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                     <span className="font-bold">A sincronização falhou</span>
                   </div>
                   <p className="text-[11px] text-rose-300/90 leading-relaxed pl-6">
-                    {syncDbError}. Certifique-se de que as tabelas existem no Supabase (use as instruç├Áes SQL abaixo para criá-las).
+                    {syncDbError}. Certifique-se de que as tabelas existem no Supabase (use as instruções SQL abaixo para criá-las).
                   </p>
                 </div>
               )}
@@ -2195,7 +2215,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                     <Terminal className="h-4.5 w-4.5 text-emerald-400" />
                     <h4 className="text-xs font-bold text-white uppercase tracking-wider">Estrutura de Tabelas SQL do Supabase</h4>
                   </div>
-                  <p className="text-[11px] text-slate-400">Instruç├Áes e código SQL para criar a arquitetura de tabelas diretamente no Supabase.</p>
+                  <p className="text-[11px] text-slate-400">Instruções e código SQL para criar a arquitetura de tabelas diretamente no Supabase.</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -2443,11 +2463,11 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                           
                           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
                             <span>Solicitante: <strong className="text-slate-400">{ticket.requesterName}</strong> ({ticket.requesterDepartment.split(" / ")[0]})</span>
-                            <span>ÔÇó</span>
+                            <span>•</span>
                             <span>Aberto: {new Date(ticket.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} às {new Date(ticket.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
                             {ticket.projectDeadline && (
                               <>
-                                <span>ÔÇó</span>
+                                <span>•</span>
                                 <span className="flex items-center gap-1 text-emerald-400 font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 text-[10px]">
                                   <Calendar className="h-3 w-3" />
                                   Limite Projeto: {(() => {
@@ -2584,7 +2604,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                           <div>
                             <p className="text-xs font-bold text-white">{user.name}</p>
                             <p className="text-[10.5px] text-slate-400 font-medium">
-                              {user.department || "Suporte Técnico"} ÔÇó <span className={user.isOnline ? "text-emerald-400 font-semibold" : "text-neutral-500"}>{user.isOnline ? "Ativo" : "Ausente"}</span>
+                              {user.department || "Suporte Técnico"} • <span className={user.isOnline ? "text-emerald-400 font-semibold" : "text-neutral-500"}>{user.isOnline ? "Ativo" : "Ausente"}</span>
                             </p>
                           </div>
                         </div>
@@ -2723,11 +2743,11 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
                       {selectedTicket.aiSuggestions && (
                         <div className="space-y-1.5 pt-1 border-t border-emerald-950/25">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Soluç├Áes Recomendadas</span>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Soluções Recomendadas</span>
                           <div className="text-slate-300 text-xs leading-relaxed space-y-1 bg-black/30 p-2.5 rounded-lg border border-neutral-900/60 font-sans">
                             {selectedTicket.aiSuggestions.split("\n").map((line, index) => (
                               <div key={index} className="flex gap-2 items-start">
-                                <span className="text-emerald-400 font-bold select-none">ÔÇó</span>
+                                <span className="text-emerald-400 font-bold select-none">•</span>
                                 <span>{line.replace(/^\d+[\.\-\s]+/, "")}</span>
                               </div>
                             ))}
@@ -2891,7 +2911,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                               <>
                                 <div 
                                   className="bg-neutral-950/80 p-2 rounded-xl border border-neutral-900/60 max-h-48 overflow-y-auto space-y-1.5 scrollbar-thin scrollbar-thumb-neutral-800 scrollbar-track-transparent"
-                                  title={!canManageAssignments ? `Apenas o primeiro técnico responsável (${firstTech}) pode alterar as atribuiç├Áes.` : ""}
+                                  title={!canManageAssignments ? `Apenas o primeiro técnico responsável (${firstTech}) pode alterar as atribuições.` : ""}
                                 >
                                   {users
                                     .filter(u => u.role === "tecnico")
@@ -2971,7 +2991,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                                 {!canManageAssignments && (
                                   <div className="p-2 bg-amber-500/5 border border-amber-500/10 rounded-lg text-[10px] text-amber-500 leading-normal font-medium flex items-start gap-1.5">
                                     <Lock className="h-3 w-3 text-amber-500 shrink-0 mt-0.5" />
-                                    <span>Apenas o técnico inicialmente responsável (<strong>{firstTech}</strong>) pode gerenciar as atribuiç├Áes.</span>
+                                    <span>Apenas o técnico inicialmente responsável (<strong>{firstTech}</strong>) pode gerenciar as atribuições.</span>
                                   </div>
                                 )}
                               </>
@@ -3113,7 +3133,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                               .filter(u => u.role === "tecnico" && u.name !== currentSession.name)
                               .map(tech => (
                                 <option key={tech.id} value={tech.name}>
-                                  {tech.name} ({tech.department || "Suporte"}) {tech.isOnline ? "ÔÇó Online" : ""}
+                                  {tech.name} ({tech.department || "Suporte"}) {tech.isOnline ? "• Online" : ""}
                                 </option>
                               ))}
                           </select>
@@ -3124,7 +3144,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
                   {/* Action Button: Finalizar Chamado */}
                   <div className="p-4 bg-black border border-emerald-950/20 rounded-xl space-y-2">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Aç├Áes Disponíveis</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Ações Disponíveis</span>
                     
                     {isAssignedToOther && (
                       <div className="p-2.5 bg-amber-500/5 border border-amber-500/15 rounded-lg text-[10px] text-amber-400 leading-normal font-medium flex items-center gap-2 mb-2">
@@ -3425,7 +3445,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                 <AlertCircle className="h-10 w-10 text-emerald-400 mx-auto" />
                 <div>
                   <h4 className="text-sm font-bold text-slate-300">Nenhum chamado selecionado</h4>
-                  <p className="text-xs mt-1">Selecione qualquer ticket na fila da prioridade ao lado para verificar os detalhes, histórico de conversas, e recomendaç├Áes em tempo real geradas por IA.</p>
+                  <p className="text-xs mt-1">Selecione qualquer ticket na fila da prioridade ao lado para verificar os detalhes, histórico de conversas, e recomendações em tempo real geradas por IA.</p>
                 </div>
               </div>
             )}
@@ -3731,7 +3751,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                       </span>
                     )}
                   </h3>
-                  <p className="text-[10px] text-slate-400">{selectedTechProfile.email} ÔÇó {selectedTechProfile.department}</p>
+                  <p className="text-[10px] text-slate-400">{selectedTechProfile.email} • {selectedTechProfile.department}</p>
                 </div>
               </div>
               <button
@@ -3970,7 +3990,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
             })()}
 
             <div className="p-4 border-t border-neutral-900 bg-black/30 text-center text-[10px] text-slate-500">
-              Clique em qualquer chamado para visualizar o histórico de soluç├Áes.
+              Clique em qualquer chamado para visualizar o histórico de soluções.
             </div>
 
           </div>
