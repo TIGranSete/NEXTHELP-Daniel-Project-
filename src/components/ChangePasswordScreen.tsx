@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { UserSession } from "../types";
+import { changeUserPassword } from "../lib/supabase-client-db";
 import { 
   Lock, 
   CheckCircle2, 
@@ -10,8 +11,7 @@ import {
   Eye,
   EyeOff
 } from "lucide-react";
-import { changeUserPassword } from "../lib/supabase-client-db";
-import loginBg from "../assets/images/WALLPAPER GRAN7 4.png";
+import loginBg from "../assets/images/WALLPAPER GRAN7 4.jpg";
 import logoImg from "../assets/images/7.png";
 
 interface ChangePasswordScreenProps {
@@ -55,7 +55,6 @@ export default function ChangePasswordScreen({ session, onPasswordChanged, onLog
 
     try {
       const isSuccess = await changeUserPassword(session.email, newPassword);
-
       if (isSuccess) {
         setSuccess(true);
         // Wait a moment so the user sees the success state
@@ -66,11 +65,11 @@ export default function ChangePasswordScreen({ session, onPasswordChanged, onLog
           });
         }, 2000);
       } else {
-        setError("Ocorreu um erro ao salvar a nova senha no banco de dados.");
+        setError("Erro ao salvar sua nova senha no banco de dados.");
       }
     } catch (err: any) {
       console.error("Erro ao alterar senha:", err);
-      setError(`Erro ao salvar nova senha: ${err.message || err}`);
+      setError(err.message || "Erro ao salvar sua nova senha.");
     } finally {
       setLoading(false);
     }

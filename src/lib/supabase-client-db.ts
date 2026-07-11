@@ -266,7 +266,9 @@ export async function getTickets(): Promise<Ticket[]> {
   const client = getSupabaseClient();
   if (client) {
     try {
-      const { data, error } = await client.from("tickets").select("*");
+      const { data, error } = await client
+        .from("tickets")
+        .select("id, title, description, category, priority, status, requester_name, requester_department, assigned_to, created_at, updated_at, sla_limit, ai_category, ai_priority, ai_reasoning, ai_suggestions, comments");
       if (!error && data) {
         const mapped = data.map(mapTicketFromSupabase);
         saveLocalTickets(mapped); // update local cache
@@ -329,7 +331,7 @@ export async function getUsers(): Promise<User[]> {
   const client = getSupabaseClient();
   if (client) {
     try {
-      const { data, error } = await client.from("users").select("*");
+      const { data, error } = await client.from("users").select("id, name, email, password, department, role");
       if (!error && data) {
         const mapped = data.map(mapUserFromSupabase);
         saveLocalUsers(mapped);
@@ -404,7 +406,7 @@ export async function authenticateUser(email: string, pass: string): Promise<Use
     try {
       const { data: dbUser, error } = await client
         .from("users")
-        .select("*")
+        .select("id, name, email, password, department, role")
         .eq("email", emailLower)
         .maybeSingle();
 
@@ -419,7 +421,7 @@ export async function authenticateUser(email: string, pass: string): Promise<Use
             department: dbUser.department,
             role: dbUser.role as "colaborador" | "tecnico",
             email: dbUser.email,
-            mustChangePassword: dbUser.must_change_password === true
+            mustChangePassword: (dbUser as any).must_change_password === true
           };
         } else {
           throw new Error("Senha de acesso incorreta.");

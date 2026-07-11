@@ -27,6 +27,8 @@
 
 html, body {
   scroll-behavior: smooth;
+  background-color: #030303;
+  color: #f1f5f9;
 }
 
 /* Ensure smooth scrolling and momentum scroll for all containers with overflow */
@@ -67,5 +69,14 @@ html, body {
 
 .neon-glow-text {
   text-shadow: 0 0 10px rgba(0, 255, 85, 0.35);
+}
+
+@keyframes loading-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+.animate-loading-slide {
+  animation: loading-slide 1.5s infinite ease-in-out;
 }
 

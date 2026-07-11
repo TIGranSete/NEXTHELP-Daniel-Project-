@@ -1,17 +1,17 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { UserSession, User } from "../types";
+import { authenticateUser } from "../lib/supabase-client-db";
 import { 
   Shield, 
   Lock, 
   Mail, 
   ArrowRight, 
   AlertCircle, 
-  RefreshCw
+  RefreshCw,
+  Database
 } from "lucide-react";
-import loginBg from "../assets/images/WALLPAPER GRAN7 4.png";
+import loginBg from "../assets/images/WALLPAPER GRAN7 4.jpg";
 import logoImg from "../assets/images/7.png";
-
-import { authenticateUser } from "../lib/supabase-client-db";
 
 interface LoginScreenProps {
   users: User[];
@@ -20,6 +20,293 @@ interface LoginScreenProps {
 
 export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps) {
   // Login fields
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let animationFrameId: number;
+    let width = canvas.width = window.innerWidth || 800;
+    let height = canvas.height = window.innerHeight || 600;
+
+    const handleResize = () => {
+      if (!canvas) return;
+      width = canvas.width = window.innerWidth || 800;
+      height = canvas.height = window.innerHeight || 600;
+      initPhysiologySystem();
+    };
+    window.addEventListener("resize", handleResize);
+
+    // 1. Corporate Plant Cells (Hexagonal/Parenchyma Network) & Physiology Nodes
+    interface BioNode {
+      x: number;
+      y: number;
+      baseX: number;
+      baseY: number;
+      radius: number;
+      pulse: number;
+      pulseSpeed: number;
+      label?: string;
+      colorType: "emerald" | "amber" | "sky" | "white";
+    }
+
+    interface BioLink {
+      source: number;
+      target: number;
+      activePulse: number;
+      pulseSpeed: number;
+    }
+
+    interface MicroParticle {
+      x: number;
+      y: number;
+      vx: number;
+      vy: number;
+      radius: number;
+      colorType: "emerald" | "amber" | "sky" | "white";
+      alpha: number;
+      phase: number;
+    }
+
+    const cellNodes: BioNode[] = [];
+    const cellLinks: BioLink[] = [];
+    const microParticles: MicroParticle[] = [];
+
+    // Initialize clean, high-end abstract vascular nodes
+    const initPhysiologySystem = () => {
+      try {
+        cellNodes.length = 0;
+        cellLinks.length = 0;
+        microParticles.length = 0;
+
+        const cols = 6;
+        const rows = 5;
+        const safeWidth = width > 0 ? width : 800;
+        const safeHeight = height > 0 ? height : 600;
+        const spacingX = safeWidth / (cols + 1);
+        const spacingY = safeHeight / (rows + 1);
+
+        // Create highly-structured plant tissue nodes
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            const organicOffset = (r % 2 === 0 ? spacingX * 0.2 : -spacingX * 0.2);
+            const x = (c + 1) * spacingX + organicOffset + (Math.random() - 0.5) * 10;
+            const y = (r + 1) * spacingY + (Math.random() - 0.5) * 10;
+
+            // Technical nutrient abbreviations for faint high-tech overlay
+            let label: string | undefined;
+            let colorType: "emerald" | "amber" | "sky" | "white" = "emerald";
+
+            if ((r + c) % 4 === 0) {
+              const labels = ["N", "P", "K", "Mg", "Ca", "Fe", "H₂O", "CO₂", "ATP"];
+              label = labels[(r + c) % labels.length];
+              if (label === "ATP" || label === "P") colorType = "amber";
+              else if (label === "H₂O" || label === "Ca") colorType = "sky";
+              else if (label === "Fe") colorType = "white";
+            }
+
+            cellNodes.push({
+              x,
+              y,
+              baseX: x,
+              baseY: y,
+              radius: Math.random() * 1.5 + 1.2,
+              pulse: Math.random() * Math.PI * 2,
+              pulseSpeed: 0.005 + Math.random() * 0.008,
+              label,
+              colorType,
+            });
+          }
+        }
+
+        // Create links mimicking intercellular channels / vascular connectivity
+        for (let i = 0; i < cellNodes.length; i++) {
+          const nodeA = cellNodes[i];
+          const distances = cellNodes
+            .map((nodeB, idx) => ({ idx, dist: Math.hypot(nodeA.x - nodeB.x, nodeA.y - nodeB.y) }))
+            .filter(item => item.idx !== i)
+            .sort((a, b) => a.dist - b.dist)
+            .slice(0, 2); // Connect to 2 closest nodes for a cleaner network
+
+          distances.forEach(({ idx }) => {
+            if (i < idx) {
+              cellLinks.push({
+                source: i,
+                target: idx,
+                activePulse: Math.random(),
+                pulseSpeed: 0.001 + Math.random() * 0.003,
+              });
+            }
+          });
+        }
+
+        // Add elegant, floating micro mineral-nutrients
+        const types: ("emerald" | "amber" | "sky" | "white")[] = ["emerald", "amber", "sky", "white"];
+        for (let i = 0; i < 30; i++) {
+          microParticles.push({
+            x: Math.random() * safeWidth,
+            y: Math.random() * safeHeight,
+            vx: (Math.random() - 0.5) * 0.15,
+            vy: (Math.random() - 0.5) * 0.15,
+            radius: Math.random() * 1.2 + 0.8,
+            colorType: types[i % types.length],
+            alpha: 0.2 + Math.random() * 0.4,
+            phase: Math.random() * Math.PI * 2,
+          });
+        }
+      } catch (err) {
+        console.error("Error initializing physiology wallpaper:", err);
+      }
+    };
+
+    initPhysiologySystem();
+
+    const getColorStr = (type: "emerald" | "amber" | "sky" | "white", alpha: number) => {
+      const a = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
+      if (type === "emerald") return `rgba(16, 185, 129, ${a})`;
+      if (type === "amber") return `rgba(245, 158, 11, ${a})`;
+      if (type === "sky") return `rgba(56, 189, 248, ${a})`;
+      return `rgba(226, 232, 240, ${a})`;
+    };
+
+    const render = () => {
+      try {
+        ctx.clearRect(0, 0, width, height);
+
+        // Deep biological ambient light (photosynthetic energy aura)
+        const safeWidth = width > 0 ? width : 800;
+        const safeHeight = height > 0 ? height : 600;
+        const radGradRadius = Math.max(safeWidth, safeHeight) * 0.8;
+        if (radGradRadius > 0) {
+          const gradBg = ctx.createRadialGradient(
+            safeWidth * 0.5,
+            safeHeight * 0.5,
+            10,
+            safeWidth * 0.5,
+            safeHeight * 0.5,
+            radGradRadius
+          );
+          gradBg.addColorStop(0, "rgba(4, 47, 31, 0.15)"); // Deep emerald green glow
+          gradBg.addColorStop(0.6, "rgba(2, 15, 10, 0.05)"); // Dark teal
+          gradBg.addColorStop(1, "rgba(0, 0, 0, 0)");
+          ctx.fillStyle = gradBg;
+          ctx.fillRect(0, 0, safeWidth, safeHeight);
+        }
+
+        // 1. Draw cellular connections (Plant Cell Walls & Vascular bundles)
+        ctx.strokeStyle = "rgba(16, 185, 129, 0.05)";
+        ctx.lineWidth = 1;
+        cellLinks.forEach((link) => {
+          const s = cellNodes[link.source];
+          const t = cellNodes[link.target];
+          if (!s || !t) return;
+
+          ctx.beginPath();
+          ctx.moveTo(s.x, s.y);
+          ctx.lineTo(t.x, t.y);
+          ctx.stroke();
+
+          // Active sap/nutrient flow pulse along the cellular pathways
+          link.activePulse += link.pulseSpeed;
+          if (link.activePulse > 1) link.activePulse = 0;
+
+          const pulseX = s.x + (t.x - s.x) * link.activePulse;
+          const pulseY = s.y + (t.y - s.y) * link.activePulse;
+
+          ctx.beginPath();
+          ctx.arc(pulseX, pulseY, 1.2, 0, Math.PI * 2);
+          ctx.fillStyle = getColorStr(s.colorType, 0.3);
+          ctx.fill();
+        });
+
+        // 2. Draw Tissue Nodes & Subtle High-tech labels
+        cellNodes.forEach((node) => {
+          node.pulse += node.pulseSpeed;
+          // Slow sway mimicking cell sap circulation
+          const swayX = Math.sin(node.pulse) * 3;
+          const swayY = Math.cos(node.pulse) * 3;
+          node.x = node.baseX + swayX;
+          node.y = node.baseY + swayY;
+
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
+          ctx.fillStyle = getColorStr(node.colorType, 0.12);
+          ctx.fill();
+
+          // Core dot of active metabolism
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, 0.7, 0, Math.PI * 2);
+          ctx.fillStyle = getColorStr(node.colorType, 0.35);
+          ctx.fill();
+
+          // Technical monospace label overlays for corporate telemetry feel
+          if (node.label) {
+            ctx.font = `500 8px "JetBrains Mono", monospace`;
+            ctx.fillStyle = getColorStr(node.colorType, 0.25);
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(`[${node.label}]`, node.x, node.y - 7);
+          }
+        });
+
+        // 3. Draw Floating Micro-particles (Nutrients, Water, minerals)
+        microParticles.forEach((p) => {
+          p.x += p.vx;
+          p.y += p.vy;
+
+          // Wrap boundaries
+          if (p.x < 0) p.x = safeWidth;
+          if (p.x > safeWidth) p.x = 0;
+          if (p.y < 0) p.y = safeHeight;
+          if (p.y > safeHeight) p.y = 0;
+
+          p.phase += 0.008;
+          const currentAlpha = p.alpha * (0.6 + Math.sin(p.phase) * 0.4);
+
+          // Ambient micro glow
+          const glowRadius = p.radius * 3;
+          if (glowRadius > 0) {
+            const glowGrad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowRadius);
+            glowGrad.addColorStop(0, getColorStr(p.colorType, currentAlpha * 0.25));
+            glowGrad.addColorStop(1, "rgba(0,0,0,0)");
+            ctx.fillStyle = glowGrad;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, glowRadius, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          // Precise micro core
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.radius * 0.7, 0, Math.PI * 2);
+          ctx.fillStyle = getColorStr(p.colorType, currentAlpha * 0.6);
+          ctx.fill();
+        });
+
+        // Sunlight / Photosynthesis corporate linear beam overlay
+        const beamGrad = ctx.createLinearGradient(0, 0, safeWidth, safeHeight);
+        beamGrad.addColorStop(0, "rgba(16, 185, 129, 0.015)"); // Mint green energy
+        beamGrad.addColorStop(0.4, "rgba(245, 158, 11, 0.008)"); // Golden micro-beam
+        beamGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
+        ctx.fillStyle = beamGrad;
+        ctx.fillRect(0, 0, safeWidth, safeHeight);
+      } catch (err) {
+        console.error("Error drawing biology wallpaper frame:", err);
+      }
+
+      animationFrameId = requestAnimationFrame(render);
+    };
+
+    render();
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, []);
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
@@ -57,6 +344,12 @@ export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps)
       
       {/* Background overlay mask for enhanced text contrast */}
       <div className="absolute inset-0 bg-black/75 z-0 pointer-events-none"></div>
+
+      {/* Animated plant nutrition and physiology canvas wallpaper */}
+      <canvas 
+        ref={canvasRef} 
+        className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none opacity-60"
+      />
 
       <div className="w-full max-w-md space-y-6 z-10 animate-in fade-in duration-500">
         

@@ -1,8 +1,6 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { Ticket, Comment, UserSession, UserRole, User } from "./types";
-import SlaAnalytics from "./components/SlaAnalytics";
-import LoginScreen from "./components/LoginScreen";
-import ChangePasswordScreen from "./components/ChangePasswordScreen";
 import {
   getTickets,
   saveTicket,
@@ -13,6 +11,9 @@ import {
   triageWithGemini,
   isSupabaseConfigured
 } from "./lib/supabase-client-db";
+import SlaAnalytics from "./components/SlaAnalytics";
+import LoginScreen from "./components/LoginScreen";
+import ChangePasswordScreen from "./components/ChangePasswordScreen";
 import WindowsDatePicker from "./components/WindowsDatePicker";
 import PlantationBackground from "./components/PlantationBackground";
 import logoImg from "./assets/images/7.png";
@@ -54,10 +55,22 @@ import {
   Check,
   Terminal,
   Columns,
-  Settings
+  Briefcase,
+  FolderKanban
 } from "lucide-react";
 
 const USER_PROFILES: UserSession[] = [];
+
+export function getAssignedTechs(assignedToStr: string | null): string[] {
+  if (!assignedToStr) return [];
+  return assignedToStr.split(",").map(s => s.trim()).filter(Boolean);
+}
+
+export function getFirstAssignedTech(ticket: any): string | null {
+  if (ticket.firstAssignedTo) return ticket.firstAssignedTo;
+  const techs = getAssignedTechs(ticket.assignedTo);
+  return techs[0] || null;
+}
 
 function formatDurationText(ms: number): string {
   if (ms < 0) ms = 0;
@@ -147,7 +160,7 @@ export default function App() {
   });
   
   // Navigation tabs (Only available for IT team)
-  const [activeTab, setActiveTab] = useState<"painel" | "sla" | "colaboradores" | "banco_dados">("painel");
+  const [activeTab, setActiveTab] = useState<"painel" | "projetos" | "sla" | "colaboradores" | "banco_dados">("painel");
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
   const [modulesCollapsed, setModulesCollapsed] = useState<boolean>(false);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState<boolean>(false);
@@ -168,6 +181,43 @@ export default function App() {
   const [isPolling, setIsPolling] = useState<boolean>(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [logoError, setLogoError] = useState<boolean>(false);
+  const [showPreloader, setShowPreloader] = useState<boolean>(true);
+  const [preloaderFadeOut, setPreloaderFadeOut] = useState<boolean>(false);
+  const [preloaderProgress, setPreloaderProgress] = useState<number>(0);
+
+  useEffect(() => {
+    let currentProgress = 0;
+    const interval = setInterval(() => {
+      if (currentProgress < 30) {
+        currentProgress += Math.floor(Math.random() * 8) + 4; // faster initially
+      } else if (currentProgress < 70) {
+        currentProgress += Math.floor(Math.random() * 6) + 2;
+      } else if (currentProgress < 95) {
+        currentProgress += Math.floor(Math.random() * 3) + 1; // slow down near completion
+      } else if (currentProgress < 100) {
+        currentProgress += 1;
+      } else {
+        clearInterval(interval);
+      }
+      setPreloaderProgress(Math.min(currentProgress, 100));
+    }, 45);
+
+    // Start fade transition after 2.1 seconds (giving ample time for progress bar to finish)
+    const fadeTimer = setTimeout(() => {
+      setPreloaderFadeOut(true);
+    }, 2100);
+
+    // Completely unmount the preloader after 2.6 seconds (giving 500ms for transition)
+    const unmountTimer = setTimeout(() => {
+      setShowPreloader(false);
+    }, 2600);
+
+    return () => {
+      clearInterval(interval);
+      clearTimeout(fadeTimer);
+      clearTimeout(unmountTimer);
+    };
+  }, []);
   
   // Notifications states
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -222,6 +272,13 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [selectedPriority, setSelectedPriority] = useState<string>("All");
   const [selectedStatus, setSelectedStatus] = useState<string>("Active");
+
+  // Collaborators Filter/Search/Sort states
+  const [colabSearchTerm, setColabSearchTerm] = useState<string>("");
+  const [colabSectorFilter, setColabSectorFilter] = useState<string>("All");
+  const [colabRoleFilter, setColabRoleFilter] = useState<string>("All");
+  const [colabStatusFilter, setColabStatusFilter] = useState<string>("All");
+  const [colabSortBy, setColabSortBy] = useState<string>("name");
   
   // Creation state (tickets)
   const [isNewTicketModalOpen, setIsNewTicketModalOpen] = useState<boolean>(false);
@@ -232,6 +289,8 @@ export default function App() {
     screenshot: "",
     projectDeadline: ""
   });
+  const [selectedRequesterName, setSelectedRequesterName] = useState<string>("");
+  const [selectedRequesterDepartment, setSelectedRequesterDepartment] = useState<string>("");
 
   // User opened tickets modal state
   const [isMyTicketsModalOpen, setIsMyTicketsModalOpen] = useState<boolean>(false);
@@ -256,6 +315,14 @@ export default function App() {
   const [isSubmittingUser, setIsSubmittingUser] = useState<boolean>(false);
   const [userFormError, setUserFormError] = useState<string>("");
   const [userFormSuccess, setUserFormSuccess] = useState<string>("");
+
+  // Initialize requester name and department when opening modal
+  useEffect(() => {
+    if (isNewTicketModalOpen && currentSession) {
+      setSelectedRequesterName(currentSession.name);
+      setSelectedRequesterDepartment(currentSession.department);
+    }
+  }, [isNewTicketModalOpen, currentSession]);
 
   // Fetch tickets helper
   const fetchTickets = async (showQuietly = false) => {
@@ -370,6 +437,16 @@ CREATE TABLE IF NOT EXISTS public.tickets (
     }
   }, [currentSession]);
 
+  // Force non-technicians to stay on the main tickets queue ('painel')
+  useEffect(() => {
+    if (currentSession && currentSession.role !== "tecnico") {
+      if (activeTab !== "painel") {
+        setActiveTab("painel");
+      }
+    }
+  }, [currentSession, activeTab]);
+
+  // Poll tickets and users every 15 seconds for real-time fidelity with low egress overhead
   // Poll tickets and users every 15 seconds for real-time fidelity
   useEffect(() => {
     fetchTickets();
@@ -582,8 +659,8 @@ CREATE TABLE IF NOT EXISTS public.tickets (
     if (!currentSession || currentSession.role !== "tecnico") return;
     
     const targetTicket = tickets.find(t => t.id === ticketId);
-    if (!targetTicket || targetTicket.assignedTo !== currentSession.name) {
-      alert("Apenas o técnico responsável por este chamado pode excluí-lo.");
+    if (!targetTicket || !getAssignedTechs(targetTicket.assignedTo).includes(currentSession.name)) {
+      alert("Apenas um dos técnicos responsáveis por este chamado pode excluí-lo.");
       return;
     }
     
@@ -637,8 +714,8 @@ CREATE TABLE IF NOT EXISTS public.tickets (
         category: triage.category as Ticket["category"],
         priority: triage.priority as Ticket["priority"],
         status: "Aberto",
-        requesterName: currentSession.name,
-        requesterDepartment: currentSession.department,
+        requesterName: (currentSession.role === "tecnico" && selectedRequesterName) ? selectedRequesterName : currentSession.name,
+        requesterDepartment: (currentSession.role === "tecnico" && selectedRequesterDepartment) ? selectedRequesterDepartment : currentSession.department,
         assignedTo: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -825,7 +902,9 @@ CREATE TABLE IF NOT EXISTS public.tickets (
         authorName: currentSession.name,
         authorRole: currentSession.role,
         content: newCommentText.trim() || `[Anexo: ${commentAttachmentName || 'Documento/Imagem'}]`,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        attachmentUrl: commentAttachment || undefined,
+        attachmentName: commentAttachmentName || undefined
       };
 
       const updatedTicket: Ticket = {
@@ -848,78 +927,251 @@ CREATE TABLE IF NOT EXISTS public.tickets (
     }
   };
 
+  let statusText = "Inicializando sistemas...";
+  let StatusIcon = Terminal;
+  if (preloaderProgress < 25) {
+    statusText = "Conectando ao banco de dados Supabase...";
+    StatusIcon = Database;
+  } else if (preloaderProgress < 50) {
+    statusText = "Carregando módulos de atendimento...";
+    StatusIcon = Cpu;
+  } else if (preloaderProgress < 75) {
+    statusText = "Sincronizando fila de chamados...";
+    StatusIcon = Layers;
+  } else if (preloaderProgress < 95) {
+    statusText = "Verificando conex├Áes de segurança SSL...";
+    StatusIcon = Lock;
+  } else {
+    statusText = "Pronto para iniciar!";
+    StatusIcon = CheckCircle;
+  }
+
+  const preloaderJSX = showPreloader ? (
+    <div
+      className={`fixed inset-0 z-[9999] bg-[#030303] flex flex-col items-center justify-center font-sans overflow-hidden transition-all duration-700 ease-in-out ${
+        preloaderFadeOut ? "opacity-0 scale-105 pointer-events-none" : "opacity-100 scale-100"
+      }`}
+    >
+      {/* Subtle high-tech background grid overlay */}
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(16,185,129,0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgba(16,185,129,0.03)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none" />
+
+      {/* Ambient glowing blobs */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-emerald-500/[0.03] rounded-full blur-[130px] pointer-events-none" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-emerald-400/[0.04] rounded-full blur-[80px] pointer-events-none" />
+
+      {/* Main Glassmorphic Card */}
+      <div className="relative z-10 max-w-sm w-full mx-4 border border-emerald-500/10 bg-neutral-950/50 backdrop-blur-md rounded-3xl p-8 shadow-[0_0_80px_rgba(16,185,129,0.05),inset_0_1px_1px_rgba(255,255,255,0.05)] text-center flex flex-col items-center gap-7 overflow-hidden">
+        {/* Futuristic HUD corner brackets */}
+        <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-emerald-500/30" />
+        <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-emerald-500/30" />
+        <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-emerald-500/30" />
+        <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-emerald-500/30" />
+
+        {/* Top HUD Tag */}
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/20 border border-emerald-500/10 text-[8px] font-mono font-bold tracking-wider text-emerald-400 uppercase">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span>SISTEMA ATIVO // SECURE GATEWAY</span>
+        </div>
+
+        {/* Logo Area with dynamic rings */}
+        <div className="relative w-28 h-28 flex items-center justify-center mt-2">
+          {/* Dashed outer spinner */}
+          <div className="absolute inset-0 rounded-full border border-dashed border-emerald-500/20 animate-[spin_12s_linear_infinite]" />
+          {/* Glowing ring */}
+          <div className="absolute -inset-1 rounded-full border border-emerald-500/10 animate-pulse-slow" />
+          {/* Pulse flare */}
+          <div className="absolute -inset-2 rounded-full border border-emerald-400/5 animate-ping [animation-duration:4s]" />
+          
+          {/* Deep glow underlogo */}
+          <div className="absolute inset-4 bg-emerald-500/10 rounded-full blur-xl" />
+
+          <img
+            src={logoImg}
+            alt="GRAN7"
+            className="w-16 h-16 object-contain relative z-10 filter drop-shadow-[0_0_12px_rgba(16,185,129,0.35)] transition-all duration-300"
+          />
+        </div>
+
+        {/* Text Area */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-center gap-1.5">
+            <span className="font-display font-black text-2xl tracking-tight text-white">GRAN</span>
+            <span className="font-display font-black text-2xl italic text-emerald-400 px-1 bg-emerald-500/10 rounded-md border border-emerald-500/20">7</span>
+            <span className="font-display font-light text-xl tracking-[0.2em] text-emerald-400/90 ml-1">HELP</span>
+          </div>
+          <p className="text-[10px] uppercase tracking-[0.25em] text-slate-500 font-extrabold">Help Desk inteligente corporativo</p>
+        </div>
+
+        {/* Detailed Progress Loading Section */}
+        <div className="w-full space-y-2 mt-2">
+          {/* Percentage & Status Label Row */}
+          <div className="flex justify-between items-center text-[10px] font-mono font-bold tracking-wider text-slate-400 px-0.5">
+            <div className="flex items-center gap-1.5 text-emerald-400/90">
+              <StatusIcon className="h-3.5 w-3.5 animate-pulse text-emerald-400" />
+              <span className="uppercase text-[9px] font-mono tracking-widest text-slate-400 truncate max-w-[200px]">
+                {statusText}
+              </span>
+            </div>
+            <span className="text-emerald-400 font-mono font-extrabold">{preloaderProgress}%</span>
+          </div>
+          {/* Progress Bar Container */}
+          <div className="w-full h-2 bg-neutral-950/80 rounded-full border border-neutral-900 overflow-hidden p-[1px]">
+            <div 
+              className="h-full bg-gradient-to-r from-emerald-500 to-emerald-300 rounded-full shadow-[0_0_12px_rgba(16,185,129,0.6)] transition-all duration-100 ease-out"
+              style={{ width: `${preloaderProgress}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Small HUD style metadata footer */}
+        <div className="flex items-center justify-between w-full border-t border-neutral-900/50 pt-4 text-[8px] font-mono text-slate-600 uppercase tracking-widest mt-1">
+          <span>SSL SECURE CONNECTION</span>
+          <span className="text-emerald-500/50 font-bold">READY v2.4.0</span>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   if (!currentSession) {
     return (
-      <LoginScreen 
-        users={users} 
-        onLoginSuccess={(session) => {
-          setCurrentSession(session);
-          localStorage.setItem("gran7_session", JSON.stringify(session));
-        }} 
-      />
+      <>
+        <LoginScreen 
+          users={users} 
+          onLoginSuccess={(session) => {
+            setCurrentSession(session);
+            localStorage.setItem("gran7_session", JSON.stringify(session));
+          }} 
+        />
+        {preloaderJSX}
+      </>
     );
   }
 
   if (currentSession.mustChangePassword) {
     return (
-      <ChangePasswordScreen
-        session={currentSession}
-        onPasswordChanged={(updatedSession) => {
-          setCurrentSession(updatedSession);
-          localStorage.setItem("gran7_session", JSON.stringify(updatedSession));
-        }}
-        onLogout={() => {
-          setCurrentSession(null);
-          localStorage.removeItem("gran7_session");
-        }}
-      />
+      <>
+        <ChangePasswordScreen
+          session={currentSession}
+          onPasswordChanged={(updatedSession) => {
+            setCurrentSession(updatedSession);
+            localStorage.setItem("gran7_session", JSON.stringify(updatedSession));
+          }}
+          onLogout={() => {
+            setCurrentSession(null);
+            localStorage.removeItem("gran7_session");
+          }}
+        />
+        {preloaderJSX}
+      </>
     );
   }
 
   // Selected ticket calculation
-  const selectedTicket = tickets.find(t => t.id === selectedTicketId) || null;
-  const isAssignedToOther = !!(selectedTicket && currentSession && currentSession.role === "tecnico" && selectedTicket.assignedTo && selectedTicket.assignedTo !== currentSession.name);
+  const selectedTicket = useMemo(() => {
+    return tickets.find(t => t.id === selectedTicketId) || null;
+  }, [tickets, selectedTicketId]);
+
+  const isAssignedToOther = useMemo(() => {
+    return !!(selectedTicket && currentSession && currentSession.role === "tecnico" && selectedTicket.assignedTo && !getAssignedTechs(selectedTicket.assignedTo).includes(currentSession.name));
+  }, [selectedTicket, currentSession]);
 
   // Role-based tickets filter: technicians see everything, collaborators only see their own tickets
-  const userVisibleTickets = tickets.filter(t => 
-    currentSession.role === "tecnico" || t.requesterName === currentSession.name
-  );
+  const userVisibleTickets = useMemo(() => {
+    if (!currentSession) return [];
+    return tickets.filter(t => 
+      currentSession.role === "tecnico" || t.requesterName === currentSession.name
+    );
+  }, [tickets, currentSession]);
+
+  // Helper function to check if a ticket/project is overdue
+  const isTicketOverdue = useCallback((t: Ticket) => {
+    if (t.status === "Resolvido" || t.status === "Fechado") return false;
+    if (t.projectDeadline) {
+      const deadlineDate = new Date(t.projectDeadline);
+      deadlineDate.setHours(23, 59, 59, 999);
+      return deadlineDate.getTime() < Date.now();
+    }
+    return new Date(t.slaLimit).getTime() < Date.now();
+  }, []);
 
   // Filtered tickets calculation
-  const filteredTickets = userVisibleTickets.filter(t => {
-    const matchesSearch = 
-      t.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      t.id.includes(searchTerm) ||
-      t.requesterName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (t.assignedTo && t.assignedTo.toLowerCase().includes(searchTerm.toLowerCase()));
-    
-    const matchesCategory = selectedCategory === "All" || t.category === selectedCategory;
-    const matchesPriority = selectedPriority === "All" || t.priority === selectedPriority;
-    const matchesStatus = 
-      selectedStatus === "All" || 
-      (selectedStatus === "Active" ? (t.status === "Aberto" || t.status === "Em Atendimento") : t.status === selectedStatus);
+  const filteredTickets = useMemo(() => {
+    return userVisibleTickets.filter(t => {
+      // Tab filtering: hide active projects from normal ticket queue and vice versa
+      if (activeTab === "painel") {
+        // "Fila de Chamados" hides active projects
+        if (t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado") {
+          return false;
+        }
+      } else if (activeTab === "projetos") {
+        // "Projetos em Andamento" shows only active projects
+        if (!t.projectDeadline || t.status === "Resolvido" || t.status === "Fechado") {
+          return false;
+        }
+      }
 
-    return matchesSearch && matchesCategory && matchesPriority && matchesStatus;
-  });
+      const matchesSearch = 
+        t.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        t.id.includes(searchTerm) ||
+        t.requesterName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (t.assignedTo && t.assignedTo.toLowerCase().includes(searchTerm.toLowerCase()));
+      
+      const matchesCategory = selectedCategory === "All" || t.category === selectedCategory;
+      const matchesPriority = selectedPriority === "All" || t.priority === selectedPriority;
+      const matchesStatus = 
+        selectedStatus === "All" || 
+        (selectedStatus === "Active" ? (t.status === "Aberto" || t.status === "Em Atendimento") : t.status === selectedStatus);
+
+      return matchesSearch && matchesCategory && matchesPriority && matchesStatus;
+    });
+  }, [userVisibleTickets, activeTab, searchTerm, selectedCategory, selectedPriority, selectedStatus]);
 
   // Operational metrics
   const totalTickets = userVisibleTickets.length;
-  const activeTickets = userVisibleTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado");
-  const resolvedTickets = userVisibleTickets.filter(t => t.status === "Resolvido" || t.status === "Fechado");
-  const criticalTickets = activeTickets.filter(t => t.priority === "Urgente" || t.priority === "Alta");
+  // Fila Ativa excludes active projects with long dates
+  const activeTickets = useMemo(() => {
+    return userVisibleTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado" && !t.projectDeadline);
+  }, [userVisibleTickets]);
+
+  const activeProjects = useMemo(() => {
+    return userVisibleTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado" && !!t.projectDeadline);
+  }, [userVisibleTickets]);
+
+  const resolvedTickets = useMemo(() => {
+    return userVisibleTickets.filter(t => t.status === "Resolvido" || t.status === "Fechado");
+  }, [userVisibleTickets]);
+
+  const criticalTickets = useMemo(() => {
+    return activeTickets.filter(t => t.priority === "Urgente" || t.priority === "Alta");
+  }, [activeTickets]);
   
-  // SLA Overdue count
-  const overdueTickets = activeTickets.filter(t => new Date(t.slaLimit).getTime() < Date.now());
-  const slaCompliance = totalTickets > 0 ? Math.round(((totalTickets - overdueTickets.length) / totalTickets) * 100) : 100;
+  // SLA Overdue count (includes standard overdue and projects that passed their deadline)
+  const allActiveTickets = useMemo(() => {
+    return userVisibleTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado");
+  }, [userVisibleTickets]);
+
+  const overdueTickets = useMemo(() => {
+    return allActiveTickets.filter(t => isTicketOverdue(t));
+  }, [allActiveTickets, isTicketOverdue]);
+
+  const slaCompliance = useMemo(() => {
+    return totalTickets > 0 ? Math.round(((totalTickets - overdueTickets.length) / totalTickets) * 100) : 100;
+  }, [totalTickets, overdueTickets]);
 
   // Category counts
-  const catStats = { Hardware: 0, Software: 0, Redes: 0, Acesso: 0, Sistemas: 0, Outros: 0 };
-  userVisibleTickets.forEach(t => { if (catStats[t.category] !== undefined) catStats[t.category]++; });
+  const catStats = useMemo(() => {
+    const stats = { Hardware: 0, Software: 0, Redes: 0, Acesso: 0, Sistemas: 0, Outros: 0 };
+    userVisibleTickets.forEach(t => { if (stats[t.category] !== undefined) stats[t.category]++; });
+    return stats;
+  }, [userVisibleTickets]);
 
   // Priority counts for quick indicators
-  const prioStats = { Urgente: 0, Alta: 0, Média: 0, Baixa: 0 };
-  userVisibleTickets.forEach(t => { if (prioStats[t.priority] !== undefined) prioStats[t.priority]++; });
+  const prioStats = useMemo(() => {
+    const stats = { Urgente: 0, Alta: 0, Média: 0, Baixa: 0 };
+    userVisibleTickets.forEach(t => { if (stats[t.priority] !== undefined) stats[t.priority]++; });
+    return stats;
+  }, [userVisibleTickets]);
 
   return (
     <div className="min-h-screen bg-black text-slate-100 flex flex-col md:flex-row font-sans relative">
@@ -999,9 +1251,9 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                   setIsMyTicketsModalOpen(true);
                 }}
                 className="w-10 h-10 rounded-full bg-neutral-950 border border-neutral-900 flex items-center justify-center text-xs font-bold text-emerald-400 hover:border-emerald-400/40 hover:bg-emerald-500/10 transition-all cursor-pointer shadow-md group relative"
-                title={`Ver chamados de ${currentSession.name}`}
+                title={`Ver chamados de ${currentSession?.name || ""}`}
               >
-                {currentSession.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
+                {(currentSession?.name || "User").split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
                 <span className="absolute -bottom-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-black"></span>
               </button>
 
@@ -1021,15 +1273,32 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                   <span className="absolute -top-1.5 -right-1.5 bg-emerald-500 text-black text-[8px] font-black h-4 w-4 rounded-full flex items-center justify-center scale-90 border border-black">{activeTickets.length}</span>
                 </button>
 
-                <button 
-                  onClick={() => setActiveTab("sla")}
-                  className={`p-2 bg-neutral-950/50 hover:bg-emerald-500/5 hover:border-emerald-500/30 rounded-xl border flex items-center justify-center transition-all cursor-pointer ${
-                    activeTab === "sla" ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400" : "border-neutral-900 text-slate-400"
-                  }`}
-                  title={`SLA Geral: ${slaCompliance}% (Clique para gerenciar)`}
-                >
-                  <Clock className="h-4 w-4" />
-                </button>
+                {currentSession?.role === "tecnico" && (
+                  <>
+                    <button 
+                      onClick={() => {
+                        setActiveTab("projetos");
+                      }}
+                      className={`p-2 bg-neutral-950/50 hover:bg-emerald-500/5 hover:border-emerald-500/30 rounded-xl border flex items-center justify-center transition-all cursor-pointer relative group ${
+                        activeTab === "projetos" ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400" : "border-neutral-900 text-slate-400"
+                      }`}
+                      title={`Projetos em Andamento: ${activeProjects.length} (Clique para filtrar)`}
+                    >
+                      <Briefcase className="h-4 w-4" />
+                      <span className="absolute -top-1.5 -right-1.5 bg-emerald-500 text-black text-[8px] font-black h-4 w-4 rounded-full flex items-center justify-center scale-90 border border-black">{activeProjects.length}</span>
+                    </button>
+
+                    <button 
+                      onClick={() => setActiveTab("sla")}
+                      className={`p-2 bg-neutral-950/50 hover:bg-emerald-500/5 hover:border-emerald-500/30 rounded-xl border flex items-center justify-center transition-all cursor-pointer ${
+                        activeTab === "sla" ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400" : "border-neutral-900 text-slate-400"
+                      }`}
+                      title={`SLA Geral: ${slaCompliance}% (Clique para gerenciar)`}
+                    >
+                      <Clock className="h-4 w-4" />
+                    </button>
+                  </>
+                )}
               </div>
 
               {/* Category mini dots */}
@@ -1084,14 +1353,14 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                 title="Clique para ver seus chamados"
               >
                 <div className="w-9 h-9 rounded-full bg-[#050505] border border-neutral-800 flex items-center justify-center text-sm font-bold text-emerald-400 group-hover:bg-emerald-400/10 group-hover:border-emerald-400/30 transition-all">
-                  {currentSession.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
+                  {(currentSession?.name || "User").split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
                 </div>
                 <div className="overflow-hidden flex-1">
                   <div className="flex items-center gap-1.5">
-                    <p className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors truncate">{currentSession.name}</p>
+                    <p className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors truncate">{currentSession?.name || ""}</p>
                     <Layers className="h-3 w-3 text-neutral-500 group-hover:text-emerald-400 transition-colors flex-shrink-0" />
                   </div>
-                  <p className="text-[10px] text-neutral-400 group-hover:text-neutral-300 transition-colors truncate">{currentSession.department}</p>
+                  <p className="text-[10px] text-neutral-400 group-hover:text-neutral-300 transition-colors truncate">{currentSession?.department || ""}</p>
                 </div>
                 <span className="text-[9px] text-neutral-500 group-hover:text-emerald-400 font-medium transition-colors pr-1">Ver</span>
               </div>
@@ -1129,34 +1398,53 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                 {currentSession.role === "tecnico" ? "Métricas Globais" : "Minhas Métricas"}
               </span>
               
-              <div className="grid grid-cols-2 gap-3">
+              <div className={`grid ${currentSession.role === "tecnico" ? "grid-cols-3" : "grid-cols-1"} gap-2`}>
                 <button
                   onClick={() => {
                     setActiveTab("painel");
                     setSelectedStatus("Active");
                   }}
-                  className={`p-3 rounded-xl border text-left transition-all hover:bg-emerald-500/5 hover:border-emerald-500/30 cursor-pointer ${
+                  className={`p-2.5 rounded-xl border text-left transition-all hover:bg-emerald-500/5 hover:border-emerald-500/30 cursor-pointer ${
                     activeTab === "painel" && selectedStatus === "Active" ? "border-emerald-500/40 bg-emerald-500/10" : "bg-black/50 border-neutral-900"
                   }`}
                   title="Filtrar por fila ativa"
                 >
-                  <p className="text-[10px] font-medium text-slate-500">
+                  <p className="text-[9px] font-medium text-slate-500 leading-tight">
                     {currentSession.role === "tecnico" ? "Fila Ativa" : "Meus Ativos"}
                   </p>
-                  <p className="text-xl font-bold text-white mt-1">{activeTickets.length}</p>
+                  <p className="text-lg font-bold text-white mt-1">{activeTickets.length}</p>
                 </button>
-                <button
-                  onClick={() => setActiveTab("sla")}
-                  className={`p-3 rounded-xl border text-left transition-all hover:bg-emerald-500/5 hover:border-emerald-500/30 cursor-pointer ${
-                    activeTab === "sla" ? "border-emerald-500/40 bg-emerald-500/10" : "bg-black/50 border-neutral-900"
-                  }`}
-                  title="Ver painel de SLA"
-                >
-                  <p className="text-[10px] font-medium text-slate-500">
-                    {currentSession.role === "tecnico" ? "SLA Geral" : "No Prazo"}
-                  </p>
-                  <p className={`text-xl font-bold mt-1 ${activeTab === "sla" ? "text-emerald-400" : "text-emerald-500"}`}>{slaCompliance}%</p>
-                </button>
+                
+                {currentSession.role === "tecnico" && (
+                  <>
+                    <button
+                      onClick={() => {
+                        setActiveTab("projetos");
+                      }}
+                      className={`p-2.5 rounded-xl border text-left transition-all hover:bg-emerald-500/5 hover:border-emerald-500/30 cursor-pointer ${
+                        activeTab === "projetos" ? "border-emerald-500/40 bg-emerald-500/10" : "bg-black/50 border-neutral-900"
+                      }`}
+                      title="Filtrar por projetos em andamento"
+                    >
+                      <p className="text-[9px] font-medium text-slate-500 leading-tight">
+                        Projetos
+                      </p>
+                      <p className="text-lg font-bold text-white mt-1">{activeProjects.length}</p>
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("sla")}
+                      className={`p-2.5 rounded-xl border text-left transition-all hover:bg-emerald-500/5 hover:border-emerald-500/30 cursor-pointer ${
+                        activeTab === "sla" ? "border-emerald-500/40 bg-emerald-500/10" : "bg-black/50 border-neutral-900"
+                      }`}
+                      title="Ver painel de SLA"
+                    >
+                      <p className="text-[9px] font-medium text-slate-500 leading-tight">
+                        SLA Geral
+                      </p>
+                      <p className={`text-lg font-bold mt-1 ${activeTab === "sla" ? "text-emerald-400" : "text-emerald-500"}`}>{slaCompliance}%</p>
+                    </button>
+                  </>
+                )}
               </div>
 
               {/* Quick Filter Counters list */}
@@ -1191,7 +1479,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
               <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
                 <span className="flex items-center gap-1">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  GRAN7 HELP Online
+                  GRAN7 HELP Online <span className="text-neutral-600 font-bold ml-0.5">v2.4.0</span>
                 </span>
                 {currentSession?.name?.toLowerCase() === "daniel kevin" && (
                   <span 
@@ -1213,14 +1501,14 @@ CREATE TABLE IF NOT EXISTS public.tickets (
       <main className="flex-1 p-4 md:p-6 flex flex-col gap-6 overflow-x-hidden">
         
         {/* Top Header Controls */}
-        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <header className="flex flex-col md:flex-row md:items-start justify-between gap-4">
           <div>
             <h2 className="text-xl md:text-2xl font-display font-extrabold text-white tracking-tight">
               {currentSession.role === "tecnico" ? "Central de Atendimento em Tempo Real" : "Meu Portal de Suporte"}
             </h2>
             <div className="flex items-center gap-2 text-xs text-slate-400 mt-1">
               <span>{currentSession.role === "tecnico" ? "GRAN7 HELP Monitoramento" : `Bem-vindo, ${currentSession.name}`}</span>
-              <span>•</span>
+              <span>ÔÇó</span>
               <div className="flex items-center gap-1 text-slate-300">
                 <RefreshCw className={`h-3 w-3 ${isPolling ? "animate-spin text-emerald-400" : ""}`} />
                 <span>Atualizado: {lastUpdated ? lastUpdated.toLocaleTimeString("pt-BR") : "--:--:--"}</span>
@@ -1228,9 +1516,10 @@ CREATE TABLE IF NOT EXISTS public.tickets (
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-col items-stretch md:items-end gap-2.5 shrink-0">
+            {/* First Row: Modules Navigation (Upper right corner) */}
             {currentSession.role === "tecnico" && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 justify-end w-full md:w-auto">
                 <button
                   onClick={() => setModulesCollapsed(!modulesCollapsed)}
                   className="p-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-850 border border-neutral-800 text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center h-9 shrink-0"
@@ -1244,27 +1533,33 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                 </button>
 
                 <div 
-                  className={`flex items-center overflow-hidden transition-all duration-300 ease-in-out bg-black rounded-xl shadow-sm ${
+                  className={`flex items-center transition-all duration-300 ease-in-out bg-black rounded-xl shadow-sm ${
                     modulesCollapsed 
-                      ? "max-w-0 opacity-0 border-transparent p-0 gap-0 pointer-events-none" 
-                      : "max-w-[650px] opacity-100 border border-neutral-900 p-1 gap-1"
+                      ? "max-w-0 opacity-0 border-transparent p-0 gap-0 pointer-events-none overflow-hidden" 
+                      : "max-w-full md:max-w-[1000px] opacity-100 border border-neutral-900 p-1 gap-1.5 overflow-x-auto scrollbar-none"
                   }`}
                 >
                   <button
                     onClick={() => setActiveTab("painel")}
-                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap ${activeTab === "painel" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
+                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${activeTab === "painel" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
                   >
                     Fila de Chamados
                   </button>
                   <button
+                    onClick={() => setActiveTab("projetos")}
+                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${activeTab === "projetos" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
+                  >
+                    Projetos em Andamento
+                  </button>
+                  <button
                     onClick={() => setActiveTab("sla")}
-                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap ${activeTab === "sla" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
+                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${activeTab === "sla" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
                   >
                     Análise de SLA
                   </button>
                   <button
                     onClick={() => setActiveTab("colaboradores")}
-                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap ${activeTab === "colaboradores" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
+                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${activeTab === "colaboradores" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
                   >
                     Gestão de Colaboradores
                   </button>
@@ -1274,7 +1569,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                         setActiveTab("banco_dados");
                         fetchDbStatus();
                       }}
-                      className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap ${activeTab === "banco_dados" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
+                      className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${activeTab === "banco_dados" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
                     >
                       Banco de Dados
                     </button>
@@ -1283,35 +1578,58 @@ CREATE TABLE IF NOT EXISTS public.tickets (
               </div>
             )}
 
-            {activeTab === "painel" && (
-              <button
-                onClick={() => setRightSidebarCollapsed(!rightSidebarCollapsed)}
-                className="w-full md:w-auto px-4 py-2.5 bg-neutral-900 hover:bg-neutral-850 border border-neutral-800 text-slate-400 hover:text-white rounded-xl transition-all duration-200 flex items-center justify-center gap-2 text-xs cursor-pointer h-10 shrink-0 font-medium"
-                title={rightSidebarCollapsed ? "Mostrar painel lateral direito" : "Esconder painel lateral direito"}
-              >
-                <Columns className={`h-4 w-4 ${rightSidebarCollapsed ? "text-emerald-400 animate-pulse" : ""}`} />
-                <span>{rightSidebarCollapsed ? "Mostrar Painel" : "Recolher Painel"}</span>
-              </button>
-            )}
+            {/* Second Row: Page Actions (Aligned nicely underneath) */}
+            <div className="flex items-center gap-2.5 justify-end w-full">
+              {(activeTab === "painel" || activeTab === "projetos") && (
+                <button
+                  onClick={() => setRightSidebarCollapsed(!rightSidebarCollapsed)}
+                  className="px-4 py-2 bg-neutral-900 hover:bg-neutral-850 border border-neutral-800 text-slate-400 hover:text-white rounded-xl transition-all duration-200 flex items-center justify-center gap-2 text-xs cursor-pointer h-9 shrink-0 font-medium"
+                  title={rightSidebarCollapsed ? "Mostrar painel lateral direito" : "Esconder painel lateral direito"}
+                >
+                  <Columns className={`h-4 w-4 ${rightSidebarCollapsed ? "text-emerald-400" : ""}`} />
+                  <span>{rightSidebarCollapsed ? "Mostrar Painel" : "Recolher Painel"}</span>
+                </button>
+              )}
 
-            {/* Create new ticket action button */}
-            <button
-              onClick={() => setIsNewTicketModalOpen(true)}
-              className="w-full md:w-auto px-4 py-2.5 bg-emerald-400 hover:bg-emerald-300 text-black font-extrabold rounded-xl transition-all duration-200 flex items-center justify-center gap-2 text-xs shadow-neon hover:shadow-neon-lg cursor-pointer"
-            >
-              <PlusCircle className="h-4 w-4" />
-              Abrir Novo Chamado
-            </button>
+              <button
+                onClick={() => setIsNewTicketModalOpen(true)}
+                className="px-4 py-2 bg-emerald-400 hover:bg-emerald-300 text-black font-extrabold rounded-xl transition-all duration-200 flex items-center justify-center gap-2 text-xs shadow-neon hover:shadow-neon-lg cursor-pointer h-9 shrink-0"
+              >
+                <PlusCircle className="h-4 w-4" />
+                <span>Abrir Novo Chamado</span>
+              </button>
+            </div>
           </div>
         </header>
 
         {/* Dynamic Bento Grid Layout */}
-        {activeTab === "sla" && currentSession.role === "tecnico" ? (
-          <div className="animate-in fade-in duration-300">
-            <SlaAnalytics tickets={tickets} />
-          </div>
-        ) : activeTab === "colaboradores" && currentSession.role === "tecnico" ? (
-          <div className="animate-in fade-in duration-300 grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+        <AnimatePresence mode="wait">
+          {activeTab === "sla" && currentSession.role === "tecnico" ? (
+            <motion.div
+              key="sla"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <SlaAnalytics 
+                tickets={tickets} 
+                users={users} 
+                onViewUserProfile={(user) => {
+                  setSelectedTechProfile(user);
+                  setIsTechProfileModalOpen(true);
+                }}
+              />
+            </motion.div>
+          ) : activeTab === "colaboradores" && currentSession.role === "tecnico" ? (
+            <motion.div
+              key="colaboradores"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+              className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start"
+            >
             
             {/* Top Stat row taking full width */}
             <div className="xl:col-span-12 grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1342,108 +1660,289 @@ CREATE TABLE IF NOT EXISTS public.tickets (
             <div className="xl:col-span-12 space-y-6">
               {/* Collaborators List Card */}
               <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl overflow-hidden shadow-lg">
-                <div className="p-5 border-b border-neutral-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-black/50">
-                  <div>
-                    <h3 className="font-display font-extrabold text-white text-sm">Diretório de Colaboradores</h3>
-                    <p className="text-[10px] text-slate-400">Visualização em tempo real das contas ativas</p>
-                  </div>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-500" />
-                    <input
-                      type="text"
-                      placeholder="Buscar por nome, email ou setor..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full sm:w-64 bg-black border border-neutral-900 rounded-xl py-1.5 pl-9 pr-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
-                    />
-                  </div>
-                </div>
+                {(() => {
+                  const allColabs = users.length > 0 ? users : USER_PROFILES;
+                  const colabDepartments = Array.from(new Set(
+                    allColabs.map(u => u.department).filter(Boolean)
+                  )).sort();
 
-                <div className="divide-y divide-neutral-900 max-h-[500px] overflow-y-auto">
-                  {(users.length > 0 ? users : USER_PROFILES).filter(u => {
-                    const term = searchTerm.toLowerCase();
-                    return u.name.toLowerCase().includes(term) || 
-                           (u.email && u.email.toLowerCase().includes(term)) || 
-                           u.department.toLowerCase().includes(term);
-                  }).length === 0 ? (
-                    <div className="p-8 text-center text-slate-500 text-xs">
-                      Nenhum colaborador ou técnico encontrado. Use o console do Supabase para inserir usuários!
-                    </div>
-                  ) : (
-                    (users.length > 0 ? users : USER_PROFILES)
-                      .filter(u => {
-                        const term = searchTerm.toLowerCase();
-                        return u.name.toLowerCase().includes(term) || 
-                               (u.email && u.email.toLowerCase().includes(term)) || 
-                               u.department.toLowerCase().includes(term);
-                      })
-                      .map((user, index) => {
-                        const isTech = user.role === "tecnico";
-                        const isOnline = !!(user.isOnline || (currentSession && (
-                          (user.email && currentSession.email && user.email.toLowerCase() === currentSession.email.toLowerCase()) ||
-                          (user.name && currentSession.name && user.name.toLowerCase() === currentSession.name.toLowerCase())
+                  // Pre-calculate ticket counts to avoid filtering full tickets array inside .sort comparator (O(N log N) -> O(N))
+                  const ticketsCreatedMap = new Map();
+                  const ticketsSolvedMap = new Map();
+                  
+                  tickets.forEach(t => {
+                    if (t.requesterName) {
+                      ticketsCreatedMap.set(t.requesterName, (ticketsCreatedMap.get(t.requesterName) || 0) + 1);
+                    }
+                    if (t.assignedTo && (t.status === "Resolvido" || t.status === "Fechado")) {
+                      const techs = getAssignedTechs(t.assignedTo);
+                      techs.forEach(tech => {
+                        ticketsSolvedMap.set(tech, (ticketsSolvedMap.get(tech) || 0) + 1);
+                      });
+                    }
+                  });
+
+                  const filteredAndSortedUsers = allColabs
+                    .filter(u => {
+                      // 1. Search filter
+                      const term = colabSearchTerm.toLowerCase();
+                      const matchesSearch = 
+                        u.name.toLowerCase().includes(term) || 
+                        (u.email && u.email.toLowerCase().includes(term)) || 
+                        (u.department && u.department.toLowerCase().includes(term));
+                      if (!matchesSearch) return false;
+
+                      // 2. Sector filter
+                      if (colabSectorFilter !== "All" && u.department !== colabSectorFilter) {
+                        return false;
+                      }
+
+                      // 3. Role filter
+                      if (colabRoleFilter !== "All") {
+                        const isTech = u.role === "tecnico";
+                        if (colabRoleFilter === "tecnico" && !isTech) return false;
+                        if (colabRoleFilter === "colaborador" && isTech) return false;
+                      }
+
+                      // 4. Online status filter
+                      const isOnline = !!(u.isOnline || (currentSession && (
+                        (u.email && currentSession.email && u.email.toLowerCase() === currentSession.email.toLowerCase()) ||
+                        (u.name && currentSession.name && u.name.toLowerCase() === currentSession.name.toLowerCase())
+                      )));
+                      if (colabStatusFilter !== "All") {
+                        if (colabStatusFilter === "online" && !isOnline) return false;
+                        if (colabStatusFilter === "offline" && isOnline) return false;
+                      }
+
+                      return true;
+                    })
+                    .sort((a, b) => {
+                      const aTicketsCreated = ticketsCreatedMap.get(a.name) || 0;
+                      const bTicketsCreated = ticketsCreatedMap.get(b.name) || 0;
+                      const aTicketsSolved = ticketsSolvedMap.get(a.name) || 0;
+                      const bTicketsSolved = ticketsSolvedMap.get(b.name) || 0;
+
+                      if (colabSortBy === "tickets_created") {
+                        return bTicketsCreated - aTicketsCreated; // Descending
+                      } else if (colabSortBy === "tickets_resolved") {
+                        return bTicketsSolved - aTicketsSolved; // Descending
+                      } else {
+                        // Default sort: online first, then alphabetical
+                        const aOnline = !!(a.isOnline || (currentSession && (
+                          (a.email && currentSession.email && a.email.toLowerCase() === currentSession.email.toLowerCase()) ||
+                          (a.name && currentSession.name && a.name.toLowerCase() === currentSession.name.toLowerCase())
                         )));
-                        return (
-                          <div
-                            key={user.id || index}
-                            onClick={() => {
-                              setSelectedTechProfile(user);
-                              setIsTechProfileModalOpen(true);
-                            }}
-                            className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#080808]/50 transition cursor-pointer group/tech"
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className="relative shrink-0">
-                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 group-hover/tech:border-emerald-400/40 transition`}>
-                                  {user.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
-                                </div>
-                                {isOnline ? (
-                                  <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-black animate-pulse" title="Ativo / Online"></span>
-                                ) : (
-                                  <span className="absolute bottom-0 right-0 w-3 h-3 bg-neutral-700 rounded-full border-2 border-black" title="Inativo"></span>
-                                )}
-                              </div>
-                              <div>
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-xs font-bold text-white group-hover/tech:text-emerald-400 transition-colors">{user.name}</span>
-                                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold bg-emerald-950/40 text-emerald-300 border border-emerald-500/20`}>
-                                    {isTech ? "TI" : "User"}
-                                  </span>
-                                  {isOnline && (
-                                    <span className="text-[8.5px] font-bold text-emerald-400 uppercase tracking-widest bg-emerald-500/10 border border-emerald-500/25 px-1 py-0.2 rounded">
-                                      Online
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-[10px] text-slate-400 mt-0.5">{user.email}</p>
-                              </div>
-                            </div>
+                        const bOnline = !!(b.isOnline || (currentSession && (
+                          (b.email && currentSession.email && b.email.toLowerCase() === currentSession.email.toLowerCase()) ||
+                          (b.name && currentSession.name && b.name.toLowerCase() === currentSession.name.toLowerCase())
+                        )));
+                        if (aOnline && !bOnline) return -1;
+                        if (!aOnline && bOnline) return 1;
+                        return a.name.localeCompare(b.name);
+                      }
+                    });
 
-                            <div className="flex items-center gap-4 text-right justify-between sm:justify-end w-full sm:w-auto">
-                              <div className="text-left sm:text-right">
-                                <span className="text-[10px] text-slate-500 block">Departamento</span>
-                                <span className="text-[11px] font-semibold text-slate-300">{user.department}</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <div className="bg-black border border-emerald-950/20 px-2.5 py-1 rounded-lg text-[11px] font-mono flex items-center gap-1.5 text-emerald-300">
-                                  <span className="text-slate-500">Acesso:</span>
-                                  <span className="text-white font-bold">{isTech ? "Técnico de TI" : "Colaborador"}</span>
-                                </div>
-                                <span className="text-[9px] font-bold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 px-2 py-1 rounded-lg transition-all group-hover/tech:shadow-neon-sm">
-                                  Ver Perfil
-                                </span>
-                              </div>
-                            </div>
+                  return (
+                    <>
+                      {/* Search & Advanced Filters Bar */}
+                      <div className="p-5 border-b border-neutral-900 bg-black/50 space-y-4">
+                        {/* Top Row: Title & Search */}
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                          <div>
+                            <h3 className="font-display font-extrabold text-white text-sm flex items-center gap-2">
+                              <Users className="h-4 w-4 text-emerald-400" />
+                              Diretório de Colaboradores
+                            </h3>
+                            <p className="text-[10px] text-slate-400">Visualização em tempo real das contas ativas e métricas de chamados</p>
                           </div>
-                        );
-                      })
-                  )}
-                </div>
+                          <div className="relative w-full md:w-80">
+                            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-500" />
+                            <input
+                              type="text"
+                              placeholder="Buscar por nome, email ou setor..."
+                              value={colabSearchTerm}
+                              onChange={(e) => setColabSearchTerm(e.target.value)}
+                              className="w-full bg-black border border-neutral-900 rounded-xl py-1.5 pl-9 pr-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Bottom Row: Quick filters dropdowns */}
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 pt-3 border-t border-neutral-900/40">
+                          {/* Sector Filter */}
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Setor / Departamento</label>
+                            <select
+                              value={colabSectorFilter}
+                              onChange={(e) => setColabSectorFilter(e.target.value)}
+                              className="bg-black border border-neutral-900 rounded-lg p-1.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
+                            >
+                              <option value="All">Todos os Setores</option>
+                              {colabDepartments.map(dept => (
+                                <option key={dept} value={dept}>{dept}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Role Filter */}
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Nível de Acesso</label>
+                            <select
+                              value={colabRoleFilter}
+                              onChange={(e) => setColabRoleFilter(e.target.value)}
+                              className="bg-black border border-neutral-900 rounded-lg p-1.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
+                            >
+                              <option value="All">Todos os Acessos</option>
+                              <option value="tecnico">Técnicos (TI)</option>
+                              <option value="colaborador">Colaboradores</option>
+                            </select>
+                          </div>
+
+                          {/* Connection Status Filter */}
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Status</label>
+                            <select
+                              value={colabStatusFilter}
+                              onChange={(e) => setColabStatusFilter(e.target.value)}
+                              className="bg-black border border-neutral-900 rounded-lg p-1.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
+                            >
+                              <option value="All">Todos os Status</option>
+                              <option value="online">Online</option>
+                              <option value="offline">Offline</option>
+                            </select>
+                          </div>
+
+                          {/* Sorting */}
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Ordenar por</label>
+                            <select
+                              value={colabSortBy}
+                              onChange={(e) => setColabSortBy(e.target.value)}
+                              className="bg-black border border-neutral-900 rounded-lg p-1.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
+                            >
+                              <option value="name">Nome (A-Z)</option>
+                              <option value="tickets_created">Mais Chamados Criados</option>
+                              <option value="tickets_resolved">Mais Chamados Resolvidos (TI)</option>
+                            </select>
+                          </div>
+
+                          {/* Reset Filters */}
+                          <div className="flex items-end">
+                            <button
+                              onClick={() => {
+                                setColabSearchTerm("");
+                                setColabSectorFilter("All");
+                                setColabRoleFilter("All");
+                                setColabStatusFilter("All");
+                                setColabSortBy("name");
+                              }}
+                              disabled={
+                                colabSearchTerm === "" &&
+                                colabSectorFilter === "All" &&
+                                colabRoleFilter === "All" &&
+                                colabStatusFilter === "All" &&
+                                colabSortBy === "name"
+                              }
+                              className="w-full h-[32px] bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-30 disabled:hover:bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:border-emerald-400/40 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
+                            >
+                              <Filter className="h-3.5 w-3.5" />
+                              Limpar Filtros
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="divide-y divide-neutral-900 max-h-[500px] overflow-y-auto">
+                        {filteredAndSortedUsers.length === 0 ? (
+                          <div className="p-8 text-center text-slate-500 text-xs">
+                            Nenhum colaborador ou técnico atende aos filtros aplicados.
+                          </div>
+                        ) : (
+                          filteredAndSortedUsers.map((user, index) => {
+                            const isTech = user.role === "tecnico";
+                            const isOnline = !!(user.isOnline || (currentSession && (
+                              (user.email && currentSession.email && user.email.toLowerCase() === currentSession.email.toLowerCase()) ||
+                              (user.name && currentSession.name && user.name.toLowerCase() === currentSession.name.toLowerCase())
+                            )));
+
+                            // Calculate ticket stats
+                            const uCreatedCount = tickets.filter(t => t.requesterName === user.name).length;
+                            const uActiveCount = tickets.filter(t => t.requesterName === user.name && t.status !== "Resolvido" && t.status !== "Fechado").length;
+                            const uResolvedCount = tickets.filter(t => getAssignedTechs(t.assignedTo).includes(user.name) && (t.status === "Resolvido" || t.status === "Fechado")).length;
+
+                            return (
+                              <div
+                                key={user.id || index}
+                                onClick={() => {
+                                  setSelectedTechProfile(user);
+                                  setIsTechProfileModalOpen(true);
+                                }}
+                                className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#080808]/50 transition cursor-pointer group/tech"
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className="relative shrink-0">
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 group-hover/tech:border-emerald-400/40 transition`}>
+                                      {user.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
+                                    </div>
+                                    {isOnline ? (
+                                      <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-black animate-pulse" title="Ativo / Online"></span>
+                                    ) : (
+                                      <span className="absolute bottom-0 right-0 w-3 h-3 bg-neutral-700 rounded-full border-2 border-black" title="Inativo"></span>
+                                    )}
+                                  </div>
+                                  <div>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="text-xs font-bold text-white group-hover/tech:text-emerald-400 transition-colors">{user.name}</span>
+                                      <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold bg-emerald-950/40 text-emerald-300 border border-emerald-500/20`}>
+                                        {isTech ? "TI" : "User"}
+                                      </span>
+                                      {isOnline && (
+                                        <span className="text-[8.5px] font-bold text-emerald-400 uppercase tracking-widest bg-emerald-500/10 border border-emerald-500/25 px-1 py-0.2 rounded">
+                                          Online
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex flex-col sm:flex-row sm:items-center gap-x-3 gap-y-1.5 mt-1">
+                                      <p className="text-[10px] text-slate-400">{user.email}</p>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-4 text-right justify-between sm:justify-end w-full sm:w-auto">
+                                  <div className="text-left sm:text-right">
+                                    <span className="text-[10px] text-slate-500 block">Departamento</span>
+                                    <span className="text-[11px] font-semibold text-slate-300">{user.department}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <div className="bg-black border border-emerald-950/20 px-2.5 py-1 rounded-lg text-[11px] font-mono flex items-center gap-1.5 text-emerald-300">
+                                      <span className="text-slate-500">Acesso:</span>
+                                      <span className="text-white font-bold">{isTech ? "Técnico de TI" : "Colaborador"}</span>
+                                    </div>
+                                    <span className="text-[9px] font-bold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 px-2 py-1 rounded-lg transition-all group-hover/tech:shadow-neon-sm">
+                                      Ver Perfil
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
-          </div>
+          </motion.div>
         ) : activeTab === "banco_dados" && currentSession?.name?.toLowerCase() === "daniel kevin" ? (
-          <div className="animate-in fade-in duration-300 space-y-6">
+          <motion.div
+            key="banco_dados"
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -15 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+            className="space-y-6"
+          >
             
             {/* Header / Intro banner */}
             <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-6 shadow-lg relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -1528,7 +2027,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                     disabled={dbChecking}
                     className="text-[10px] font-bold text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
                   >
-                    {dbChecking ? "Testando..." : "Testar Conexão →"}
+                    {dbChecking ? "Testando..." : "Testar Conexão ÔåÆ"}
                   </button>
                 </div>
               </div>
@@ -1567,7 +2066,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
                 <div className="bg-emerald-950/20 border border-emerald-500/10 p-2 rounded-lg text-[9px] text-emerald-400 flex items-start gap-1.5 mt-3 leading-snug">
                   <Shield className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                  <span>Segurança operacional máxima ativada. Suas operações são resilientes a falhas de API de terceiros.</span>
+                  <span>Segurança operacional máxima ativada. Suas operaç├Áes são resilientes a falhas de API de terceiros.</span>
                 </div>
               </div>
 
@@ -1594,7 +2093,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                     <span className="font-bold">A sincronização falhou</span>
                   </div>
                   <p className="text-[11px] text-rose-300/90 leading-relaxed pl-6">
-                    {syncDbError}. Certifique-se de que as tabelas existem no Supabase (use as instruções SQL abaixo para criá-las).
+                    {syncDbError}. Certifique-se de que as tabelas existem no Supabase (use as instruç├Áes SQL abaixo para criá-las).
                   </p>
                 </div>
               )}
@@ -1608,7 +2107,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                       <Upload className="h-5 w-5" />
                     </div>
                     <div>
-                      <h5 className="text-xs font-bold text-white uppercase tracking-wider">Exportar Local → Supabase (Push)</h5>
+                      <h5 className="text-xs font-bold text-white uppercase tracking-wider">Exportar Local ÔåÆ Supabase (Push)</h5>
                       <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
                         Envia todos os chamados e colaboradores salvos localmente para o banco de dados Supabase na nuvem. Use após configurar um novo banco ou resolver quedas de conexão.
                       </p>
@@ -1648,7 +2147,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                       <FileText className="h-5 w-5" />
                     </div>
                     <div>
-                      <h5 className="text-xs font-bold text-white uppercase tracking-wider">Importar Supabase → Local (Pull)</h5>
+                      <h5 className="text-xs font-bold text-white uppercase tracking-wider">Importar Supabase ÔåÆ Local (Pull)</h5>
                       <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
                         Puxa todos os chamados e colaboradores persistidos no Supabase e substitui o cache local do servidor. Ideal para inicializar novos ambientes ou baixar dados inseridos remotamente.
                       </p>
@@ -1696,7 +2195,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                     <Terminal className="h-4.5 w-4.5 text-emerald-400" />
                     <h4 className="text-xs font-bold text-white uppercase tracking-wider">Estrutura de Tabelas SQL do Supabase</h4>
                   </div>
-                  <p className="text-[11px] text-slate-400">Instruções e código SQL para criar a arquitetura de tabelas diretamente no Supabase.</p>
+                  <p className="text-[11px] text-slate-400">Instruç├Áes e código SQL para criar a arquitetura de tabelas diretamente no Supabase.</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -1746,9 +2245,16 @@ CREATE TABLE IF NOT EXISTS public.tickets (
               </div>
             </div>
 
-          </div>
+          </motion.div>
         ) : (
-          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+          <motion.div
+            key="painel"
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -15 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+            className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start"
+          >
           
           {/* LEFT SECTION (Col 7): Tickets List & Core Triage Panel */}
           <div className={`transition-all duration-300 space-y-6 ${rightSidebarCollapsed ? "xl:col-span-12" : "xl:col-span-7"}`}>
@@ -1798,7 +2304,9 @@ CREATE TABLE IF NOT EXISTS public.tickets (
               
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">Fila de Chamados</h3>
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                    {activeTab === "projetos" ? "Projetos em Andamento" : "Fila de Chamados"}
+                  </h3>
                   <span className="text-[10px] bg-black text-emerald-400 px-2 py-0.5 rounded border border-neutral-900 font-bold uppercase tracking-wide">
                     Real-Time
                   </span>
@@ -1935,11 +2443,11 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                           
                           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
                             <span>Solicitante: <strong className="text-slate-400">{ticket.requesterName}</strong> ({ticket.requesterDepartment.split(" / ")[0]})</span>
-                            <span>•</span>
+                            <span>ÔÇó</span>
                             <span>Aberto: {new Date(ticket.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} às {new Date(ticket.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
                             {ticket.projectDeadline && (
                               <>
-                                <span>•</span>
+                                <span>ÔÇó</span>
                                 <span className="flex items-center gap-1 text-emerald-400 font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 text-[10px]">
                                   <Calendar className="h-3 w-3" />
                                   Limite Projeto: {(() => {
@@ -1960,9 +2468,19 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                         <div className="flex md:flex-col items-center md:items-end justify-between md:justify-center shrink-0 border-t md:border-t-0 border-[#111] pt-2 md:pt-0 gap-2">
                           <div className="text-right">
                             <p className="text-[10px] text-slate-500 font-bold uppercase">Atribuído a</p>
-                            <p className="text-xs text-white font-semibold mt-0.5">
-                              {ticket.assignedTo ? ticket.assignedTo : <span className="text-slate-500 italic">Ninguém</span>}
-                            </p>
+                            <div className="mt-1">
+                              {ticket.assignedTo ? (
+                                <div className="flex flex-wrap gap-1 justify-end">
+                                  {getAssignedTechs(ticket.assignedTo).map((t, i) => (
+                                    <span key={i} className="bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded text-[9px] border border-emerald-500/20 font-bold shadow-sm">
+                                      {t}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-slate-500 italic text-xs block text-right">Ninguém</span>
+                              )}
+                            </div>
                           </div>
 
                           <div className="flex items-center gap-3 mt-1 text-slate-500">
@@ -2066,7 +2584,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                           <div>
                             <p className="text-xs font-bold text-white">{user.name}</p>
                             <p className="text-[10.5px] text-slate-400 font-medium">
-                              {user.department || "Suporte Técnico"} • <span className={user.isOnline ? "text-emerald-400 font-semibold" : "text-neutral-500"}>{user.isOnline ? "Ativo" : "Ausente"}</span>
+                              {user.department || "Suporte Técnico"} ÔÇó <span className={user.isOnline ? "text-emerald-400 font-semibold" : "text-neutral-500"}>{user.isOnline ? "Ativo" : "Ausente"}</span>
                             </p>
                           </div>
                         </div>
@@ -2205,11 +2723,11 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
                       {selectedTicket.aiSuggestions && (
                         <div className="space-y-1.5 pt-1 border-t border-emerald-950/25">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Soluções Recomendadas</span>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Soluç├Áes Recomendadas</span>
                           <div className="text-slate-300 text-xs leading-relaxed space-y-1 bg-black/30 p-2.5 rounded-lg border border-neutral-900/60 font-sans">
                             {selectedTicket.aiSuggestions.split("\n").map((line, index) => (
                               <div key={index} className="flex gap-2 items-start">
-                                <span className="text-emerald-400 font-bold select-none">•</span>
+                                <span className="text-emerald-400 font-bold select-none">ÔÇó</span>
                                 <span>{line.replace(/^\d+[\.\-\s]+/, "")}</span>
                               </div>
                             ))}
@@ -2264,9 +2782,19 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                     return (
                       <div className="p-3 bg-emerald-500/5 rounded-xl border border-emerald-500/10 text-xs space-y-2">
                         <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider block border-b border-emerald-950/25 pb-1 mb-1">Registro de Atendimento</span>
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-400 font-medium">Técnico Responsável:</span>
-                          <strong className="text-emerald-400">{selectedTicket.assignedTo || "Aguardando Técnico"}</strong>
+                        <div className="flex justify-between items-center gap-4">
+                          <span className="text-slate-400 font-medium shrink-0">Técnicos Responsáveis:</span>
+                          {selectedTicket.assignedTo ? (
+                            <div className="flex flex-wrap gap-1 justify-end">
+                              {getAssignedTechs(selectedTicket.assignedTo).map((t, i) => (
+                                <span key={i} className="bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded text-[10px] border border-emerald-500/20 font-bold shadow-sm">
+                                  {t}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <strong className="text-emerald-400">Aguardando Técnico</strong>
+                          )}
                         </div>
                         
                         {firstAssumedTime && (
@@ -2337,51 +2865,147 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                       
                       <div className="grid grid-cols-2 gap-3 text-xs">
                         
-                        {/* Assign to current option */}
-                        <div>
-                          <label className="text-slate-500 block mb-1 text-[10px]">Técnico Responsável</label>
-                          {selectedTicket.assignedTo === null ? (
-                            <button
-                              onClick={() => handleUpdateTicketMeta(selectedTicket.id, { assignedTo: currentSession.name })}
-                              className="w-full py-1.5 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 rounded-lg text-xs font-semibold transition cursor-pointer"
-                            >
-                              Assumir Atendimento
-                            </button>
-                          ) : selectedTicket.assignedTo === currentSession.name ? (
-                            <button
-                              onClick={() => handleUpdateTicketMeta(selectedTicket.id, { assignedTo: null })}
-                              className="w-full py-1.5 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 rounded-lg text-xs font-semibold transition cursor-pointer"
-                            >
-                              Remover Minha Atribuição
-                            </button>
-                          ) : (
-                            <div className="w-full py-1 px-2 bg-amber-500/5 text-amber-400 border border-amber-500/15 rounded-lg text-[10px] font-medium leading-normal">
-                              Em atendimento por:<br/><strong>{selectedTicket.assignedTo}</strong>
-                            </div>
-                          )}
+                        {/* Assign to multiple technicians option */}
+                        <div className="space-y-1.5 col-span-2 md:col-span-1">
+                          <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">Técnicos Atribuídos</label>
+                          {(() => {
+                            const assignedTechs = getAssignedTechs(selectedTicket.assignedTo);
+                            const firstTech = getFirstAssignedTech(selectedTicket);
+                            const canManageAssignments = assignedTechs.length === 0 || (currentSession && currentSession.name === firstTech);
+
+                            if (assignedTechs.length === 0) {
+                              return (
+                                <motion.button
+                                  whileHover={{ scale: 1.01 }}
+                                  whileTap={{ scale: 0.99 }}
+                                  onClick={() => handleUpdateTicketMeta(selectedTicket.id, { assignedTo: currentSession.name })}
+                                  className="w-full bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 border border-emerald-400/20 shadow-lg shadow-emerald-950/20 hover:shadow-emerald-500/10 text-xs transition-all uppercase tracking-wider font-mono mt-1"
+                                >
+                                  <UserPlus className="h-4 w-4 animate-pulse text-white shrink-0" />
+                                  Assumir Chamado
+                                </motion.button>
+                              );
+                            }
+
+                            return (
+                              <>
+                                <div 
+                                  className="bg-neutral-950/80 p-2 rounded-xl border border-neutral-900/60 max-h-48 overflow-y-auto space-y-1.5 scrollbar-thin scrollbar-thumb-neutral-800 scrollbar-track-transparent"
+                                  title={!canManageAssignments ? `Apenas o primeiro técnico responsável (${firstTech}) pode alterar as atribuiç├Áes.` : ""}
+                                >
+                                  {users
+                                    .filter(u => u.role === "tecnico")
+                                    .map(tech => {
+                                      const isAssigned = getAssignedTechs(selectedTicket.assignedTo).includes(tech.name);
+                                      const initials = tech.name
+                                        .split(" ")
+                                        .map((n: string) => n[0])
+                                        .join("")
+                                        .slice(0, 2)
+                                        .toUpperCase();
+
+                                      return (
+                                        <div 
+                                          key={tech.id} 
+                                          onClick={() => {
+                                            if (!canManageAssignments) return;
+                                            const currentTechs = getAssignedTechs(selectedTicket.assignedTo);
+                                            let updatedTechs: string[];
+                                            if (currentTechs.includes(tech.name)) {
+                                              updatedTechs = currentTechs.filter(name => name !== tech.name);
+                                            } else {
+                                              updatedTechs = [...currentTechs, tech.name];
+                                            }
+                                            const assignedStr = updatedTechs.length > 0 ? updatedTechs.join(", ") : null;
+                                            handleUpdateTicketMeta(selectedTicket.id, { assignedTo: assignedStr });
+                                          }}
+                                          className={`group flex items-center justify-between p-2 rounded-lg border transition-all text-left select-none ${
+                                            isAssigned
+                                              ? "bg-emerald-950/15 border-emerald-500/20 text-emerald-300"
+                                              : "bg-[#060606] border-neutral-900/60 text-slate-400 hover:border-neutral-800/80 hover:text-slate-200"
+                                          } ${!canManageAssignments ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
+                                        >
+                                          <div className="flex items-center gap-2 min-w-0">
+                                            {/* Avatar with Initials & Online Status Dot */}
+                                            <div className="relative shrink-0">
+                                              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold border transition-colors ${
+                                                isAssigned 
+                                                  ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/20" 
+                                                  : "bg-neutral-900 text-slate-500 border-neutral-800"
+                                              }`}>
+                                                {initials}
+                                              </div>
+                                              {tech.isOnline && (
+                                                <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-emerald-500 rounded-full border border-black shrink-0 animate-pulse" title="Online" />
+                                              )}
+                                            </div>
+                                            
+                                            <div className="min-w-0 leading-tight">
+                                              <span className={`text-[11px] font-semibold block truncate ${isAssigned ? 'text-emerald-300' : 'text-slate-300 group-hover:text-slate-100'}`}>
+                                                {tech.name}
+                                              </span>
+                                              <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider block">Suporte</span>
+                                            </div>
+                                          </div>
+
+                                          {/* Custom Checkbox/Lock Indicator */}
+                                          <div className="shrink-0 flex items-center justify-center">
+                                            {!canManageAssignments ? (
+                                              isAssigned ? (
+                                                <div className="w-4 h-4 rounded-full bg-emerald-500/10 text-emerald-500/60 flex items-center justify-center border border-emerald-500/10">
+                                                  <Lock className="h-2.5 w-2.5" />
+                                                </div>
+                                              ) : null
+                                            ) : isAssigned ? (
+                                              <div className="w-4 h-4 rounded-full bg-emerald-500 text-black flex items-center justify-center shadow-md shadow-emerald-950/40">
+                                                <Check className="h-2.5 w-2.5 stroke-[3]" />
+                                              </div>
+                                            ) : (
+                                              <div className="w-4 h-4 rounded-full border border-neutral-800 bg-black transition-colors group-hover:border-neutral-700" />
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                </div>
+                                {!canManageAssignments && (
+                                  <div className="p-2 bg-amber-500/5 border border-amber-500/10 rounded-lg text-[10px] text-amber-500 leading-normal font-medium flex items-start gap-1.5">
+                                    <Lock className="h-3 w-3 text-amber-500 shrink-0 mt-0.5" />
+                                    <span>Apenas o técnico inicialmente responsável (<strong>{firstTech}</strong>) pode gerenciar as atribuiç├Áes.</span>
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
  
                         {/* Adjust priority manually */}
-                        <div>
-                          <label className="text-slate-500 block mb-1 text-[10px]">Prioridade Operacional</label>
-                          <select
-                            value={selectedTicket.priority}
-                            onChange={(e) => handleUpdateTicketMeta(selectedTicket.id, { priority: e.target.value as Ticket["priority"] })}
-                            disabled={isAssignedToOther}
-                            className={`w-full bg-black border border-neutral-900 rounded-lg py-1.5 px-2 text-xs text-white focus:outline-none focus:border-emerald-500 ${isAssignedToOther ? "opacity-50 cursor-not-allowed text-slate-500" : ""}`}
-                            title={isAssignedToOther ? `Apenas o técnico responsável (${selectedTicket.assignedTo}) pode alterar a prioridade.` : ""}
-                          >
-                            <option value="Baixa">Baixa</option>
-                            <option value="Média">Média</option>
-                            <option value="Alta">Alta</option>
-                            <option value="Urgente">Urgente</option>
-                          </select>
+                        <div className="space-y-1.5 col-span-2 md:col-span-1">
+                          <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">Prioridade Operacional</label>
+                          <div className="relative">
+                            <select
+                              value={selectedTicket.priority}
+                              onChange={(e) => handleUpdateTicketMeta(selectedTicket.id, { priority: e.target.value as Ticket["priority"] })}
+                              disabled={isAssignedToOther}
+                              className={`w-full bg-[#060606] border border-neutral-900 rounded-xl py-2 px-3 text-xs text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all ${
+                                isAssignedToOther 
+                                  ? "opacity-60 cursor-not-allowed text-slate-500" 
+                                  : "hover:border-neutral-800/80 cursor-pointer"
+                              }`}
+                              title={isAssignedToOther ? `Apenas o técnico responsável (${selectedTicket.assignedTo}) pode alterar a prioridade.` : ""}
+                            >
+                              <option value="Baixa">Baixa</option>
+                              <option value="Média">Média</option>
+                              <option value="Alta">Alta</option>
+                              <option value="Urgente">Urgente</option>
+                            </select>
+                          </div>
                         </div>
  
                       </div>
 
                       {/* Alterar Solicitante (Visible to technicians) */}
-                      <div className="pt-2.5 border-t border-emerald-950/20 space-y-1.5">
+                      <div className="pt-2.5 border-t border-emerald-950/10 space-y-1.5">
                         <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
                           <UserIcon className="h-3.5 w-3.5 text-emerald-400" />
                           Alterar Solicitante (Colaborador)
@@ -2400,7 +3024,11 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                               }
                             }
                           }}
-                          className={`w-full bg-black border border-neutral-900 rounded-lg py-1.5 px-2 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 cursor-pointer ${isAssignedToOther ? "opacity-50 cursor-not-allowed" : ""}`}
+                          className={`w-full bg-[#060606] border border-neutral-900 rounded-xl py-2 px-3 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all ${
+                            isAssignedToOther 
+                              ? "opacity-60 cursor-not-allowed text-slate-500" 
+                              : "hover:border-neutral-800/80 cursor-pointer"
+                          }`}
                           title={isAssignedToOther ? `Apenas o técnico responsável (${selectedTicket.assignedTo}) pode alterar o solicitante.` : ""}
                         >
                           {users.map(u => (
@@ -2412,9 +3040,42 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                         <p className="text-[9px] text-slate-500 font-medium">Altere o colaborador que solicitou este chamado de suporte.</p>
                       </div>
 
-                      {/* Project Deadline Setting (Only visible to the assigned technician) */}
-                      {selectedTicket.assignedTo === currentSession?.name && (
-                        <div className="pt-2.5 border-t border-emerald-950/20 space-y-1.5">
+                      {/* SLA/Ticket Type Setting (Visible to all technicians) */}
+                      {currentSession?.role === "tecnico" && (
+                        <div className="pt-2.5 border-t border-emerald-950/10 space-y-1.5">
+                          <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                            <FolderKanban className="h-3.5 w-3.5 text-emerald-400" />
+                            Tipo de SLA (Chamado ou Projeto)
+                          </label>
+                          <select
+                            value={selectedTicket.projectDeadline ? "projeto" : "chamado"}
+                            disabled={isAssignedToOther}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === "chamado") {
+                                handleUpdateTicketMeta(selectedTicket.id, { projectDeadline: "" });
+                              } else {
+                                // Default project deadline is 7 days from now
+                                const defaultDeadline = new Date();
+                                defaultDeadline.setDate(defaultDeadline.getDate() + 7);
+                                const dateStr = defaultDeadline.toISOString().split("T")[0];
+                                handleUpdateTicketMeta(selectedTicket.id, { projectDeadline: dateStr });
+                              }
+                            }}
+                            className="w-full bg-[#060606] border border-neutral-900 rounded-xl py-2 px-3 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all hover:border-neutral-800/80 cursor-pointer"
+                          >
+                            <option value="chamado">Chamado Padrão (SLA Baseado em Horas)</option>
+                            <option value="projeto">Projeto em Andamento (SLA Baseado em Data Limite)</option>
+                          </select>
+                          <p className="text-[9px] text-slate-500 font-medium">
+                            Selecione se este item deve ser tratado como um chamado padrão com SLA por prioridade ou um projeto de longo prazo com data limite de entrega.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Project Deadline Setting (Visible to all technicians and only if configured as a project) */}
+                      {currentSession?.role === "tecnico" && selectedTicket.projectDeadline && (
+                        <div className="pt-2.5 border-t border-emerald-950/10 space-y-1.5">
                           <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
                             <Calendar className="h-3.5 w-3.5 text-emerald-400" />
                             Definir Data Limite do Projeto
@@ -2427,13 +3088,16 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                         </div>
                       )}
 
-                      {/* Transfer Option (Only visible to the assigned technician) */}
-                      {selectedTicket.assignedTo === currentSession.name && (
-                        <div className="pt-2.5 border-t border-emerald-950/20 space-y-1.5">
-                          <label className="text-slate-500 block text-[10px] font-medium">Transferir chamado para outro técnico:</label>
+                      {/* Transfer Option (Only visible to the first assigned technician) */}
+                      {getFirstAssignedTech(selectedTicket) === currentSession.name && (
+                        <div className="pt-2.5 border-t border-emerald-950/10 space-y-1.5">
+                          <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                            <RefreshCw className="h-3.5 w-3.5 text-emerald-400" />
+                            Transferir chamado para outro técnico:
+                          </label>
                           <select
                             defaultValue=""
-                            className="w-full bg-black border border-neutral-900 rounded-lg py-1.5 px-2 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 cursor-pointer"
+                            className="w-full bg-[#060606] border border-neutral-900 rounded-xl py-2 px-3 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all hover:border-neutral-800/80 cursor-pointer"
                             onChange={(e) => {
                               const targetTechName = e.target.value;
                               if (targetTechName) {
@@ -2449,7 +3113,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                               .filter(u => u.role === "tecnico" && u.name !== currentSession.name)
                               .map(tech => (
                                 <option key={tech.id} value={tech.name}>
-                                  {tech.name} ({tech.department || "Suporte"}) {tech.isOnline ? "• Online" : ""}
+                                  {tech.name} ({tech.department || "Suporte"}) {tech.isOnline ? "ÔÇó Online" : ""}
                                 </option>
                               ))}
                           </select>
@@ -2460,11 +3124,11 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
                   {/* Action Button: Finalizar Chamado */}
                   <div className="p-4 bg-black border border-emerald-950/20 rounded-xl space-y-2">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Ações Disponíveis</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Aç├Áes Disponíveis</span>
                     
                     {isAssignedToOther && (
                       <div className="p-2.5 bg-amber-500/5 border border-amber-500/15 rounded-lg text-[10px] text-amber-400 leading-normal font-medium flex items-center gap-2 mb-2">
-                        <span>⚠️ Este chamado está sob responsabilidade de <strong>{selectedTicket.assignedTo}</strong>. Apenas o responsável pode alterar ou finalizá-lo.</span>
+                        <span>ÔÜá´©Å Este chamado está sob responsabilidade de <strong>{selectedTicket.assignedTo}</strong>. Apenas um dos responsáveis pode alterar ou finalizá-lo.</span>
                       </div>
                     )}
 
@@ -2472,7 +3136,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                       <button
                         onClick={() => {
                           if (isAssignedToOther) {
-                            alert(`Este chamado está atribuído a ${selectedTicket.assignedTo}. Apenas o técnico responsável pode finalizá-lo.`);
+                            alert(`Este chamado está atribuído a ${selectedTicket.assignedTo}. Apenas um dos técnicos responsáveis pode finalizá-lo.`);
                             return;
                           }
                           handleUpdateTicketMeta(selectedTicket.id, { status: "Resolvido" });
@@ -2488,7 +3152,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                       <button
                         onClick={() => {
                           if (isAssignedToOther) {
-                            alert(`Este chamado está atribuído a ${selectedTicket.assignedTo}. Apenas o técnico responsável pode reabri-lo.`);
+                            alert(`Este chamado está atribuído a ${selectedTicket.assignedTo}. Apenas um dos técnicos responsáveis pode reabri-lo.`);
                             return;
                           }
                           handleUpdateTicketMeta(selectedTicket.id, { status: "Aberto" });
@@ -2502,15 +3166,15 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                       </button>
                     )}
 
-                    {/* Excluir Chamado (Apenas para o técnico responsável) */}
+                    {/* Excluir Chamado (Apenas para os técnicos responsáveis) */}
                     {currentSession.role === "tecnico" && (
                       <div className="pt-2 border-t border-neutral-900 mt-2">
-                        {selectedTicket.assignedTo !== currentSession.name ? (
+                        {!getAssignedTechs(selectedTicket.assignedTo).includes(currentSession.name) ? (
                           <button
                             type="button"
                             disabled
                             className="w-full py-2 bg-neutral-950 text-neutral-600 border border-neutral-900/40 font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-not-allowed"
-                            title={`Apenas o técnico responsável (${selectedTicket.assignedTo || 'Nenhum'}) pode excluir este chamado.`}
+                            title={`Apenas os técnicos responsáveis (${selectedTicket.assignedTo || 'Nenhum'}) podem excluir este chamado.`}
                           >
                             <Trash2 className="h-3.5 w-3.5 text-neutral-700" />
                             Excluir Chamado (Apenas Responsável)
@@ -2660,7 +3324,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                         className="p-1 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-slate-400 hover:text-white transition cursor-pointer"
                         title="Remover anexo"
                       >
-                        ✕
+                        Ô£ò
                       </button>
                     </div>
                   )}
@@ -2761,7 +3425,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                 <AlertCircle className="h-10 w-10 text-emerald-400 mx-auto" />
                 <div>
                   <h4 className="text-sm font-bold text-slate-300">Nenhum chamado selecionado</h4>
-                  <p className="text-xs mt-1">Selecione qualquer ticket na fila da prioridade ao lado para verificar os detalhes, histórico de conversas, e recomendações em tempo real geradas por IA.</p>
+                  <p className="text-xs mt-1">Selecione qualquer ticket na fila da prioridade ao lado para verificar os detalhes, histórico de conversas, e recomendaç├Áes em tempo real geradas por IA.</p>
                 </div>
               </div>
             )}
@@ -2769,8 +3433,9 @@ CREATE TABLE IF NOT EXISTS public.tickets (
             </div>
           )}
 
-        </div>
+        </motion.div>
         )}
+        </AnimatePresence>
 
       </main>
 
@@ -2850,7 +3515,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
               <div className="text-[10px] text-slate-500 font-medium">
                 {myTicketsViewMode === "resolved" ? (
                   <>
-                    Total de chamados resolvidos por você: <strong className="text-emerald-400">{tickets.filter(t => t.assignedTo === currentSession.name && (t.status === "Resolvido" || t.status === "Fechado")).length}</strong>
+                    Total de chamados resolvidos por você: <strong className="text-emerald-400">{tickets.filter(t => getAssignedTechs(t.assignedTo).includes(currentSession.name) && (t.status === "Resolvido" || t.status === "Fechado")).length}</strong>
                   </>
                 ) : (
                   <>
@@ -2915,7 +3580,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
               <div className="px-6 py-4 border-b border-neutral-900 bg-black/20 flex items-center justify-between">
                 <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Histórico de Atendimentos Concluídos</span>
                 <span className="text-xs bg-emerald-500/10 text-emerald-400 font-semibold px-2.5 py-1 rounded-xl border border-emerald-500/20 shadow-neon-sm">
-                  {tickets.filter(t => t.assignedTo === currentSession.name && (t.status === "Resolvido" || t.status === "Fechado")).length} Chamado(s)
+                  {tickets.filter(t => getAssignedTechs(t.assignedTo).includes(currentSession.name) && (t.status === "Resolvido" || t.status === "Fechado")).length} Chamado(s)
                 </span>
               </div>
             )}
@@ -2924,7 +3589,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
             <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-[250px] max-h-[50vh]">
               {(() => {
                 const baseList = myTicketsViewMode === "resolved"
-                  ? tickets.filter(t => t.assignedTo === currentSession.name && (t.status === "Resolvido" || t.status === "Fechado"))
+                  ? tickets.filter(t => getAssignedTechs(t.assignedTo).includes(currentSession.name) && (t.status === "Resolvido" || t.status === "Fechado"))
                   : tickets.filter(t => t.requesterName === currentSession.name);
 
                 const filteredList = myTicketsViewMode === "resolved" ? baseList : baseList.filter(t => {
@@ -3016,7 +3681,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                       <div className="flex sm:flex-col items-start sm:items-end justify-between sm:justify-center gap-1.5 flex-shrink-0 text-[10px]">
                         <span className={`font-bold uppercase ${priorityTextClass}`}>{ticket.priority}</span>
                         <span className="text-slate-400 font-medium">
-                          {ticket.assignedTo ? `Técnico: ${ticket.assignedTo}` : "Sem técnico atribuído"}
+                          {ticket.assignedTo ? `Técnicos: ${ticket.assignedTo}` : "Sem técnico atribuído"}
                         </span>
                         <span className="text-emerald-500 font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
                           Ver Detalhes <ArrowRight className="h-3 w-3" />
@@ -3066,7 +3731,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                       </span>
                     )}
                   </h3>
-                  <p className="text-[10px] text-slate-400">{selectedTechProfile.email} • {selectedTechProfile.department}</p>
+                  <p className="text-[10px] text-slate-400">{selectedTechProfile.email} ÔÇó {selectedTechProfile.department}</p>
                 </div>
               </div>
               <button
@@ -3082,12 +3747,12 @@ CREATE TABLE IF NOT EXISTS public.tickets (
               const isTechnician = selectedTechProfile.role === "tecnico";
 
               if (isTechnician) {
-                const techResolvedTickets = tickets.filter(t => t.assignedTo === selectedTechProfile.name && (t.status === "Resolvido" || t.status === "Fechado"));
-                const techActiveTickets = tickets.filter(t => t.assignedTo === selectedTechProfile.name && t.status !== "Resolvido" && t.status !== "Fechado");
+                const techResolvedTickets = tickets.filter(t => getAssignedTechs(t.assignedTo).includes(selectedTechProfile.name) && (t.status === "Resolvido" || t.status === "Fechado"));
+                const techActiveTickets = tickets.filter(t => getAssignedTechs(t.assignedTo).includes(selectedTechProfile.name) && t.status !== "Resolvido" && t.status !== "Fechado");
                 const totalTechTickets = techResolvedTickets.length + techActiveTickets.length;
 
                 // SLA compliance for this technician
-                const techOverdue = techActiveTickets.filter(t => new Date(t.slaLimit).getTime() < Date.now()).length;
+                const techOverdue = techActiveTickets.filter(t => isTicketOverdue(t)).length;
                 const techSlaCompliance = totalTechTickets > 0 ? Math.round(((totalTechTickets - techOverdue) / totalTechTickets) * 100) : 100;
 
                 // Average resolution time (TMA)
@@ -3288,7 +3953,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                               <div className="flex sm:flex-col items-start sm:items-end justify-between sm:justify-center gap-1 flex-shrink-0 text-[10px]">
                                 <span className={`font-bold uppercase ${priorityTextClass}`}>{ticket.priority}</span>
                                 <span className="text-slate-500 font-medium">
-                                  {ticket.assignedTo ? `Técnico: ${ticket.assignedTo}` : "Sem técnico atribuído"}
+                                  {ticket.assignedTo ? `Técnicos: ${ticket.assignedTo}` : "Sem técnico atribuído"}
                                 </span>
                                 <span className="text-emerald-500 font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
                                   Ver Detalhes <ArrowRight className="h-3 w-3" />
@@ -3305,7 +3970,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
             })()}
 
             <div className="p-4 border-t border-neutral-900 bg-black/30 text-center text-[10px] text-slate-500">
-              Clique em qualquer chamado para visualizar o histórico de soluções.
+              Clique em qualquer chamado para visualizar o histórico de soluç├Áes.
             </div>
 
           </div>
@@ -3340,17 +4005,64 @@ CREATE TABLE IF NOT EXISTS public.tickets (
             {/* Modal Form */}
             <form onSubmit={handleCreateTicket} className="p-6 space-y-4">
               
-              {/* Profile Context warning */}
-              <div className="bg-black/50 p-3 rounded-xl border border-neutral-900 text-xs text-slate-300 flex items-center justify-between">
-                <div>
-                  <span className="text-slate-500 block text-[10px]">Solicitando como:</span>
-                  <strong className="text-white">{currentSession.name}</strong>
+              {/* Profile Context warning / Requester Info */}
+              {currentSession.role === "tecnico" ? (
+                <div className="bg-black/50 p-3.5 rounded-xl border border-neutral-900 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">Solicitando como:</span>
+                      <strong className="text-white text-sm">{selectedRequesterName || currentSession.name}</strong>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">Departamento:</span>
+                      <span className="text-emerald-400 font-medium text-xs">{selectedRequesterDepartment || currentSession.department}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500 flex items-center gap-1">
+                      <Users className="h-3 w-3 text-emerald-400" />
+                      Alterar Solicitante (Apenas Técnicos)
+                    </label>
+                    <select
+                      value={users.find(u => u.name === selectedRequesterName)?.id || ""}
+                      onChange={(e) => {
+                        const u = users.find(user => user.id === e.target.value);
+                        if (u) {
+                          setSelectedRequesterName(u.name);
+                          setSelectedRequesterDepartment(u.department);
+                        } else {
+                          setSelectedRequesterName(currentSession.name);
+                          setSelectedRequesterDepartment(currentSession.department);
+                        }
+                      }}
+                      className="w-full bg-black border border-neutral-800 rounded-lg py-2 px-2.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-all cursor-pointer"
+                    >
+                      <option value="">{currentSession.name} (Você - {currentSession.department})</option>
+                      {users
+                        .filter(u => u.name !== currentSession.name)
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map(u => (
+                          <option key={u.id} value={u.id}>
+                            {u.name} ({u.role === "tecnico" ? "Técnico" : "Colaborador"} - {u.department})
+                          </option>
+                        ))
+                      }
+                    </select>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-slate-500 block text-[10px]">Departamento:</span>
-                  <span className="text-emerald-400 font-medium">{currentSession.department}</span>
+              ) : (
+                <div className="bg-black/50 p-3 rounded-xl border border-neutral-900 text-xs text-slate-300 flex items-center justify-between">
+                  <div>
+                    <span className="text-slate-500 block text-[10px]">Solicitando como:</span>
+                    <strong className="text-white">{currentSession.name}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[10px]">Departamento:</span>
+                    <span className="text-emerald-400 font-medium">{currentSession.department}</span>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Title input */}
               <div className="space-y-1.5">
@@ -3377,6 +4089,49 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                   className="w-full bg-black border border-neutral-900 rounded-xl py-2 px-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all resize-none"
                 />
               </div>
+
+              {/* Tipo de Atendimento selection */}
+              {currentSession.role === "tecnico" && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                      <FolderKanban className="h-3.5 w-3.5 text-emerald-400" />
+                      Tipo de Atendimento
+                    </label>
+                    <select
+                      value={newTicketForm.projectDeadline ? "projeto" : "chamado"}
+                      onChange={(e) => {
+                        if (e.target.value === "chamado") {
+                          setNewTicketForm({ ...newTicketForm, projectDeadline: "" });
+                        } else {
+                          const defaultDeadline = new Date();
+                          defaultDeadline.setDate(defaultDeadline.getDate() + 7);
+                          const dateStr = defaultDeadline.toISOString().split("T")[0];
+                          setNewTicketForm({ ...newTicketForm, projectDeadline: dateStr });
+                        }
+                      }}
+                      className="w-full bg-black border border-neutral-900 rounded-xl py-2 px-3 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all cursor-pointer"
+                    >
+                      <option value="chamado">Chamado Padrão</option>
+                      <option value="projeto">Projeto em Andamento</option>
+                    </select>
+                  </div>
+
+                  {/* If "projeto" is selected, show the date picker for deadline */}
+                  {!!newTicketForm.projectDeadline && (
+                    <div className="space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-150">
+                      <label className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                        <Calendar className="h-3.5 w-3.5 text-emerald-400" />
+                        Data Limite do Projeto *
+                      </label>
+                      <WindowsDatePicker
+                        value={newTicketForm.projectDeadline}
+                        onChange={(date) => setNewTicketForm({ ...newTicketForm, projectDeadline: date })}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
 
 
 
@@ -3603,7 +4358,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                     }}
                     className="text-slate-400 hover:text-white transition-colors text-xs font-bold leading-none p-1 -m-1"
                   >
-                    ✕
+                    Ô£ò
                   </button>
                 </div>
                 
@@ -3656,7 +4411,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                 className="p-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center"
                 title="Fechar visualização"
               >
-                <span className="text-sm font-bold px-1">✕</span>
+                <span className="text-sm font-bold px-1">Ô£ò</span>
               </button>
             </div>
           </div>
@@ -3674,6 +4429,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
         </div>
       )}
 
+      {preloaderJSX}
     </div>
   );
 }

@@ -3,6 +3,16 @@ import { Ticket } from "../types";
 import { AlertCircle, Clock, CheckCircle2, TrendingUp, HelpCircle, Activity, Download, Calendar, User, Users, X, FileText, Layers } from "lucide-react";
 import { jsPDF } from "jspdf";
 
+const isTicketOverdue = (t: Ticket) => {
+  if (t.status === "Resolvido" || t.status === "Fechado") return false;
+  if (t.projectDeadline) {
+    const deadlineDate = new Date(t.projectDeadline);
+    deadlineDate.setHours(23, 59, 59, 999);
+    return deadlineDate.getTime() < Date.now();
+  }
+  return new Date(t.slaLimit).getTime() < Date.now();
+};
+
 interface SlaAnalyticsProps {
   tickets: Ticket[];
   users?: any[];
@@ -40,8 +50,10 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
   const technicians = Array.from(
     new Set(
       tickets
-        .map(t => t.assignedTo)
-        .filter((name): name is string => typeof name === "string" && name.trim() !== "")
+        .flatMap(t => {
+          if (!t.assignedTo) return [];
+          return t.assignedTo.split(",").map(s => s.trim()).filter(Boolean);
+        })
     )
   ).sort();
 
@@ -74,8 +86,10 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
     }
 
     // 2. Technician filter
-    if (selectedTech !== "all" && t.assignedTo !== selectedTech) {
-      return false;
+    if (selectedTech !== "all") {
+      if (!t.assignedTo) return false;
+      const assigned = t.assignedTo.split(",").map(s => s.trim()).filter(Boolean);
+      if (!assigned.includes(selectedTech)) return false;
     }
 
     return true;
@@ -120,7 +134,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
 
   // Calculate average resolution or active tickets ratio
   const activeSlaTickets = filteredTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado");
-  const overdueCount = activeSlaTickets.filter(t => new Date(t.slaLimit).getTime() < Date.now()).length;
+  const overdueCount = activeSlaTickets.filter(t => isTicketOverdue(t)).length;
 
   // Category counts for visual charting
   const categories: Record<Ticket["category"], number> = {
@@ -140,8 +154,20 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
     }
   });
 
+  // Project statistics
+  const projectsCount = filteredTickets.filter(t => !!t.projectDeadline).length;
+  const resolvedProjectsCount = filteredTickets.filter(t => !!t.projectDeadline && (t.status === "Resolvido" || t.status === "Fechado")).length;
+  const activeProjectsCount = filteredTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado").length;
+
   const categoryEntries = Object.entries(categories) as [Ticket["category"], number][];
-  const maxCategoryCount = Math.max(...Object.values(categories), 1);
+
+  // Custom list of all categories including projects for display
+  const allCategoryEntries: [string, number][] = [
+    ...categoryEntries,
+    ["Projetos", projectsCount]
+  ];
+
+  const maxCategoryCount = Math.max(...Object.values(categories), projectsCount, 1);
 
   // Group by sector (requesterDepartment)
   const sectorCounts: Record<string, number> = {};
@@ -293,10 +319,11 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
     
-    categoryEntries.forEach(([cat, count]) => {
+    allCategoryEntries.forEach(([cat, count]) => {
       const pct = total > 0 ? Math.round((count / total) * 100) : 0;
       doc.text(`${cat}:`, 20, yPos);
-      doc.text(`${count} chamado(s) (${pct}%)`, 60, yPos);
+      const unit = cat === "Projetos" ? "projeto(s)" : "chamado(s)";
+      doc.text(`${count} ${unit} (${pct}%)`, 60, yPos);
       yPos += 7;
     });
     
@@ -358,7 +385,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
         
         const shortId = t.id ? t.id.substring(0, 8) : "N/A";
         const titleStr = t.title.length > 30 ? t.title.substring(0, 28) + "..." : t.title;
-        const isOverdue = t.status !== "Resolvido" && t.status !== "Fechado" && new Date(t.slaLimit).getTime() < Date.now();
+        const isOverdue = isTicketOverdue(t);
         const slaStatus = isOverdue ? "Atrasado" : "No Prazo";
         
         doc.setFont("helvetica", "normal");
@@ -464,7 +491,8 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
     const techSummaries = techsToExport.map(tech => {
       // Filter tickets for this technician in the selected period
       const techTickets = tickets.filter(t => {
-        if (t.assignedTo !== tech) return false;
+        const assigned = t.assignedTo ? t.assignedTo.split(",").map(s => s.trim()).filter(Boolean) : [];
+        if (!assigned.includes(tech)) return false;
         if (period !== "all") {
           if (!t.createdAt) return false;
           const ticketDate = new Date(t.createdAt);
@@ -494,7 +522,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
 
       const totalAssigned = techTickets.length;
       const totalResolved = techTickets.filter(t => t.status === "Resolvido" || t.status === "Fechado").length;
-      const overdue = techTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado" && new Date(t.slaLimit).getTime() < Date.now()).length;
+      const overdue = techTickets.filter(t => isTicketOverdue(t)).length;
       const slaCompliance = totalAssigned > 0 ? Math.round(((totalAssigned - overdue) / totalAssigned) * 100) : 100;
 
       // TMA calculation
@@ -654,7 +682,8 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
 
     // Compute metrics for this specific technician
     const techTickets = tickets.filter(t => {
-      if (t.assignedTo !== techName) return false;
+      const assigned = t.assignedTo ? t.assignedTo.split(",").map(s => s.trim()).filter(Boolean) : [];
+      if (!assigned.includes(techName)) return false;
       if (period !== "all") {
         if (!t.createdAt) return false;
         const ticketDate = new Date(t.createdAt);
@@ -685,7 +714,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
     const totalAssigned = techTickets.length;
     const resolvedTickets = techTickets.filter(t => t.status === "Resolvido" || t.status === "Fechado");
     const totalResolved = resolvedTickets.length;
-    const overdue = techTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado" && new Date(t.slaLimit).getTime() < Date.now()).length;
+    const overdue = techTickets.filter(t => isTicketOverdue(t)).length;
     const slaCompliance = totalAssigned > 0 ? Math.round(((totalAssigned - overdue) / totalAssigned) * 100) : 100;
 
     const resolvedWithTime = techTickets.filter(t => 
@@ -926,7 +955,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
       </div>
 
       {/* Grid of KPI cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
         
         {/* KPI 1: SLA Compliance */}
         <div className="bg-[#050505] border border-neutral-900 hover:border-emerald-500/20 rounded-2xl p-4 flex flex-col justify-between min-h-[120px] transition-all">
@@ -998,7 +1027,26 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
           </div>
         </div>
 
-        {/* KPI 5: Triagem Automática */}
+        {/* KPI 5: Volume de Projetos */}
+        <div className="bg-[#050505] border border-neutral-900 hover:border-emerald-500/20 rounded-2xl p-4 flex flex-col justify-between min-h-[120px] transition-all">
+          <div className="flex items-center justify-between text-neutral-400 mb-1">
+            <span className="text-xs font-bold uppercase tracking-wider text-[10px]">Volume de Projetos</span>
+            <Layers className="h-4 w-4 text-emerald-400" />
+          </div>
+          <div>
+            <div className="text-3xl font-black font-display text-white">{projectsCount}</div>
+            <p className="text-[10px] text-neutral-500 mt-1 font-mono">{activeProjectsCount} ativos // {resolvedProjectsCount} ok</p>
+          </div>
+          {/* Completion rate bar */}
+          <div className="w-full bg-neutral-950 h-1 rounded-full mt-2 overflow-hidden">
+            <div 
+              className="bg-emerald-400 h-full rounded-full transition-all duration-500 shadow-neon-sm" 
+              style={{ width: `${projectsCount > 0 ? (resolvedProjectsCount / projectsCount) * 100 : 0}%` }}
+            ></div>
+          </div>
+        </div>
+
+        {/* KPI 6: Triagem Automática */}
         <div className="bg-emerald-950/15 border border-emerald-500/30 text-white rounded-2xl p-4 flex flex-col justify-between min-h-[120px] shadow-neon-sm hover:border-emerald-500/40 transition-all">
           <div className="flex items-center justify-between text-emerald-300 mb-1">
             <span className="text-xs font-bold uppercase tracking-wider text-[10px]">Automação com IA</span>
@@ -1020,30 +1068,33 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
         <div className="lg:col-span-7 bg-[#050505] border border-neutral-900 rounded-2xl p-5 hover:border-emerald-500/10 transition-all">
           <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400 mb-4">Volume de Chamados por Categoria</h3>
           <div className="space-y-3.5">
-            {categoryEntries.map(([cat, count]) => {
+            {allCategoryEntries.map(([cat, count]) => {
               const pct = Math.round((count / maxCategoryCount) * 100);
               const totalPct = total > 0 ? Math.round((count / total) * 100) : 0;
               
               // Map categories to beautiful electric colors fitting the dark theme
-              const barColors: Record<Ticket["category"], string> = {
+              const barColors: Record<string, string> = {
                 Hardware: "bg-amber-500",
                 Software: "bg-emerald-300 shadow-neon-sm",
                 Redes: "bg-emerald-400 shadow-neon-sm",
                 Acesso: "bg-rose-500",
                 Sistemas: "bg-emerald-500 shadow-neon-sm",
-                Outros: "bg-neutral-500"
+                Outros: "bg-neutral-500",
+                Projetos: "bg-cyan-400 shadow-neon-sm"
               };
+
+              const unit = cat === "Projetos" ? (count !== 1 ? "projetos" : "projeto") : (count !== 1 ? "chamados" : "chamado");
 
               return (
                 <div key={cat} className="flex items-center space-x-3 text-xs">
                   <div className="w-20 font-semibold text-neutral-300 truncate">{cat}</div>
                   <div className="flex-1 bg-black border border-neutral-950 h-6 rounded-lg overflow-hidden relative flex items-center px-2.5">
                     <div 
-                      className={`absolute top-0 left-0 bottom-0 ${barColors[cat]} rounded-r-lg transition-all duration-700 opacity-85`}
+                      className={`absolute top-0 left-0 bottom-0 ${barColors[cat] || "bg-neutral-500"} rounded-r-lg transition-all duration-700 opacity-85`}
                       style={{ width: `${Math.max(pct, 5)}%` }}
                     ></div>
                     <span className="relative z-10 text-[10px] font-extrabold text-black uppercase">
-                      {count} chamado{count !== 1 ? "s" : ""}
+                      {count} {unit}
                     </span>
                   </div>
                   <div className="w-10 text-right text-emerald-400 text-[10px] font-bold">{totalPct}%</div>
