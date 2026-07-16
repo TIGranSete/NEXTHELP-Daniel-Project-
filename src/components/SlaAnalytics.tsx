@@ -906,9 +906,6 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
           </h2>
         </div>
         <div className="flex items-center gap-3 self-start sm:self-auto">
-          <span className="text-xs bg-emerald-500/10 text-emerald-400 px-3 py-1.5 rounded-xl font-semibold flex items-center gap-1.5 border border-emerald-500/20 shadow-neon-sm">
-            <TrendingUp className="h-3.5 w-3.5" /> Tempo de Resposta Reduzido por IA
-          </span>
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-neutral-900 border border-neutral-800 text-slate-300 hover:text-white hover:bg-neutral-850 transition cursor-pointer"
