@@ -22,6 +22,7 @@ import {
   isSupabaseHealthy,
   testSupabaseConnection,
   getSupabaseUsers,
+  getSupabaseUserByEmail,
   saveSupabaseUser,
   deleteSupabaseUser,
   getSupabaseTickets,
@@ -48,7 +49,7 @@ const DEFAULT_INITIAL_USERS = [
     id: "u2",
     name: "Suporte Gran7",
     email: "til7sete@gmail.com",
-    password: "123",
+    password: "123456",
     department: "TI",
     role: "tecnico" as const,
     mustChangePassword: false
@@ -396,6 +397,29 @@ async function loadUsers(): Promise<User[]> {
           }
           return u;
         });
+
+        // Self-heal: check if any initialUsers are missing from the Supabase database
+        const missingFromDb = initialUsers.filter(initUser => 
+          !secured.some(su => su.email.toLowerCase() === initUser.email.toLowerCase())
+        );
+
+        if (missingFromDb.length > 0) {
+          console.log(`[Supabase Sync] Encontrados ${missingFromDb.length} usuários iniciais ausentes no Supabase. Inserindo...`);
+          for (const missingUser of missingFromDb) {
+            const uMapped: User = {
+              id: missingUser.id,
+              name: missingUser.name,
+              email: missingUser.email,
+              password: hashPassword(missingUser.password || "123"),
+              department: missingUser.department,
+              role: missingUser.role === "tecnico" ? "tecnico" : "colaborador",
+              mustChangePassword: missingUser.mustChangePassword !== false
+            };
+            await saveSupabaseUser(uMapped);
+            secured.push(uMapped);
+          }
+        }
+
         try {
           fs.writeFileSync(USERS_FILE, JSON.stringify(secured, null, 2), "utf-8");
         } catch (e) {}
@@ -419,7 +443,7 @@ async function loadUsers(): Promise<User[]> {
     if (isSupabaseConfigured() && isSupabaseHealthy() && !isRevalidatingUsers) {
       isRevalidatingUsers = true;
       getSupabaseUsers()
-        .then((supabaseUsers) => {
+        .then(async (supabaseUsers) => {
           if (supabaseUsers !== null && Array.isArray(supabaseUsers)) {
             let needsRewrite = false;
             let secured = supabaseUsers.map(u => {
@@ -429,6 +453,30 @@ async function loadUsers(): Promise<User[]> {
               }
               return u;
             });
+
+            // Self-heal: check if any initialUsers are missing from the Supabase database
+            const missingFromDb = initialUsers.filter(initUser => 
+              !secured.some(su => su.email.toLowerCase() === initUser.email.toLowerCase())
+            );
+
+            if (missingFromDb.length > 0) {
+              console.log(`[Supabase Sync BG] Encontrados ${missingFromDb.length} usuários iniciais ausentes no Supabase. Inserindo...`);
+              for (const missingUser of missingFromDb) {
+                const uMapped: User = {
+                  id: missingUser.id,
+                  name: missingUser.name,
+                  email: missingUser.email,
+                  password: hashPassword(missingUser.password || "123"),
+                  department: missingUser.department,
+                  role: missingUser.role === "tecnico" ? "tecnico" : "colaborador",
+                  mustChangePassword: missingUser.mustChangePassword !== false
+                };
+                await saveSupabaseUser(uMapped);
+                secured.push(uMapped);
+                needsRewrite = true;
+              }
+            }
+
             try {
               fs.writeFileSync(USERS_FILE, JSON.stringify(secured, null, 2), "utf-8");
             } catch (e) {}
@@ -467,6 +515,26 @@ async function loadUsers(): Promise<User[]> {
   // Fallback to static seed data if empty
   if (localUsers.length === 0) {
     localUsers = JSON.parse(JSON.stringify(initialUsers)) as any as User[];
+  } else {
+    // Self-heal: ensure all initialUsers are also present in localUsers
+    const missingFromLocal = initialUsers.filter(initUser =>
+      !localUsers.some(lu => lu.email.toLowerCase() === initUser.email.toLowerCase())
+    );
+    if (missingFromLocal.length > 0) {
+      console.log(`[Local Sync] Encontrados ${missingFromLocal.length} usuários iniciais ausentes no cache local. Mesclando...`);
+      for (const missingUser of missingFromLocal) {
+        const uMapped: User = {
+          id: missingUser.id,
+          name: missingUser.name,
+          email: missingUser.email,
+          password: hashPassword(missingUser.password || "123"),
+          department: missingUser.department,
+          role: missingUser.role === "tecnico" ? "tecnico" : "colaborador",
+          mustChangePassword: missingUser.mustChangePassword !== false
+        };
+        localUsers.push(uMapped);
+      }
+    }
   }
 
   // Automatically migrate/secure any plain-text passwords in memory
@@ -492,7 +560,7 @@ async function loadUsers(): Promise<User[]> {
   if (isSupabaseConfigured() && isSupabaseHealthy() && !isRevalidatingUsers) {
     isRevalidatingUsers = true;
     getSupabaseUsers()
-      .then((supabaseUsers) => {
+      .then(async (supabaseUsers) => {
         if (supabaseUsers !== null && Array.isArray(supabaseUsers)) {
           let needsRewriteSupabase = false;
           let secured = supabaseUsers.map(u => {
@@ -502,6 +570,30 @@ async function loadUsers(): Promise<User[]> {
             }
             return u;
           });
+
+          // Self-heal: check if any initialUsers are missing from the Supabase database
+          const missingFromDb = initialUsers.filter(initUser => 
+            !secured.some(su => su.email.toLowerCase() === initUser.email.toLowerCase())
+          );
+
+          if (missingFromDb.length > 0) {
+            console.log(`[Supabase Sync BG2] Encontrados ${missingFromDb.length} usuários iniciais ausentes no Supabase. Inserindo...`);
+            for (const missingUser of missingFromDb) {
+              const uMapped: User = {
+                id: missingUser.id,
+                name: missingUser.name,
+                email: missingUser.email,
+                password: hashPassword(missingUser.password || "123"),
+                department: missingUser.department,
+                role: missingUser.role === "tecnico" ? "tecnico" : "colaborador",
+                mustChangePassword: missingUser.mustChangePassword !== false
+              };
+              await saveSupabaseUser(uMapped);
+              secured.push(uMapped);
+              needsRewriteSupabase = true;
+            }
+          }
+
           try {
             fs.writeFileSync(USERS_FILE, JSON.stringify(secured, null, 2), "utf-8");
           } catch (e) {}
@@ -888,14 +980,40 @@ app.post("/api/login", async (req, res) => {
       return res.status(400).json({ error: "E-mail e senha são obrigatórios para realizar o login." });
     }
 
+    const emailLower = email.trim().toLowerCase();
+
+    // If this is an initial user (like til7sete@gmail.com), ensure they are registered and fully synced before continuing
+    const matchInitial = initialUsers.find(u => u.email.toLowerCase() === emailLower);
+    if (matchInitial) {
+      const allUsers = await loadUsers();
+      if (!allUsers.some(u => u.email.toLowerCase() === emailLower)) {
+        console.log(`[Login Pre-check] Registrando usuário inicial ausente: ${emailLower}`);
+        const uMapped: User = {
+          id: matchInitial.id,
+          name: matchInitial.name,
+          email: matchInitial.email,
+          password: hashPassword(matchInitial.password || "123"),
+          department: matchInitial.department,
+          role: matchInitial.role === "tecnico" ? "tecnico" : "colaborador",
+          mustChangePassword: matchInitial.mustChangePassword !== false
+        };
+        allUsers.push(uMapped);
+        cachedUsers = allUsers;
+        try {
+          fs.writeFileSync(USERS_FILE, JSON.stringify(allUsers, null, 2), "utf-8");
+        } catch (e) {}
+        if (isSupabaseConfigured() && isSupabaseHealthy()) {
+          await saveSupabaseUser(uMapped);
+        }
+      }
+    }
+
     // If Supabase database is configured, try authenticating with database query first
     if (isSupabaseConfigured() && isSupabaseHealthy()) {
       try {
-        const emailLower = email.trim().toLowerCase();
         console.log(`[Supabase Login] Procurando usuário na tabela 'users' para o e-mail: ${emailLower}`);
 
-        const dbUsers = await getSupabaseUsers();
-        const dbUser = dbUsers ? dbUsers.find(u => u.email.toLowerCase() === emailLower) : null;
+        const dbUser = await getSupabaseUserByEmail(emailLower);
 
         if (dbUser) {
           console.log(`[Supabase Login] Usuário encontrado na tabela 'users': ${dbUser.name} (${dbUser.role})`);
@@ -922,11 +1040,23 @@ app.post("/api/login", async (req, res) => {
               mustChangePassword: mustChange
             };
 
-            // Self-heal/cache locally so they immediately show up in active list
+            // Self-heal/cache locally so they immediately show up in active list and stay perfectly in sync
             try {
               const localUsers = await loadUsers();
-              if (!localUsers.some(u => u.email.toLowerCase() === emailLower)) {
+              const existingIdx = localUsers.findIndex(u => u.email.toLowerCase() === emailLower);
+              if (existingIdx === -1) {
                 localUsers.push(loggedUser);
+                fs.writeFileSync(USERS_FILE, JSON.stringify(localUsers, null, 2), "utf-8");
+              } else {
+                // Keep details in sync with Supabase (especially password / mustChangePassword)
+                localUsers[existingIdx] = {
+                  ...localUsers[existingIdx],
+                  password: loggedUser.password,
+                  mustChangePassword: loggedUser.mustChangePassword,
+                  name: loggedUser.name,
+                  role: loggedUser.role,
+                  department: loggedUser.department
+                };
                 fs.writeFileSync(USERS_FILE, JSON.stringify(localUsers, null, 2), "utf-8");
               }
             } catch (cacheErr) {

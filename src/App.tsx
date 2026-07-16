@@ -164,6 +164,7 @@ export default function App() {
   const [isMobileModulesOpen, setIsMobileModulesOpen] = useState<boolean>(false);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState<boolean>(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [projectViewMode, setProjectViewMode] = useState<"bento" | "kanban" | "timeline">("bento");
 
   // Database status and synchronization states
   const [dbStatus, setDbStatus] = useState<{ configured: boolean; connected: boolean; error: string | null } | null>(null);
@@ -280,6 +281,39 @@ export default function App() {
     typeof window !== "undefined" && "Notification" in window ? Notification.permission : "default"
   );
 
+  // Register Service Worker on mount and listen to messages
+  useEffect(() => {
+    if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js")
+        .then((reg) => {
+          console.log("Service Worker registrado com sucesso:", reg.scope);
+        })
+        .catch((err) => {
+          console.warn("Falha ao registrar Service Worker:", err);
+        });
+
+      // Listen for SELECT_TICKET messages from Service Worker
+      const handleMessage = (event: MessageEvent) => {
+        if (event.data && event.data.type === "SELECT_TICKET") {
+          setSelectedTicketId(event.data.ticketId);
+        }
+      };
+      navigator.serviceWorker.addEventListener("message", handleMessage);
+      return () => navigator.serviceWorker.removeEventListener("message", handleMessage);
+    }
+  }, []);
+
+  // Check URL parameter for ticket pre-selection on load
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const ticketId = params.get("ticket");
+      if (ticketId) {
+        setSelectedTicketId(ticketId);
+      }
+    }
+  }, []);
+
   const requestDesktopNotificationPermission = async () => {
     if (typeof window === "undefined" || !("Notification" in window)) {
       console.warn("Este navegador não suporta notificações de área de trabalho.");
@@ -295,24 +329,44 @@ export default function App() {
     }
   };
 
+  const fallbackNotification = (title: string, options: NotificationOptions, ticketId?: string) => {
+    try {
+      const notification = new Notification(title, options);
+      if (ticketId) {
+        notification.onclick = () => {
+          window.focus();
+          setSelectedTicketId(ticketId);
+        };
+      }
+    } catch (e) {
+      console.warn("Falha no fallback de notificação de área de trabalho:", e);
+    }
+  };
+
   const showDesktopNotification = (title: string, body: string, ticketId?: string) => {
     if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
-      try {
-        const options: NotificationOptions = {
-          body,
-          icon: "/favicon.ico",
-          tag: ticketId ? `ticket-${ticketId}` : undefined,
-          requireInteraction: false
-        };
-        const notification = new Notification(title, options);
-        if (ticketId) {
-          notification.onclick = () => {
-            window.focus();
-            setSelectedTicketId(ticketId);
-          };
-        }
-      } catch (e) {
-        console.warn("Falha ao criar notificação de área de trabalho:", e);
+      const options: NotificationOptions & { data?: any } = {
+        body,
+        icon: "/src/assets/images/7.png",
+        badge: "/src/assets/images/7.png",
+        tag: ticketId ? `ticket-${ticketId}` : undefined,
+        requireInteraction: true,
+        data: ticketId ? { ticketId } : undefined
+      };
+
+      // Try service worker notification first (essential for background/desktop notifications)
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.ready.then((registration) => {
+          registration.showNotification(title, options)
+            .catch((err) => {
+              console.warn("Service worker falhou em exibir notificação, usando fallback:", err);
+              fallbackNotification(title, options, ticketId);
+            });
+        }).catch(() => {
+          fallbackNotification(title, options, ticketId);
+        });
+      } else {
+        fallbackNotification(title, options, ticketId);
       }
     }
   };
@@ -1213,8 +1267,8 @@ export default function App() {
           return false;
         }
       } else if (activeTab === "projetos") {
-        // "Projetos em Andamento" shows only active projects
-        if (!t.projectDeadline || t.status === "Resolvido" || t.status === "Fechado") {
+        // "Projetos em Andamento" shows all projects
+        if (!t.projectDeadline) {
           return false;
         }
       }
@@ -2820,279 +2874,807 @@ export default function App() {
             
             {/* Bento Grid Analytics Widget Row */}
             <div className="grid grid-cols-3 gap-2 sm:gap-4">
-              
-              {/* Card 1: Tickets em Aberto */}
-              <button 
-                onClick={() => {
-                  setActiveTab("painel");
-                  setSelectedStatus("Active");
-                  setSelectedPriority("All");
-                  setSelectedCategory("All");
-                  setSearchTerm("");
-                }}
-                className="bg-[#0a0a0a] border border-neutral-900 hover:border-emerald-500/30 hover:bg-emerald-950/5 rounded-xl sm:rounded-2xl p-2.5 sm:p-4 flex flex-col justify-between min-h-[90px] sm:min-h-[110px] shadow-lg text-left transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] cursor-pointer focus:outline-none focus:ring-1 focus:ring-emerald-500/20 group"
-              >
-                <p className="text-[8px] sm:text-[10px] font-bold uppercase tracking-wider sm:tracking-widest text-slate-400 group-hover:text-emerald-400 transition-colors">Chamados Ativos</p>
-                <div className="flex items-baseline sm:items-end justify-between mt-1 sm:mt-2 gap-1 flex-wrap sm:flex-nowrap w-full">
-                  <span className="text-xl sm:text-3xl font-black text-white leading-none">{activeTickets.length}</span>
-                  <span className="text-amber-400 text-[8px] sm:text-[10px] font-bold bg-amber-500/10 px-1 sm:px-2 py-0.5 rounded border border-amber-500/20 whitespace-nowrap">
-                    Aguardando TI
-                  </span>
-                </div>
-              </button>
+              {activeTab === "projetos" ? (
+                <>
+                  {/* Card 1: Total de Projetos */}
+                  <div className="bg-[#0a0a0a] border border-neutral-900 rounded-xl sm:rounded-2xl p-2.5 sm:p-4 flex flex-col justify-between min-h-[90px] sm:min-h-[110px] shadow-lg">
+                    <p className="text-[8px] sm:text-[10px] font-bold uppercase tracking-wider sm:tracking-widest text-slate-400">Total de Projetos</p>
+                    <div className="flex items-baseline sm:items-end justify-between mt-1 sm:mt-2 gap-1 flex-wrap sm:flex-nowrap w-full">
+                      <span className="text-xl sm:text-3xl font-black text-white leading-none">
+                        {userVisibleTickets.filter(t => !!t.projectDeadline).length}
+                      </span>
+                      <span className="text-emerald-400 text-[8px] sm:text-[10px] font-bold bg-emerald-500/10 px-1 sm:px-2 py-0.5 rounded border border-emerald-500/20 whitespace-nowrap">
+                        {userVisibleTickets.filter(t => !!t.projectDeadline && (t.status === "Resolvido" || t.status === "Fechado")).length} Concluídos
+                      </span>
+                    </div>
+                  </div>
 
-              {/* Card 2: SLA compliance status */}
-              <button 
-                onClick={() => {
-                  setActiveTab("sla");
-                }}
-                className="bg-[#0a0a0a] border border-neutral-900 hover:border-emerald-500/30 hover:bg-emerald-950/5 rounded-xl sm:rounded-2xl p-2.5 sm:p-4 flex flex-col justify-between min-h-[90px] sm:min-h-[110px] shadow-lg text-left transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] cursor-pointer focus:outline-none focus:ring-1 focus:ring-emerald-500/20 group"
-              >
-                <p className="text-[8px] sm:text-[10px] font-bold uppercase tracking-wider sm:tracking-widest text-slate-400 group-hover:text-emerald-400 transition-colors">Eficiência (SLA)</p>
-                <div className="flex items-baseline sm:items-end justify-between mt-1 sm:mt-2 gap-1 flex-wrap sm:flex-nowrap w-full">
-                  <span className="text-xl sm:text-3xl font-black text-emerald-400 leading-none">{slaCompliance}%</span>
-                  <span className="text-emerald-400 text-[8px] sm:text-[10px] font-bold bg-emerald-500/10 px-1 sm:px-2 py-0.5 rounded border border-emerald-500/20 whitespace-nowrap">
-                    Meta: 92%
-                  </span>
-                </div>
-              </button>
+                  {/* Card 2: Projetos em Dia */}
+                  <div className="bg-[#0a0a0a] border border-neutral-900 rounded-xl sm:rounded-2xl p-2.5 sm:p-4 flex flex-col justify-between min-h-[90px] sm:min-h-[110px] shadow-lg">
+                    <p className="text-[8px] sm:text-[10px] font-bold uppercase tracking-wider sm:tracking-widest text-slate-400">Projetos em Dia</p>
+                    <div className="flex items-baseline sm:items-end justify-between mt-1 sm:mt-2 gap-1 flex-wrap sm:flex-nowrap w-full">
+                      <span className="text-xl sm:text-3xl font-black text-emerald-400 leading-none">
+                        {(() => {
+                          const activeProjs = userVisibleTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado");
+                          const overdueProjs = activeProjs.filter(t => isTicketOverdue(t));
+                          return activeProjs.length - overdueProjs.length;
+                        })()}
+                      </span>
+                      <span className="text-slate-400 text-[8px] sm:text-[10px] font-bold bg-neutral-900 px-1 sm:px-2 py-0.5 rounded border border-neutral-850 whitespace-nowrap">
+                        SLA Monitorado
+                      </span>
+                    </div>
+                  </div>
 
-              {/* Card 3: Critical alerts pending */}
-              <button 
-                onClick={() => {
-                  setActiveTab("painel");
-                  setSelectedStatus("Active");
-                  // Filter by Urgente if any exists, otherwise Alta
-                  const hasUrgent = activeTickets.some(t => t.priority === "Urgente");
-                  setSelectedPriority(hasUrgent ? "Urgente" : "Alta");
-                  setSelectedCategory("All");
-                  setSearchTerm("");
-                }}
-                className="bg-[#0a0a0a] border border-neutral-900 hover:border-rose-500/30 hover:bg-rose-950/5 rounded-xl sm:rounded-2xl p-2.5 sm:p-4 flex flex-col justify-between min-h-[90px] sm:min-h-[110px] shadow-lg text-left transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] cursor-pointer focus:outline-none focus:ring-1 focus:ring-rose-500/20 group"
-              >
-                <p className="text-[8px] sm:text-[10px] font-bold uppercase tracking-wider sm:tracking-widest text-slate-400 group-hover:text-rose-400 transition-colors">Casos Críticos</p>
-                <div className="flex items-baseline sm:items-end justify-between mt-1 sm:mt-2 gap-1 flex-wrap sm:flex-nowrap w-full">
-                  <span className={`text-xl sm:text-3xl font-black leading-none ${criticalTickets.length > 0 ? "text-rose-500" : "text-white"}`}>
-                    {criticalTickets.length}
-                  </span>
-                  <span className={`text-[8px] sm:text-[10px] font-bold px-1 sm:px-2 py-0.5 rounded border whitespace-nowrap ${criticalTickets.length > 0 ? "bg-rose-500/10 text-rose-400 border-rose-500/20 animate-pulse" : "bg-neutral-900 text-slate-400 border-neutral-850"}`}>
-                    {criticalTickets.length > 0 ? "Ação Urgente" : "Fila Limpa"}
-                  </span>
-                </div>
-              </button>
-
-            </div>
-
-            {/* Filters Bar & Tickets List */}
-            <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-4 md:p-6 shadow-lg">
-              
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                    {activeTab === "projetos" ? "Projetos em Andamento" : "Fila de Chamados"}
-                  </h3>
-                  <span className="text-[10px] bg-black text-emerald-400 px-2 py-0.5 rounded border border-neutral-900 font-bold uppercase tracking-wide">
-                    Real-Time
-                  </span>
-                </div>
-
-                {/* Reset Filters action */}
-                {(selectedCategory !== "All" || selectedPriority !== "All" || selectedStatus !== "Active" || searchTerm) && (
+                  {/* Card 3: Fora do Prazo / Críticos */}
                   <button
                     onClick={() => {
-                      setSelectedCategory("All");
+                      setSelectedStatus("All");
                       setSelectedPriority("All");
-                      setSelectedStatus("Active");
+                      setSelectedCategory("All");
                       setSearchTerm("");
                     }}
-                    className="text-xs text-emerald-400 hover:text-emerald-300 font-semibold flex items-center gap-1 self-start md:self-auto cursor-pointer"
+                    className="bg-[#0a0a0a] border border-neutral-900 hover:border-rose-500/30 hover:bg-rose-950/5 rounded-xl sm:rounded-2xl p-2.5 sm:p-4 flex flex-col justify-between min-h-[90px] sm:min-h-[110px] shadow-lg text-left transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] cursor-pointer focus:outline-none focus:ring-1 focus:ring-rose-500/20 group"
                   >
-                    <Filter className="h-3 w-3" />
-                    Limpar Filtros
+                    <p className="text-[8px] sm:text-[10px] font-bold uppercase tracking-wider sm:tracking-widest text-slate-400 group-hover:text-rose-400 transition-colors">Atrasados / Críticos</p>
+                    <div className="flex items-baseline sm:items-end justify-between mt-1 sm:mt-2 gap-1 flex-wrap sm:flex-nowrap w-full">
+                      <span className={`text-xl sm:text-3xl font-black leading-none ${
+                        userVisibleTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado" && isTicketOverdue(t)).length > 0 ? "text-rose-500" : "text-white"
+                      }`}>
+                        {userVisibleTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado" && isTicketOverdue(t)).length}
+                      </span>
+                      <span className={`text-[8px] sm:text-[10px] font-bold px-1 sm:px-2 py-0.5 rounded border whitespace-nowrap ${
+                        userVisibleTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado" && isTicketOverdue(t)).length > 0 ? "bg-rose-500/10 text-rose-400 border-rose-500/20 animate-pulse" : "bg-neutral-900 text-slate-400 border-neutral-850"
+                      }`}>
+                        {userVisibleTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado" && isTicketOverdue(t)).length > 0 ? "Ação Requerida" : "Cronograma OK"}
+                      </span>
+                    </div>
                   </button>
-                )}
-              </div>
+                </>
+              ) : (
+                <>
+                  {/* Card 1: Tickets em Aberto */}
+                  <button 
+                    onClick={() => {
+                      setActiveTab("painel");
+                      setSelectedStatus("Active");
+                      setSelectedPriority("All");
+                      setSelectedCategory("All");
+                      setSearchTerm("");
+                    }}
+                    className="bg-[#0a0a0a] border border-neutral-900 hover:border-emerald-500/30 hover:bg-emerald-950/5 rounded-xl sm:rounded-2xl p-2.5 sm:p-4 flex flex-col justify-between min-h-[90px] sm:min-h-[110px] shadow-lg text-left transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] cursor-pointer focus:outline-none focus:ring-1 focus:ring-emerald-500/20 group"
+                  >
+                    <p className="text-[8px] sm:text-[10px] font-bold uppercase tracking-wider sm:tracking-widest text-slate-400 group-hover:text-emerald-400 transition-colors">Chamados Ativos</p>
+                    <div className="flex items-baseline sm:items-end justify-between mt-1 sm:mt-2 gap-1 flex-wrap sm:flex-nowrap w-full">
+                      <span className="text-xl sm:text-3xl font-black text-white leading-none">{activeTickets.length}</span>
+                      <span className="text-amber-400 text-[8px] sm:text-[10px] font-bold bg-amber-500/10 px-1 sm:px-2 py-0.5 rounded border border-amber-500/20 whitespace-nowrap">
+                        Aguardando TI
+                      </span>
+                    </div>
+                  </button>
 
-              {/* Advanced search & quick status filters */}
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-4">
+                  {/* Card 2: SLA compliance status */}
+                  <button 
+                    onClick={() => {
+                      setActiveTab("sla");
+                    }}
+                    className="bg-[#0a0a0a] border border-neutral-900 hover:border-emerald-500/30 hover:bg-emerald-950/5 rounded-xl sm:rounded-2xl p-2.5 sm:p-4 flex flex-col justify-between min-h-[90px] sm:min-h-[110px] shadow-lg text-left transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] cursor-pointer focus:outline-none focus:ring-1 focus:ring-emerald-500/20 group"
+                  >
+                    <p className="text-[8px] sm:text-[10px] font-bold uppercase tracking-wider sm:tracking-widest text-slate-400 group-hover:text-emerald-400 transition-colors">Eficiência (SLA)</p>
+                    <div className="flex items-baseline sm:items-end justify-between mt-1 sm:mt-2 gap-1 flex-wrap sm:flex-nowrap w-full">
+                      <span className="text-xl sm:text-3xl font-black text-emerald-400 leading-none">{slaCompliance}%</span>
+                      <span className="text-emerald-400 text-[8px] sm:text-[10px] font-bold bg-emerald-500/10 px-1 sm:px-2 py-0.5 rounded border border-emerald-500/20 whitespace-nowrap">
+                        Meta: 92%
+                      </span>
+                    </div>
+                  </button>
+
+                  {/* Card 3: Critical alerts pending */}
+                  <button 
+                    onClick={() => {
+                      setActiveTab("painel");
+                      setSelectedStatus("Active");
+                      // Filter by Urgente if any exists, otherwise Alta
+                      const hasUrgent = activeTickets.some(t => t.priority === "Urgente");
+                      setSelectedPriority(hasUrgent ? "Urgente" : "Alta");
+                      setSelectedCategory("All");
+                      setSearchTerm("");
+                    }}
+                    className="bg-[#0a0a0a] border border-neutral-900 hover:border-rose-500/30 hover:bg-rose-950/5 rounded-xl sm:rounded-2xl p-2.5 sm:p-4 flex flex-col justify-between min-h-[90px] sm:min-h-[110px] shadow-lg text-left transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] cursor-pointer focus:outline-none focus:ring-1 focus:ring-rose-500/20 group"
+                  >
+                    <p className="text-[8px] sm:text-[10px] font-bold uppercase tracking-wider sm:tracking-widest text-slate-400 group-hover:text-rose-400 transition-colors">Casos Críticos</p>
+                    <div className="flex items-baseline sm:items-end justify-between mt-1 sm:mt-2 gap-1 flex-wrap sm:flex-nowrap w-full">
+                      <span className={`text-xl sm:text-3xl font-black leading-none ${criticalTickets.length > 0 ? "text-rose-500" : "text-white"}`}>
+                        {criticalTickets.length}
+                      </span>
+                      <span className={`text-[8px] sm:text-[10px] font-bold px-1 sm:px-2 py-0.5 rounded border whitespace-nowrap ${criticalTickets.length > 0 ? "bg-rose-500/10 text-rose-400 border-rose-500/20 animate-pulse" : "bg-neutral-900 text-slate-400 border-neutral-850"}`}>
+                        {criticalTickets.length > 0 ? "Ação Urgente" : "Fila Limpa"}
+                      </span>
+                    </div>
+                  </button>
+                </>
+              )}
+            </div>
+
+            {/* Filters Bar, Tickets List & Projects Dashboard */}
+            {activeTab === "projetos" ? (
+              <div className="space-y-6">
                 
-                {/* Search query input */}
-                <div className="sm:col-span-2 relative">
-                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-500">
-                    <Search className="h-4 w-4" />
-                  </span>
-                  <input
-                    type="text"
-                    placeholder="Buscar ID, título, autor ou responsável..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full bg-black border border-neutral-900 rounded-xl py-2 pl-9 pr-4 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
-                  />
+                {/* Dashboard Control Bar */}
+                <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20 shadow-neon-sm">
+                      <Briefcase className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-white uppercase tracking-wider">Painel de Projetos</h4>
+                      <p className="text-[10px] text-slate-400">Visão geral, quadros e cronogramas de entregas corporativas</p>
+                    </div>
+                  </div>
+
+                  {/* Mode switcher tabs */}
+                  <div className="flex items-center gap-1.5 bg-black p-1 rounded-xl border border-neutral-900 self-start md:self-auto shrink-0">
+                    <button
+                      onClick={() => setProjectViewMode("bento")}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
+                        projectViewMode === "bento" 
+                          ? "bg-emerald-400 text-black font-extrabold shadow-neon" 
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      <Layers className="h-3.5 w-3.5" />
+                      <span>Bento</span>
+                    </button>
+                    <button
+                      onClick={() => setProjectViewMode("kanban")}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
+                        projectViewMode === "kanban" 
+                          ? "bg-emerald-400 text-black font-extrabold shadow-neon" 
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      <FolderKanban className="h-3.5 w-3.5" />
+                      <span>Kanban</span>
+                    </button>
+                    <button
+                      onClick={() => setProjectViewMode("timeline")}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
+                        projectViewMode === "timeline" 
+                          ? "bg-emerald-400 text-black font-extrabold shadow-neon" 
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      <Calendar className="h-3.5 w-3.5" />
+                      <span>Cronograma</span>
+                    </button>
+                  </div>
                 </div>
 
-                {/* Priority Selection Filter */}
-                <select
-                  value={selectedPriority}
-                  onChange={(e) => setSelectedPriority(e.target.value)}
-                  className="bg-black border border-neutral-900 text-slate-300 text-xs rounded-xl py-2 px-3 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
-                >
-                  <option value="All">Prioridade (Todas)</option>
-                  <option value="Baixa">Baixa</option>
-                  <option value="Média">Média</option>
-                  <option value="Alta">Alta</option>
-                  <option value="Urgente">Urgente</option>
-                </select>
+                {/* Subtitle / Search & Filters for projects */}
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-4 shadow-lg">
+                  <div className="sm:col-span-2 relative">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-500">
+                      <Search className="h-4 w-4" />
+                    </span>
+                    <input
+                      type="text"
+                      placeholder="Buscar projetos..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full bg-black border border-neutral-900 rounded-xl py-2 pl-9 pr-4 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
+                    />
+                  </div>
+                  
+                  <select
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    className="bg-black border border-neutral-900 text-slate-300 text-xs rounded-xl py-2 px-3 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all cursor-pointer"
+                  >
+                    <option value="All">Categoria (Todas)</option>
+                    <option value="Hardware">Hardware</option>
+                    <option value="Software">Software</option>
+                    <option value="Redes">Redes</option>
+                    <option value="Acesso">Acesso</option>
+                    <option value="Sistemas">Sistemas</option>
+                    <option value="Outros">Outros</option>
+                  </select>
 
-                {/* Status Selection Filter */}
-                <select
-                  value={selectedStatus}
-                  onChange={(e) => setSelectedStatus(e.target.value)}
-                  className="bg-black border border-neutral-900 text-slate-300 text-xs rounded-xl py-2 px-3 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
-                >
-                  <option value="Active">Ativos (Aberto / Em Atendimento)</option>
-                  <option value="All">Status (Todos)</option>
-                  <option value="Aberto">Aberto</option>
-                  <option value="Em Atendimento">Em Atendimento</option>
-                  <option value="Resolvido">Resolvido</option>
-                  <option value="Fechado">Fechado</option>
-                </select>
+                  <select
+                    value={selectedStatus}
+                    onChange={(e) => setSelectedStatus(e.target.value)}
+                    className="bg-black border border-neutral-900 text-slate-300 text-xs rounded-xl py-2 px-3 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all cursor-pointer"
+                  >
+                    <option value="Active">Ativos (Todos)</option>
+                    <option value="All">Status (Todos)</option>
+                    <option value="Aberto">Aberto</option>
+                    <option value="Em Atendimento">Em Atendimento</option>
+                    <option value="Resolvido">Resolvido</option>
+                    <option value="Fechado">Fechado</option>
+                  </select>
+                </div>
+
+                {/* Sub-Views Content Container */}
+                <div className="min-h-[300px]">
+                  {loading ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-3">
+                      <RefreshCw className="h-8 w-8 animate-spin text-emerald-400" />
+                      <p className="text-xs">Carregando projetos corporativos...</p>
+                    </div>
+                  ) : filteredTickets.length === 0 ? (
+                    <div className="text-center py-16 bg-[#0a0a0a] border border-neutral-900 rounded-2xl text-neutral-500 font-mono shadow-lg">
+                      <p className="text-xs font-bold text-emerald-400 uppercase tracking-widest">Nenhum projeto encontrado</p>
+                      <p className="text-[10px] text-neutral-600 mt-2">Ajuste os filtros ou crie um novo chamado definindo uma Data Limite.</p>
+                    </div>
+                  ) : projectViewMode === "bento" ? (
+                    
+                    /* BENTO CARD VIEW */
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {filteredTickets.map((project) => {
+                        const isSelected = project.id === selectedTicketId;
+                        const commentsCount = project.comments.filter(c => c.authorRole !== "system").length;
+                        
+                        // Priority colors
+                        const priorityColor = 
+                          project.priority === "Urgente" ? "text-rose-400 bg-rose-500/10 border-rose-500/20" :
+                          project.priority === "Alta" ? "text-amber-400 bg-amber-500/10 border-amber-500/20" :
+                          project.priority === "Média" ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" : 
+                          "text-neutral-400 bg-neutral-900 border-neutral-800";
+
+                        // Project Progress Calculation
+                        let progressVal = 15;
+                        if (project.status === "Resolvido" || project.status === "Fechado") {
+                          progressVal = 100;
+                        } else if (project.status === "Em Atendimento") {
+                          if (commentsCount >= 4) progressVal = 85;
+                          else if (commentsCount === 3) progressVal = 70;
+                          else if (commentsCount === 2) progressVal = 55;
+                          else if (commentsCount === 1) progressVal = 40;
+                          else progressVal = 30;
+                        }
+
+                        // Time Calculation
+                        let timeBadge = null;
+                        const isOverdue = isTicketOverdue(project);
+                        
+                        if (project.projectDeadline) {
+                          const diffTime = new Date(project.projectDeadline).getTime() - Date.now();
+                          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                          
+                          if (isOverdue) {
+                            timeBadge = (
+                              <span className="flex items-center gap-1 px-2.5 py-1 text-[9px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-400 border border-rose-500/25 rounded-full animate-pulse">
+                                <Clock className="h-3 w-3" />
+                                Atrasado por {Math.abs(diffDays)}d
+                              </span>
+                            );
+                          } else if (diffDays === 0) {
+                            timeBadge = (
+                              <span className="flex items-center gap-1 px-2.5 py-1 text-[9px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-full animate-pulse">
+                                <Clock className="h-3 w-3" />
+                                Vence Hoje
+                              </span>
+                            );
+                          } else if (diffDays <= 3) {
+                            timeBadge = (
+                              <span className="flex items-center gap-1 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full">
+                                <Clock className="h-3 w-3" />
+                                Limite em {diffDays}d
+                              </span>
+                            );
+                          } else {
+                            timeBadge = (
+                              <span className="flex items-center gap-1 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full">
+                                <Clock className="h-3 w-3" />
+                                {diffDays}d restantes
+                              </span>
+                            );
+                          }
+                        }
+
+                        return (
+                          <div
+                            key={project.id}
+                            onClick={() => setSelectedTicketId(project.id)}
+                            className={`p-5 bg-gradient-to-br from-[#0a0a0a] to-[#050505] hover:to-[#0d0d0d] border rounded-2xl transition-all duration-300 cursor-pointer flex flex-col justify-between min-h-[200px] relative overflow-hidden group ${
+                              isSelected 
+                                ? "border-emerald-400 ring-2 ring-emerald-400/25 bg-black shadow-neon-sm" 
+                                : "border-neutral-900 hover:border-neutral-800"
+                            }`}
+                          >
+                            <div className="space-y-3.5">
+                              {/* Card Header row */}
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[9px] font-mono font-bold text-slate-500 uppercase">
+                                    #{project.id}
+                                  </span>
+                                  <span className={`text-[8px] md:text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                                    project.status === "Aberto" ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
+                                    project.status === "Em Atendimento" ? "bg-sky-500/10 text-sky-400 border-sky-500/20" :
+                                    project.status === "Resolvido" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                                    "bg-zinc-850 text-zinc-400 border-zinc-800"
+                                  }`}>
+                                    {project.status}
+                                  </span>
+                                </div>
+                                {timeBadge}
+                              </div>
+
+                              {/* Title / Info */}
+                              <div>
+                                <h5 className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors line-clamp-1">{project.title}</h5>
+                                <p className="text-[11px] text-slate-400 line-clamp-2 mt-1 leading-relaxed">{project.description}</p>
+                              </div>
+                            </div>
+
+                            {/* Middle section: progress bar */}
+                            <div className="space-y-1.5 my-3.5">
+                              <div className="flex items-center justify-between text-[10px] font-bold">
+                                <span className="text-slate-500 uppercase tracking-wider text-[8px]">Progresso Estimado</span>
+                                <span className="text-emerald-400 font-mono">{progressVal}%</span>
+                              </div>
+                              <div className="h-1.5 bg-black/80 rounded-full overflow-hidden border border-neutral-900">
+                                <div 
+                                  className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full transition-all duration-500 shadow-[0_0_10px_rgba(52,211,153,0.3)]"
+                                  style={{ width: `${progressVal}%` }}
+                                />
+                              </div>
+                            </div>
+
+                            {/* Footer: Tech assignments and stats */}
+                            <div className="flex items-center justify-between border-t border-neutral-900/50 pt-3 mt-1.5 gap-2">
+                              <div className="flex items-center gap-1.5">
+                                <div className="flex -space-x-1.5 overflow-hidden">
+                                  {project.assignedTo ? (
+                                    getAssignedTechs(project.assignedTo).map((t, idx) => (
+                                      <div 
+                                        key={idx} 
+                                        className="h-5 w-5 rounded-full bg-neutral-900 border border-neutral-800 text-[8px] font-bold text-emerald-400 flex items-center justify-center shadow-sm"
+                                        title={t}
+                                      >
+                                        {t.substring(0, 2).toUpperCase()}
+                                      </div>
+                                    ))
+                                  ) : (
+                                    <span className="text-[9px] text-slate-500 italic">Sem responsável</span>
+                                  )}
+                                </div>
+                                {project.assignedTo && (
+                                  <span className="text-[8px] text-slate-500 font-bold uppercase truncate max-w-[80px]">
+                                    {getAssignedTechs(project.assignedTo)[0]}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-2 text-slate-500 text-[10px]">
+                                {commentsCount > 0 && (
+                                  <span className="flex items-center gap-1" title={`${commentsCount} atualizações`}>
+                                    <MessageSquare className="h-3 w-3" />
+                                    <span>{commentsCount}</span>
+                                  </span>
+                                )}
+                                <span className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase border ${priorityColor}`}>
+                                  {project.priority}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                  ) : projectViewMode === "kanban" ? (
+                    
+                    /* KANBAN BOARD VIEW */
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 overflow-x-auto pb-4">
+                      
+                      {(() => {
+                        const columns = [
+                          { title: "Pendente", status: "Aberto", bg: "border-t-amber-500", text: "text-amber-400", dot: "bg-amber-400" },
+                          { title: "Em Execução", status: "Em Atendimento", bg: "border-t-sky-500", text: "text-sky-400", dot: "bg-sky-400" },
+                          { title: "Concluído", status: "Resolvido", bg: "border-t-emerald-500", text: "text-emerald-400", dot: "bg-emerald-400" }
+                        ];
+
+                        return columns.map((col, colIdx) => {
+                          const colProjects = filteredTickets.filter(p => {
+                            if (col.status === "Resolvido") {
+                              return p.status === "Resolvido" || p.status === "Fechado";
+                            }
+                            return p.status === col.status;
+                          });
+
+                          return (
+                            <div key={colIdx} className="bg-[#050505] border border-neutral-900 rounded-2xl p-3 flex flex-col min-h-[500px]">
+                              
+                              {/* Column Header */}
+                              <div className={`flex items-center justify-between border-b border-neutral-900/60 pb-3 mb-3 border-t-2 ${col.bg} pt-1.5 px-1`}>
+                                <div className="flex items-center gap-2">
+                                  <span className={`h-1.5 w-1.5 rounded-full ${col.dot} shadow-sm animate-pulse`} />
+                                  <span className="text-[10px] font-black uppercase text-white tracking-widest">{col.title}</span>
+                                </div>
+                                <span className="text-[10px] font-bold bg-neutral-900 px-2 py-0.5 rounded text-slate-400 font-mono border border-neutral-850">
+                                  {colProjects.length}
+                                </span>
+                              </div>
+
+                              {/* Column Cards Container */}
+                              <div className="space-y-3 flex-1 overflow-y-auto max-h-[480px] pr-1">
+                                {colProjects.length === 0 ? (
+                                  <div className="text-center py-10 border border-dashed border-neutral-900/40 rounded-xl text-neutral-600 text-[10px] font-mono">
+                                    Nenhum projeto nesta etapa
+                                  </div>
+                                ) : (
+                                  colProjects.map((project) => {
+                                    const isSelected = project.id === selectedTicketId;
+                                    const commentsCount = project.comments.filter(c => c.authorRole !== "system").length;
+                                    
+                                    let progressVal = 15;
+                                    if (project.status === "Resolvido" || project.status === "Fechado") {
+                                      progressVal = 100;
+                                    } else if (project.status === "Em Atendimento") {
+                                      progressVal = commentsCount >= 3 ? 80 : commentsCount === 2 ? 60 : commentsCount === 1 ? 40 : 30;
+                                    }
+
+                                    return (
+                                      <div
+                                        key={project.id}
+                                        onClick={() => setSelectedTicketId(project.id)}
+                                        className={`p-3.5 bg-[#0a0a0a] hover:bg-neutral-900/40 border rounded-xl cursor-pointer transition-all duration-200 relative group flex flex-col justify-between gap-3 ${
+                                          isSelected 
+                                            ? "border-emerald-400 ring-1 ring-emerald-400/20 bg-black" 
+                                            : "border-neutral-900 hover:border-neutral-850"
+                                        }`}
+                                      >
+                                        <div className="space-y-1.5">
+                                          <div className="flex items-center justify-between text-[8px] text-slate-500 font-bold uppercase font-mono">
+                                            <span>#{project.id}</span>
+                                            <span className={project.priority === "Urgente" ? "text-rose-400" : project.priority === "Alta" ? "text-amber-400" : "text-slate-400"}>
+                                              {project.priority}
+                                            </span>
+                                          </div>
+                                          <h6 className="text-[11px] font-extrabold text-white group-hover:text-emerald-400 transition-colors line-clamp-1 leading-tight">{project.title}</h6>
+                                          <p className="text-[10px] text-slate-400 line-clamp-2 leading-relaxed">{project.description}</p>
+                                        </div>
+
+                                        {/* Progress line */}
+                                        <div className="h-1 bg-black/60 rounded-full overflow-hidden">
+                                          <div className="h-full bg-emerald-400 transition-all duration-300" style={{ width: `${progressVal}%` }} />
+                                        </div>
+
+                                        {/* Quick status moves / assignees */}
+                                        <div className="flex items-center justify-between border-t border-neutral-900/40 pt-2 text-[9px] text-slate-500">
+                                          <div className="flex items-center gap-1 font-semibold text-[8px] bg-neutral-900 px-1.5 py-0.5 rounded text-emerald-400 border border-neutral-850">
+                                            <Calendar className="h-2.5 w-2.5" />
+                                            <span>
+                                              {(() => {
+                                                try {
+                                                  const [y, m, d] = project.projectDeadline!.split("-");
+                                                  return `${d}/${m}`;
+                                                } catch (e) {
+                                                  return project.projectDeadline;
+                                                }
+                                              })()}
+                                            </span>
+                                          </div>
+
+                                          {/* Quick Actions Switch for tech role */}
+                                          {currentSession.role === "tecnico" && (
+                                            <div className="flex items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                                              {project.status === "Aberto" && (
+                                                <button
+                                                  onClick={() => handleUpdateTicketMeta(project.id, { status: "Em Atendimento" })}
+                                                  className="px-1.5 py-0.5 bg-sky-500/10 text-sky-400 border border-sky-500/20 rounded hover:bg-sky-500/20 text-[8px] font-black uppercase cursor-pointer"
+                                                  title="Assumir Projeto"
+                                                >
+                                                  Iniciar →
+                                                </button>
+                                              )}
+                                              {project.status === "Em Atendimento" && (
+                                                <button
+                                                  onClick={() => handleUpdateTicketMeta(project.id, { status: "Resolvido" })}
+                                                  className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded hover:bg-emerald-500/20 text-[8px] font-black uppercase cursor-pointer"
+                                                  title="Concluir Projeto"
+                                                >
+                                                  Concluir ✓
+                                                </button>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+
+                  ) : (
+                    
+                    /* TIMELINE VIEW */
+                    <div className="relative border border-neutral-900 rounded-2xl bg-[#030303] p-5 md:p-6 overflow-hidden shadow-lg">
+                      <div className="absolute left-6 md:left-8 top-10 bottom-10 w-[1px] bg-gradient-to-b from-emerald-500/30 via-emerald-500/10 to-neutral-900" />
+
+                      <div className="space-y-6 relative z-10">
+                        {(() => {
+                          const sortedProjects = [...filteredTickets].sort((a, b) => 
+                            new Date(a.projectDeadline!).getTime() - new Date(b.projectDeadline!).getTime()
+                          );
+
+                          return sortedProjects.map((project, index) => {
+                            const isSelected = project.id === selectedTicketId;
+                            const isOverdue = isTicketOverdue(project);
+                            
+                            // Color code
+                            const statusColor = 
+                              project.status === "Resolvido" || project.status === "Fechado" ? "border-emerald-500 bg-emerald-500" :
+                              isOverdue ? "border-rose-500 bg-rose-500 shadow-[0_0_10px_rgba(239,68,68,0.4)] animate-pulse" :
+                              "border-amber-500 bg-amber-500";
+
+                            return (
+                              <div
+                                key={project.id}
+                                onClick={() => setSelectedTicketId(project.id)}
+                                className="flex gap-4 md:gap-6 items-start cursor-pointer group"
+                              >
+                                {/* Timeline Bullet node */}
+                                <div className={`w-3 h-3 rounded-full border-2 ${statusColor} mt-1.5 shrink-0 z-10 transition-all duration-300 group-hover:scale-125`} />
+
+                                {/* Card on the right */}
+                                <div className={`flex-1 p-4 bg-[#0a0a0a] border hover:border-neutral-850 rounded-xl transition-all duration-200 ${
+                                  isSelected ? "border-emerald-400/50 bg-black shadow-neon-sm" : "border-neutral-900"
+                                }`}>
+                                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-1.5 mb-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[9px] font-bold text-slate-500 font-mono uppercase">#{project.id}</span>
+                                      <h6 className="text-xs font-black text-white group-hover:text-emerald-400 transition-colors">{project.title}</h6>
+                                    </div>
+                                    <div className="text-[10px] font-bold text-emerald-400 flex items-center gap-1 bg-emerald-500/5 px-2 py-0.5 rounded-full border border-emerald-500/15">
+                                      <Calendar className="h-3 w-3" />
+                                      <span>
+                                        Entrega: {(() => {
+                                          try {
+                                            const [y, m, d] = project.projectDeadline!.split("-");
+                                            return `${d}/${m}/${y}`;
+                                          } catch (e) {
+                                            return project.projectDeadline;
+                                          }
+                                        })()}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <p className="text-[11px] text-slate-400 line-clamp-1 leading-relaxed">{project.description}</p>
+                                  
+                                  <div className="flex items-center justify-between border-t border-neutral-900/50 pt-2.5 mt-2.5 text-[9px] text-slate-500">
+                                    <span>Resp: <strong className="text-slate-400">{project.assignedTo || "Sem responsável"}</strong></span>
+                                    <span className="uppercase tracking-wider font-extrabold text-[8px] bg-neutral-900 px-1.5 py-0.5 rounded text-neutral-400 border border-neutral-850">{project.category}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          });
+                        })()}
+                      </div>
+                    </div>
+
+                  )}
+                </div>
 
               </div>
-
-              {/* Main Interactive Ticket List container */}
-              <div className="space-y-3 max-h-[580px] xl:max-h-[calc(100vh-250px)] overflow-y-auto pr-1">
-                {loading ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-3">
-                    <RefreshCw className="h-8 w-8 animate-spin text-emerald-400" />
-                    <p className="text-xs">Sincronizando banco de dados corporativo...</p>
+            ) : (
+              <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-4 md:p-6 shadow-lg">
+                
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                      Fila de Chamados
+                    </h3>
+                    <span className="text-[10px] bg-black text-emerald-400 px-2 py-0.5 rounded border border-neutral-900 font-bold uppercase tracking-wide">
+                      Real-Time
+                    </span>
                   </div>
-                ) : filteredTickets.length === 0 ? (
-                  <div className="text-center py-12 border border-dashed border-neutral-900 rounded-xl text-neutral-500 font-mono">
-                    <p className="text-xs font-bold text-emerald-400">Nenhum chamado corresponde aos filtros selecionados.</p>
-                    <p className="text-[10px] text-neutral-600 mt-1">Experimente limpar a busca ou os filtros de prioridade acima.</p>
+
+                  {/* Reset Filters action */}
+                  {(selectedCategory !== "All" || selectedPriority !== "All" || selectedStatus !== "Active" || searchTerm) && (
+                    <button
+                      onClick={() => {
+                        setSelectedCategory("All");
+                        setSelectedPriority("All");
+                        setSelectedStatus("Active");
+                        setSearchTerm("");
+                      }}
+                      className="text-xs text-emerald-400 hover:text-emerald-300 font-semibold flex items-center gap-1 self-start md:self-auto cursor-pointer"
+                    >
+                      <Filter className="h-3 w-3" />
+                      Limpar Filtros
+                    </button>
+                  )}
+                </div>
+
+                {/* Advanced search & quick status filters */}
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-4">
+                  
+                  {/* Search query input */}
+                  <div className="sm:col-span-2 relative">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-500">
+                      <Search className="h-4 w-4" />
+                    </span>
+                    <input
+                      type="text"
+                      placeholder="Buscar ID, título, autor ou responsável..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full bg-black border border-neutral-900 rounded-xl py-2 pl-9 pr-4 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
+                    />
                   </div>
-                ) : (
-                  filteredTickets.map((ticket) => {
-                    const isSelected = ticket.id === selectedTicketId;
-                    const commentsCount = ticket.comments.filter(c => c.authorRole !== "system").length;
-                    
-                    // Priority border coloring
-                    const priorityBorder = 
-                      ticket.priority === "Urgente" ? "border-l-rose-500" :
-                      ticket.priority === "Alta" ? "border-l-amber-500" :
-                      ticket.priority === "Média" ? "border-l-emerald-500" : "border-l-neutral-700";
 
-                    const priorityTextClass = 
-                      ticket.priority === "Urgente" ? "text-rose-400" :
-                      ticket.priority === "Alta" ? "text-amber-400" :
-                      ticket.priority === "Média" ? "text-emerald-400" : "text-neutral-400";
+                  {/* Priority Selection Filter */}
+                  <select
+                    value={selectedPriority}
+                    onChange={(e) => setSelectedPriority(e.target.value)}
+                    className="bg-black border border-neutral-900 text-slate-300 text-xs rounded-xl py-2 px-3 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all cursor-pointer"
+                  >
+                    <option value="All">Prioridade (Todas)</option>
+                    <option value="Baixa">Baixa</option>
+                    <option value="Média">Média</option>
+                    <option value="Alta">Alta</option>
+                    <option value="Urgente">Urgente</option>
+                  </select>
 
-                    return (
-                      <div
-                        id={`ticket-card-${ticket.id}`}
-                        key={ticket.id}
-                        onClick={() => setSelectedTicketId(ticket.id)}
-                        className={`p-2.5 md:p-4 bg-[#050505] hover:bg-[#0c0c0c] rounded-lg md:rounded-2xl border border-neutral-900 border-l-4 ${priorityBorder} flex flex-col md:flex-row justify-between md:items-center gap-2 md:gap-4 transition-all cursor-pointer ${isSelected ? "ring-2 ring-emerald-400/35 bg-black border-emerald-400/20 shadow-neon-sm" : ""}`}
-                      >
-                        <div className="flex-1 space-y-0.5 md:space-y-2">
-                           <div className="flex flex-wrap items-center gap-1 md:gap-2">
-                            <span className="text-[8px] md:text-[10px] font-bold text-neutral-400 uppercase">
-                              #{ticket.id}
-                            </span>
-                            <span className={`text-[8px] md:text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded ${
-                              ticket.status === "Aberto" ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" :
-                              ticket.status === "Em Atendimento" ? "bg-sky-500/10 text-sky-400 border border-sky-500/20 shadow-[0_0_10px_rgba(56,189,248,0.05)]" :
-                              ticket.status === "Resolvido" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.05)]" :
-                              ticket.status === "Fechado" ? "bg-zinc-800/40 text-zinc-400 border border-zinc-700/30" :
-                              "bg-[#151515] text-neutral-400 border border-neutral-900"
-                            }`}>
-                              {ticket.status}
-                            </span>
-                            <span className={`text-[8px] md:text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded ${
-                              ticket.category === 'Acesso' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
-                              ticket.category === 'Redes' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                              ticket.category === 'Hardware' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
-                              ticket.category === 'Software' ? 'bg-emerald-400/10 text-emerald-400 border border-emerald-400/20' :
-                              ticket.category === 'Sistemas' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                              'bg-neutral-900 text-neutral-300'
-                            }`}>
-                              {ticket.category}
-                            </span>
-                            <span className={`text-[8px] md:text-[10px] font-bold uppercase ${priorityTextClass}`}>
-                              {ticket.priority}
-                            </span>
-                          </div>
+                  {/* Status Selection Filter */}
+                  <select
+                    value={selectedStatus}
+                    onChange={(e) => setSelectedStatus(e.target.value)}
+                    className="bg-black border border-neutral-900 text-slate-300 text-xs rounded-xl py-2 px-3 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all cursor-pointer"
+                  >
+                    <option value="Active">Ativos (Aberto / Em Atendimento)</option>
+                    <option value="All">Status (Todos)</option>
+                    <option value="Aberto">Aberto</option>
+                    <option value="Em Atendimento">Em Atendimento</option>
+                    <option value="Resolvido">Resolvido</option>
+                    <option value="Fechado">Fechado</option>
+                  </select>
 
-                          <h4 className="text-[11px] sm:text-xs md:text-sm font-bold text-neutral-200 line-clamp-1">{ticket.title}</h4>
-                          
-                          <div className="flex flex-wrap items-center gap-x-2 md:gap-x-4 gap-y-0.5 text-[9px] md:text-xs text-slate-500">
-                            <span>Solicitante: <strong className="text-slate-400">{ticket.requesterName}</strong> ({ticket.requesterDepartment.split(" / ")[0]})</span>
-                            <span>•</span>
-                            <span>Aberto: {new Date(ticket.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} às {new Date(ticket.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
-                            {ticket.projectDeadline && (
-                              <>
-                                <span>•</span>
-                                <span className="flex items-center gap-1 text-emerald-400 font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 text-[8px] md:text-[10px]">
-                                  <Calendar className="h-3 w-3" />
-                                  Limite Projeto: {(() => {
-                                    try {
-                                      const [year, month, day] = ticket.projectDeadline.split("-");
-                                      return `${day}/${month}/${year}`;
-                                    } catch (e) {
-                                      return ticket.projectDeadline;
-                                    }
-                                  })()}
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        </div>
+                </div>
 
-                        {/* Responsible and stats alignment block */}
-                        <div className="flex md:flex-col items-center md:items-end justify-between md:justify-center shrink-0 border-t md:border-t-0 border-neutral-900/30 pt-1 md:pt-0 gap-1 md:gap-2">
-                          <div className="text-right">
-                            <p className="text-[8px] md:text-[10px] text-slate-500 font-bold uppercase">Atribuído a</p>
-                            <div className="mt-0.5 md:mt-1">
-                              {ticket.assignedTo ? (
-                                <div className="flex flex-wrap gap-1 justify-end">
-                                  {getAssignedTechs(ticket.assignedTo).map((t, i) => (
-                                    <span key={i} className="bg-emerald-500/10 text-emerald-400 px-1 py-0.5 rounded text-[8px] md:text-[9px] border border-emerald-500/20 font-bold shadow-sm">
-                                      {t}
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : (
-                                <span className="text-slate-500 italic text-[9px] md:text-xs block text-right">Ninguém</span>
+                {/* Main Interactive Ticket List container */}
+                <div className="space-y-3 max-h-[580px] xl:max-h-[calc(100vh-250px)] overflow-y-auto pr-1">
+                  {loading ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-3">
+                      <RefreshCw className="h-8 w-8 animate-spin text-emerald-400" />
+                      <p className="text-xs">Sincronizando banco de dados corporativo...</p>
+                    </div>
+                  ) : filteredTickets.length === 0 ? (
+                    <div className="text-center py-12 border border-dashed border-neutral-900 rounded-xl text-neutral-500 font-mono">
+                      <p className="text-xs font-bold text-emerald-400">Nenhum chamado corresponde aos filtros selecionados.</p>
+                      <p className="text-[10px] text-neutral-600 mt-1">Experimente limpar a busca ou os filtros de prioridade acima.</p>
+                    </div>
+                  ) : (
+                    filteredTickets.map((ticket) => {
+                      const isSelected = ticket.id === selectedTicketId;
+                      const commentsCount = ticket.comments.filter(c => c.authorRole !== "system").length;
+                      
+                      // Priority border coloring
+                      const priorityBorder = 
+                        ticket.priority === "Urgente" ? "border-l-rose-500" :
+                        ticket.priority === "Alta" ? "border-l-amber-500" :
+                        ticket.priority === "Média" ? "border-l-emerald-500" : "border-l-neutral-700";
+
+                      const priorityTextClass = 
+                        ticket.priority === "Urgente" ? "text-rose-400" :
+                        ticket.priority === "Alta" ? "text-amber-400" :
+                        ticket.priority === "Média" ? "text-emerald-400" : "text-neutral-400";
+
+                      return (
+                        <div
+                          id={`ticket-card-${ticket.id}`}
+                          key={ticket.id}
+                          onClick={() => setSelectedTicketId(ticket.id)}
+                          className={`p-2.5 md:p-4 bg-[#050505] hover:bg-[#0c0c0c] rounded-lg md:rounded-2xl border border-neutral-900 border-l-4 ${priorityBorder} flex flex-col md:flex-row justify-between md:items-center gap-2 md:gap-4 transition-all cursor-pointer ${isSelected ? "ring-2 ring-emerald-400/35 bg-black border-emerald-400/20 shadow-neon-sm" : ""}`}
+                        >
+                          <div className="flex-1 space-y-0.5 md:space-y-2">
+                             <div className="flex flex-wrap items-center gap-1 md:gap-2">
+                              <span className="text-[8px] md:text-[10px] font-bold text-neutral-400 uppercase">
+                                #{ticket.id}
+                              </span>
+                              <span className={`text-[8px] md:text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded ${
+                                ticket.status === "Aberto" ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" :
+                                ticket.status === "Em Atendimento" ? "bg-sky-500/10 text-sky-400 border border-sky-500/20 shadow-[0_0_10px_rgba(56,189,248,0.05)]" :
+                                ticket.status === "Resolvido" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.05)]" :
+                                ticket.status === "Fechado" ? "bg-zinc-800/40 text-zinc-400 border border-zinc-700/30" :
+                                "bg-[#151515] text-neutral-400 border border-neutral-900"
+                              }`}>
+                                {ticket.status}
+                              </span>
+                              <span className={`text-[8px] md:text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded ${
+                                ticket.category === 'Acesso' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
+                                ticket.category === 'Redes' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                                ticket.category === 'Hardware' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                                ticket.category === 'Software' ? 'bg-emerald-400/10 text-emerald-400 border border-emerald-400/20' :
+                                ticket.category === 'Sistemas' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                                'bg-neutral-900 text-neutral-300'
+                              }`}>
+                                {ticket.category}
+                              </span>
+                              <span className={`text-[8px] md:text-[10px] font-bold uppercase ${priorityTextClass}`}>
+                                {ticket.priority}
+                              </span>
+                            </div>
+
+                            <h4 className="text-[11px] sm:text-xs md:text-sm font-bold text-neutral-200 line-clamp-1">{ticket.title}</h4>
+                            
+                            <div className="flex flex-wrap items-center gap-x-2 md:gap-x-4 gap-y-0.5 text-[9px] md:text-xs text-slate-500">
+                              <span>Solicitante: <strong className="text-slate-400">{ticket.requesterName}</strong> ({ticket.requesterDepartment.split(" / ")[0]})</span>
+                              <span>•</span>
+                              <span>Aberto: {new Date(ticket.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} às {new Date(ticket.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+                              {ticket.projectDeadline && (
+                                <>
+                                  <span>•</span>
+                                  <span className="flex items-center gap-1 text-emerald-400 font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 text-[8px] md:text-[10px]">
+                                    <Calendar className="h-3 w-3" />
+                                    Limite Projeto: {(() => {
+                                      try {
+                                        const [year, month, day] = ticket.projectDeadline.split("-");
+                                        return `${day}/${month}/${year}`;
+                                      } catch (e) {
+                                        return ticket.projectDeadline;
+                                      }
+                                    })()}
+                                  </span>
+                                </>
                               )}
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-1.5 md:gap-3 mt-0.5 md:mt-1 text-slate-500">
-                            {commentsCount > 0 && (
-                              <div className="flex items-center gap-1" title={`${commentsCount} comentários de suporte`}>
-                                <MessageSquare className="h-3 w-3" />
-                                <span className="text-[10px] md:text-xs font-semibold">{commentsCount}</span>
+                          {/* Responsible and stats alignment block */}
+                          <div className="flex md:flex-col items-center md:items-end justify-between md:justify-center shrink-0 border-t md:border-t-0 border-neutral-900/30 pt-1 md:pt-0 gap-1 md:gap-2">
+                            <div className="text-right">
+                              <p className="text-[8px] md:text-[10px] text-slate-500 font-bold uppercase">Atribuído a</p>
+                              <div className="mt-0.5 md:mt-1">
+                                {ticket.assignedTo ? (
+                                  <div className="flex flex-wrap gap-1 justify-end">
+                                    {getAssignedTechs(ticket.assignedTo).map((t, i) => (
+                                      <span key={i} className="bg-emerald-500/10 text-emerald-400 px-1 py-0.5 rounded text-[8px] md:text-[9px] border border-emerald-500/20 font-bold shadow-sm">
+                                        {t}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-500 italic text-[9px] md:text-xs block text-right">Ninguém</span>
+                                )}
                               </div>
-                            )}
+                            </div>
 
-                            {/* IA Triaged icon badge indicator */}
-                            {ticket.aiCategory && (
-                              <div className="flex items-center gap-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded text-[8px] md:text-[9px] font-bold" title="Triagem inteligente realizada por IA">
-                                <Sparkles className="h-2.5 w-2.5" />
-                                <span>IA</span>
-                              </div>
-                            )}
+                            <div className="flex items-center gap-1.5 md:gap-3 mt-0.5 md:mt-1 text-slate-500">
+                              {commentsCount > 0 && (
+                                <div className="flex items-center gap-1" title={`${commentsCount} comentários de suporte`}>
+                                  <MessageSquare className="h-3 w-3" />
+                                  <span className="text-[10px] md:text-xs font-semibold">{commentsCount}</span>
+                                </div>
+                              )}
+
+                              {/* IA Triaged icon badge indicator */}
+                              {ticket.aiCategory && (
+                                <div className="flex items-center gap-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded text-[8px] md:text-[9px] font-bold" title="Triagem inteligente realizada por IA">
+                                  <Sparkles className="h-2.5 w-2.5" />
+                                  <span>IA</span>
+                                </div>
+                              )}
+                            </div>
                           </div>
+
                         </div>
+                      );
+                    })
+                  )}
+                </div>
 
-                      </div>
-                    );
-                  })
-                )}
               </div>
-
-            </div>
-
+            )}
           </div>
 
           {/* RIGHT SECTION (Col 5): Bento Ticket Detail, Diagnosis Panel & Activity */}

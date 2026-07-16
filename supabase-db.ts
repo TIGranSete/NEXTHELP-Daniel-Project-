@@ -459,6 +459,36 @@ export async function getSupabaseUsers(): Promise<User[] | null> {
   }
 }
 
+export async function getSupabaseUserByEmail(email: string): Promise<User | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  try {
+    const emailLower = email.toLowerCase().trim();
+    const { data, error } = await withTimeout(
+      client
+        .from("users")
+        .select("*")
+        .eq("email", emailLower)
+        .maybeSingle(),
+      4000
+    );
+
+    if (error) throw error;
+    if (!data) return null;
+    return mapUserFromSupabase(data);
+  } catch (err: any) {
+    const isFetchError = err.message?.includes("fetch failed") || err.message?.includes("network") || err.message?.includes("connect") || err.message?.includes("TIMEOUT");
+    if (isFetchError) {
+      console.log(`Supabase fora de alcance ou offline ao ler usuário por e-mail: ${email}`);
+      markSupabaseUnhealthy();
+    } else {
+      console.error(`Erro ao ler usuário por e-mail (${email}) do Supabase:`, err);
+    }
+    return null;
+  }
+}
+
 export async function saveSupabaseUser(user: User): Promise<boolean> {
   const client = getSupabaseClient();
   if (!client) return false;
