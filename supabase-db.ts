@@ -124,6 +124,25 @@ export function isSupabaseConfigured(): boolean {
 let lastConnectionFailureTime = 0;
 const FAILURE_COOLDOWN_MS = 60000; // 1 minute cooldown
 
+// Helper to enforce timeouts on Supabase queries to avoid hanging requests (e.g., waking up a paused database)
+async function withTimeout<T = any>(promise: any, timeoutMs: number = 4000): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error("TIMEOUT"));
+    }, timeoutMs);
+
+    Promise.resolve(promise)
+      .then((res) => {
+        clearTimeout(timer);
+        resolve(res as T);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
+
 export function markSupabaseUnhealthy() {
   lastConnectionFailureTime = Date.now();
 }
@@ -148,8 +167,8 @@ export async function testSupabaseConnection(): Promise<{ connected: boolean; er
   }
 
   try {
-    // Attempt a simple ping select or from table
-    const { data, error } = await client.from("users").select("id").limit(1);
+    // Attempt a simple ping select or from table with timeout
+    const { data, error } = await withTimeout(client.from("users").select("id").limit(1), 3000);
     if (error) {
       // If error is just table missing, we are still connected to Supabase itself!
       if (error.code === "PGRST116" || error.code === "42P01") {
@@ -418,10 +437,13 @@ export async function getSupabaseUsers(): Promise<User[] | null> {
   if (!client) return null;
 
   try {
-    const { data, error } = await client
-      .from("users")
-      .select("*")
-      .order("name", { ascending: true });
+    const { data, error } = await withTimeout(
+      client
+        .from("users")
+        .select("*")
+        .order("name", { ascending: true }),
+      4000
+    );
 
     if (error) throw error;
     return (data || []).map(mapUserFromSupabase);
@@ -446,15 +468,18 @@ export async function saveSupabaseUser(user: User): Promise<boolean> {
     const hashedPassword = hashPassword(rawPassword);
     const mustChangeVal = user.mustChangePassword !== false;
 
-    const { error } = await client.from("users").upsert({
-      id: user.id,
-      name: user.name,
-      email: user.email.toLowerCase().trim(),
-      password: hashedPassword,
-      department: user.department,
-      role: user.role,
-      must_change_password: mustChangeVal
-    });
+    const { error } = await withTimeout(
+      client.from("users").upsert({
+        id: user.id,
+        name: user.name,
+        email: user.email.toLowerCase().trim(),
+        password: hashedPassword,
+        department: user.department,
+        role: user.role,
+        must_change_password: mustChangeVal
+      }),
+      5000
+    );
 
     if (error) throw error;
     return true;
@@ -469,7 +494,10 @@ export async function deleteSupabaseUser(id: string): Promise<boolean> {
   if (!client) return false;
 
   try {
-    const { error } = await client.from("users").delete().eq("id", id);
+    const { error } = await withTimeout(
+      client.from("users").delete().eq("id", id),
+      5000
+    );
     if (error) throw error;
     return true;
   } catch (err) {
@@ -484,10 +512,13 @@ export async function getSupabaseTickets(): Promise<Ticket[] | null> {
   if (!client) return null;
 
   try {
-    const { data, error } = await client
-      .from("tickets")
-      .select("*")
-      .order("id", { ascending: false });
+    const { data, error } = await withTimeout(
+      client
+        .from("tickets")
+        .select("*")
+        .order("id", { ascending: false }),
+      4000
+    );
 
     if (error) throw error;
     return (data || []).map(mapTicketFromSupabase);
@@ -509,7 +540,10 @@ export async function saveSupabaseTicket(ticket: Ticket): Promise<boolean> {
 
   try {
     const payload = mapTicketToSupabase(ticket);
-    const { error } = await client.from("tickets").upsert(payload);
+    const { error } = await withTimeout(
+      client.from("tickets").upsert(payload),
+      5000
+    );
     if (error) throw error;
     return true;
   } catch (err) {
@@ -523,7 +557,10 @@ export async function deleteSupabaseTicket(id: string): Promise<boolean> {
   if (!client) return false;
 
   try {
-    const { error } = await client.from("tickets").delete().eq("id", id);
+    const { error } = await withTimeout(
+      client.from("tickets").delete().eq("id", id),
+      5000
+    );
     if (error) throw error;
     return true;
   } catch (err) {
