@@ -1,22 +1,14 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Ticket, Comment, UserSession, UserRole, User } from "./types";
-import {
-  getTickets,
-  saveTicket,
-  deleteTicket,
-  getUsers,
-  saveUser,
-  deleteUser,
-  triageWithGemini,
-  isSupabaseConfigured
-} from "./lib/supabase-client-db";
+import { Ticket, Comment, UserSession, UserRole, User, Attachment } from "./types";
+import { getApiUrl } from "./lib/api";
 import SlaAnalytics from "./components/SlaAnalytics";
 import LoginScreen from "./components/LoginScreen";
 import ChangePasswordScreen from "./components/ChangePasswordScreen";
 import WindowsDatePicker from "./components/WindowsDatePicker";
 import PlantationBackground from "./components/PlantationBackground";
-import logoImg from "./assets/images/7.png";
+import logoImg from "./assets/images/logo.png";
+import logoMin from "./assets/images/7.png";
 import { 
   Shield, 
   Users, 
@@ -56,7 +48,12 @@ import {
   Terminal,
   Columns,
   Briefcase,
-  FolderKanban
+  FolderKanban,
+  ArrowLeft,
+  Menu,
+  X,
+  Bell,
+  BellOff
 } from "lucide-react";
 
 const USER_PROFILES: UserSession[] = [];
@@ -162,7 +159,9 @@ export default function App() {
   // Navigation tabs (Only available for IT team)
   const [activeTab, setActiveTab] = useState<"painel" | "projetos" | "sla" | "colaboradores" | "banco_dados">("painel");
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [modulesCollapsed, setModulesCollapsed] = useState<boolean>(false);
+  const [isMobileModulesOpen, setIsMobileModulesOpen] = useState<boolean>(false);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState<boolean>(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
 
@@ -184,40 +183,55 @@ export default function App() {
   const [showPreloader, setShowPreloader] = useState<boolean>(true);
   const [preloaderFadeOut, setPreloaderFadeOut] = useState<boolean>(false);
   const [preloaderProgress, setPreloaderProgress] = useState<number>(0);
+  const [minTimeElapsed, setMinTimeElapsed] = useState<boolean>(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setMinTimeElapsed(true);
+    }, 2500); // Enforce a minimum of 2.5 seconds for a premium system boots/loading effect
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     let currentProgress = 0;
     const interval = setInterval(() => {
       if (currentProgress < 30) {
-        currentProgress += Math.floor(Math.random() * 8) + 4; // faster initially
-      } else if (currentProgress < 70) {
-        currentProgress += Math.floor(Math.random() * 6) + 2;
-      } else if (currentProgress < 95) {
-        currentProgress += Math.floor(Math.random() * 3) + 1; // slow down near completion
-      } else if (currentProgress < 100) {
-        currentProgress += 1;
+        currentProgress += Math.floor(Math.random() * 5) + 2; // steady start
+      } else if (currentProgress < 75) {
+        currentProgress += Math.floor(Math.random() * 3) + 1; // progressive loading
+      } else if (currentProgress < 92) {
+        currentProgress += (Math.random() > 0.5 ? 1 : 0); // slow and steady toward final hold
       } else {
+        // Hold at 92% until real loading completes & min time has elapsed
         clearInterval(interval);
       }
-      setPreloaderProgress(Math.min(currentProgress, 100));
-    }, 45);
-
-    // Start fade transition after 2.1 seconds (giving ample time for progress bar to finish)
-    const fadeTimer = setTimeout(() => {
-      setPreloaderFadeOut(true);
-    }, 2100);
-
-    // Completely unmount the preloader after 2.6 seconds (giving 500ms for transition)
-    const unmountTimer = setTimeout(() => {
-      setShowPreloader(false);
-    }, 2600);
+      setPreloaderProgress(Math.min(currentProgress, 92));
+    }, 45); // elegant, readable progression
 
     return () => {
       clearInterval(interval);
-      clearTimeout(fadeTimer);
-      clearTimeout(unmountTimer);
     };
   }, []);
+
+  // Sync preloader completion with real database loading completion & minimum timer elapsed
+  useEffect(() => {
+    if (!loading && minTimeElapsed && showPreloader) {
+      setPreloaderProgress(100);
+      
+      const fadeTimer = setTimeout(() => {
+        setPreloaderFadeOut(true);
+      }, 250);
+
+      const unmountTimer = setTimeout(() => {
+        setShowPreloader(false);
+      }, 850);
+
+      return () => {
+        clearTimeout(fadeTimer);
+        clearTimeout(unmountTimer);
+      };
+    }
+  }, [loading, minTimeElapsed, showPreloader]);
   
   // Notifications states
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -260,6 +274,58 @@ export default function App() {
       window.removeEventListener("touchstart", unlockAudio);
     };
   }, []);
+
+  // Desktop Notifications State
+  const [desktopNotificationPermission, setDesktopNotificationPermission] = useState<NotificationPermission>(
+    typeof window !== "undefined" && "Notification" in window ? Notification.permission : "default"
+  );
+
+  const requestDesktopNotificationPermission = async () => {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      console.warn("Este navegador não suporta notificações de área de trabalho.");
+      return "default";
+    }
+    try {
+      const permission = await Notification.requestPermission();
+      setDesktopNotificationPermission(permission);
+      return permission;
+    } catch (e) {
+      console.error("Erro ao solicitar permissão de notificações:", e);
+      return "default";
+    }
+  };
+
+  const showDesktopNotification = (title: string, body: string, ticketId?: string) => {
+    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+      try {
+        const options: NotificationOptions = {
+          body,
+          icon: "/favicon.ico",
+          tag: ticketId ? `ticket-${ticketId}` : undefined,
+          requireInteraction: false
+        };
+        const notification = new Notification(title, options);
+        if (ticketId) {
+          notification.onclick = () => {
+            window.focus();
+            setSelectedTicketId(ticketId);
+          };
+        }
+      } catch (e) {
+        console.warn("Falha ao criar notificação de área de trabalho:", e);
+      }
+    }
+  };
+
+  // Auto request permission once logged in
+  useEffect(() => {
+    if (currentSession && typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
+      const timer = setTimeout(() => {
+        requestDesktopNotificationPermission();
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [currentSession]);
   
   // Selection/Detail states
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
@@ -283,11 +349,18 @@ export default function App() {
   // Creation state (tickets)
   const [isNewTicketModalOpen, setIsNewTicketModalOpen] = useState<boolean>(false);
   const [isSubmittingTicket, setIsSubmittingTicket] = useState<boolean>(false);
-  const [newTicketForm, setNewTicketForm] = useState({
+  const [newTicketForm, setNewTicketForm] = useState<{
+    title: string;
+    description: string;
+    screenshot: string;
+    projectDeadline: string;
+    attachments: Attachment[];
+  }>({
     title: "",
     description: "",
     screenshot: "",
-    projectDeadline: ""
+    projectDeadline: "",
+    attachments: []
   });
   const [selectedRequesterName, setSelectedRequesterName] = useState<string>("");
   const [selectedRequesterDepartment, setSelectedRequesterDepartment] = useState<string>("");
@@ -324,14 +397,35 @@ export default function App() {
     }
   }, [isNewTicketModalOpen, currentSession]);
 
+  const handleGoToHome = () => {
+    setActiveTab("painel");
+    setSelectedTicketId(null);
+    setSelectedTechProfile(null);
+    setIsTechProfileModalOpen(false);
+    setIsMyTicketsModalOpen(false);
+    setIsNewTicketModalOpen(false);
+    setMobileMenuOpen(false);
+  };
+
   // Fetch tickets helper
   const fetchTickets = async (showQuietly = false) => {
     if (!showQuietly) setLoading(true);
     setIsPolling(true);
     try {
-      const data = await getTickets();
-      setTickets(data);
-      setLastUpdated(new Date());
+      const response = await fetch(getApiUrl("/api/tickets"));
+      if (response.ok) {
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const data = await response.json();
+          setTickets(data);
+          setLastUpdated(new Date());
+        } else {
+          const text = await response.text();
+          console.warn("Retorno da API de chamados não é JSON (provavelmente HTML de carregamento ou erro do servidor):", text.substring(0, 100));
+        }
+      } else {
+        console.warn("API de chamados retornou erro HTTP:", response.status, response.statusText);
+      }
     } catch (error) {
       console.error("Erro ao sincronizar chamados:", error);
     } finally {
@@ -343,8 +437,19 @@ export default function App() {
   // Fetch users helper
   const fetchUsers = async () => {
     try {
-      const data = await getUsers();
-      setUsers(data);
+      const response = await fetch(getApiUrl("/api/users"));
+      if (response.ok) {
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const data = await response.json();
+          setUsers(data);
+        } else {
+          const text = await response.text();
+          console.warn("Retorno da API de colaboradores não é JSON (provavelmente HTML de carregamento ou erro do servidor):", text.substring(0, 100));
+        }
+      } else {
+        console.warn("API de colaboradores retornou erro HTTP:", response.status, response.statusText);
+      }
     } catch (error) {
       console.error("Erro ao carregar colaboradores:", error);
     }
@@ -354,12 +459,11 @@ export default function App() {
   const fetchDbStatus = async () => {
     setDbChecking(true);
     try {
-      const isConfigured = isSupabaseConfigured();
-      setDbStatus({
-        configured: isConfigured,
-        connected: isConfigured,
-        error: isConfigured ? null : "Credenciais do Supabase ausentes (.env ou Secrets do AI Studio). Usando armazenamento local."
-      });
+      const response = await fetch(getApiUrl("/api/supabase/status"));
+      if (response.ok) {
+        const data = await response.json();
+        setDbStatus(data);
+      }
     } catch (e) {
       console.error("Erro ao carregar status do banco de dados:", e);
     } finally {
@@ -369,64 +473,63 @@ export default function App() {
 
   // Fetch database SQL Schema instructions
   const fetchDbSchema = async () => {
-    const schemaSql = `-- EXECUTAR ESTE SCRIPT NO EDITOR DE SQL DO SEU SUPABASE:
-
--- 1. Criar tabela de Usuários (Users)
-CREATE TABLE IF NOT EXISTS public.users (
-    id text PRIMARY KEY,
-    name text NOT NULL,
-    email text UNIQUE NOT NULL,
-    password text NOT NULL,
-    department text NOT NULL,
-    role text NOT NULL,
-    must_change_password boolean DEFAULT true,
-    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
--- 2. Criar tabela de Chamados (Tickets)
-CREATE TABLE IF NOT EXISTS public.tickets (
-    id text PRIMARY KEY,
-    title text NOT NULL,
-    description text NOT NULL,
-    category text NOT NULL,
-    priority text NOT NULL,
-    status text NOT NULL,
-    requester_name text NOT NULL,
-    requester_department text NOT NULL,
-    assigned_to text,
-    created_at text NOT NULL,
-    updated_at text NOT NULL,
-    sla_limit text NOT NULL,
-    ai_category text NOT NULL,
-    ai_priority text NOT NULL,
-    ai_reasoning text NOT NULL,
-    ai_suggestions text NOT NULL,
-    comments jsonb DEFAULT '[]'::jsonb NOT NULL,
-    project_deadline text,
-    inserted_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
-);`;
-    setDbSqlSchema(schemaSql);
+    try {
+      const response = await fetch(getApiUrl("/api/supabase/sql"));
+      if (response.ok) {
+        const data = await response.text();
+        setDbSqlSchema(data);
+      }
+    } catch (e) {
+      console.error("Erro ao buscar schema SQL:", e);
+    }
   };
 
-  // Push local cache data to cloud Supabase
+  // Push local cache data to Supabase DB
   const handlePushSync = async () => {
     setSyncingDb("push");
-    setTimeout(() => {
-      setSyncingDb("success");
-      fetchDbStatus();
-      setTimeout(() => setSyncingDb("idle"), 2000);
-    }, 500);
+    setSyncDbError(null);
+    try {
+      const response = await fetch(getApiUrl("/api/supabase/sync"), { method: "POST" });
+      if (response.ok) {
+        setSyncingDb("success");
+        await fetchTickets();
+        await fetchUsers();
+        fetchDbStatus();
+        setTimeout(() => setSyncingDb("idle"), 3000);
+      } else {
+        const errData = await response.json();
+        setSyncDbError(errData.error || "Erro desconhecido ao enviar dados.");
+        setSyncingDb("error");
+      }
+    } catch (e: any) {
+      setSyncDbError(e.message || "Erro de rede ao conectar à API.");
+      setSyncingDb("error");
+    }
   };
 
-  // Pull cloud Supabase data into local cache files
+  // Pull Supabase DB data into local cache files
   const handlePullSync = async () => {
     setSyncingDb("pull");
-    setTimeout(() => {
-      setSyncingDb("success");
-      fetchDbStatus();
-      alert("Seu aplicativo está conectado diretamente ao Supabase em tempo real! Todos os dados já estão sincronizados e atualizados instantaneamente no seu navegador.");
-      setTimeout(() => setSyncingDb("idle"), 2000);
-    }, 500);
+    setSyncDbError(null);
+    try {
+      const response = await fetch(getApiUrl("/api/supabase/pull"), { method: "POST" });
+      if (response.ok) {
+        const data = await response.json();
+        setSyncingDb("success");
+        await fetchTickets();
+        await fetchUsers();
+        fetchDbStatus();
+        alert(`Sincronização concluída com sucesso! ${data.ticketsCount} chamados e ${data.usersCount} colaboradores foram importados do Supabase e salvos localmente.`);
+        setTimeout(() => setSyncingDb("idle"), 3000);
+      } else {
+        const errData = await response.json();
+        setSyncDbError(errData.error || "Erro desconhecido ao puxar dados.");
+        setSyncingDb("error");
+      }
+    } catch (e: any) {
+      setSyncDbError(e.message || "Erro de rede ao conectar à API.");
+      setSyncingDb("error");
+    }
   };
 
   // Pull database schema and status on technician session mount
@@ -447,14 +550,29 @@ CREATE TABLE IF NOT EXISTS public.tickets (
   }, [currentSession, activeTab]);
 
   // Poll tickets and users every 15 seconds for real-time fidelity with low egress overhead
-  // Poll tickets and users every 15 seconds for real-time fidelity
   useEffect(() => {
     fetchTickets();
     fetchUsers();
 
+    // Send a heartbeat ping to the server to register online presence
+    const sendHeartbeat = () => {
+      if (currentSession?.email) {
+        fetch(getApiUrl("/api/heartbeat"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: currentSession.email })
+        }).catch((err) => {
+          console.warn("Falha ao enviar heartbeat:", err);
+        });
+      }
+    };
+
+    sendHeartbeat();
+
     const interval = setInterval(() => {
       fetchTickets(true);
       fetchUsers();
+      sendHeartbeat();
     }, 15000);
     return () => clearInterval(interval);
   }, [currentSession?.email]);
@@ -538,6 +656,11 @@ CREATE TABLE IF NOT EXISTS public.tickets (
         // Visual notifications (on-screen pop-ups) only appear for the IT team (technicians)
         if (currentSession?.role === "tecnico") {
           hasNewNotification = true;
+          showDesktopNotification(
+            `Novo Chamado: ${t.title}`,
+            `Solicitante: ${t.requesterName} (${t.requesterDepartment || "TI"})`,
+            t.id
+          );
           const newNotif: AppNotification = {
             id: `notif-${Date.now()}-${t.id}`,
             ticketId: t.id,
@@ -568,6 +691,12 @@ CREATE TABLE IF NOT EXISTS public.tickets (
           if (isUserRelevant) {
             shouldPlaySound = true;
             hasNewNotification = true;
+
+            showDesktopNotification(
+              `Mensagem em: ${t.title}`,
+              `${c.authorName}: ${c.content}`,
+              t.id
+            );
 
             const newNotif: AppNotification = {
               id: `notif-${Date.now()}-${c.id}`,
@@ -640,15 +769,15 @@ CREATE TABLE IF NOT EXISTS public.tickets (
   };
 
   const handleResetData = async () => {
-    if (confirm("Deseja realmente redefinir o banco de dados local?")) {
+    if (confirm("Deseja realmente redefinir o banco de dados para os dados padrão?")) {
       try {
-        localStorage.removeItem("gran7_tickets_backup");
-        localStorage.removeItem("gran7_users_backup");
-        localStorage.removeItem("gran7_session");
-        setTickets([]);
-        setUsers([]);
-        setSelectedTicketId(null);
-        handleLogout();
+        const response = await fetch(getApiUrl("/api/reset"), { method: "POST" });
+        if (response.ok) {
+          await fetchTickets();
+          await fetchUsers();
+          setSelectedTicketId(null);
+          handleLogout();
+        }
       } catch (error) {
         console.error("Erro ao resetar dados:", error);
       }
@@ -665,17 +794,75 @@ CREATE TABLE IF NOT EXISTS public.tickets (
     }
     
     try {
-      const isSuccess = await deleteTicket(ticketId);
-      if (isSuccess) {
+      const response = await fetch(getApiUrl(`/api/tickets/${ticketId}`), {
+        method: "DELETE",
+        headers: {
+          "x-user-role": currentSession.role,
+          "x-user-name": currentSession.name
+        }
+      });
+
+      if (response.ok) {
         setIsConfirmingDeleteTicket(null);
         setSelectedTicketId(null);
         await fetchTickets();
       } else {
-        alert("Erro ao excluir o chamado do banco de dados.");
+        const errData = await response.json();
+        alert(errData.error || "Erro ao excluir o chamado.");
       }
     } catch (error) {
       console.error("Erro ao excluir chamado:", error);
     }
+  };
+
+  const handleAddFiles = (files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    fileArray.forEach((file) => {
+      if (file.type.startsWith("image/")) {
+        compressImage(file)
+          .then((compressedUrl) => {
+            setNewTicketForm((prev) => {
+              const newAttachments = [...prev.attachments, { name: file.name, url: compressedUrl, type: file.type }];
+              const firstImage = newAttachments.find(a => a.type.startsWith("image/"))?.url || "";
+              return {
+                ...prev,
+                attachments: newAttachments,
+                screenshot: prev.screenshot || firstImage
+              };
+            });
+          })
+          .catch(() => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const resultUrl = reader.result as string;
+              setNewTicketForm((prev) => {
+                const newAttachments = [...prev.attachments, { name: file.name, url: resultUrl, type: file.type }];
+                const firstImage = newAttachments.find(a => a.type.startsWith("image/"))?.url || "";
+                return {
+                  ...prev,
+                  attachments: newAttachments,
+                  screenshot: prev.screenshot || firstImage
+                };
+              });
+            };
+            reader.readAsDataURL(file);
+          });
+      } else {
+        // PDF or other documents
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const resultUrl = reader.result as string;
+          setNewTicketForm((prev) => {
+            const newAttachments = [...prev.attachments, { name: file.name, url: resultUrl, type: file.type }];
+            return {
+              ...prev,
+              attachments: newAttachments
+            };
+          });
+        };
+        reader.readAsDataURL(file);
+      }
+    });
   };
 
   const handleCreateTicket = async (e: React.FormEvent) => {
@@ -685,67 +872,27 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
     setIsSubmittingTicket(true);
     try {
-      // Analyze with Gemini client-side directly
-      const triage = await triageWithGemini(
-        newTicketForm.title,
-        newTicketForm.description,
-        newTicketForm.screenshot || undefined
-      );
-
-      let hoursToAdd = 48; // Baixa
-      if (triage.priority === "Urgente") hoursToAdd = 2;
-      else if (triage.priority === "Alta") hoursToAdd = 8;
-      else if (triage.priority === "Média") hoursToAdd = 24;
-
-      const slaLimit = new Date();
-      slaLimit.setHours(slaLimit.getHours() + hoursToAdd);
-
-      const maxId = tickets.reduce((max, t) => {
-        if (!t || !t.id) return max;
-        const idNum = parseInt(t.id);
-        return isNaN(idNum) ? max : Math.max(max, idNum);
-      }, 1000);
-      const nextId = (maxId + 1).toString();
-
-      const newTicket: Ticket = {
-        id: nextId,
-        title: newTicketForm.title,
-        description: newTicketForm.description,
-        category: triage.category as Ticket["category"],
-        priority: triage.priority as Ticket["priority"],
-        status: "Aberto",
-        requesterName: (currentSession.role === "tecnico" && selectedRequesterName) ? selectedRequesterName : currentSession.name,
-        requesterDepartment: (currentSession.role === "tecnico" && selectedRequesterDepartment) ? selectedRequesterDepartment : currentSession.department,
-        assignedTo: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        slaLimit: slaLimit.toISOString(),
-        aiCategory: triage.category,
-        aiPriority: triage.priority,
-        aiReasoning: triage.reasoning,
-        aiSuggestions: triage.suggestions,
-        comments: [],
-        screenshot: newTicketForm.screenshot || undefined,
-        projectDeadline: newTicketForm.projectDeadline || undefined
-      };
-
-      // Add triage comment
-      newTicket.comments.push({
-        id: "ai-triage-sys-comment-" + Date.now(),
-        authorName: "Assistente de Triagem",
-        authorRole: "ai",
-        content: `Chamado classificado automaticamente pelo Gemini.\n\n**Justificativa:** ${triage.reasoning}`,
-        timestamp: new Date().toISOString()
+      const response = await fetch(getApiUrl("/api/tickets"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newTicketForm.title,
+          description: newTicketForm.description,
+          requesterName: (currentSession.role === "tecnico" && selectedRequesterName) ? selectedRequesterName : currentSession.name,
+          requesterDepartment: (currentSession.role === "tecnico" && selectedRequesterDepartment) ? selectedRequesterDepartment : currentSession.department,
+          screenshot: newTicketForm.screenshot || undefined,
+          projectDeadline: newTicketForm.projectDeadline || undefined,
+          attachments: newTicketForm.attachments
+        })
       });
 
-      const isSuccess = await saveTicket(newTicket);
-      if (isSuccess) {
+      if (response.ok) {
+        const newTicket = await response.json();
         setIsNewTicketModalOpen(false);
-        setNewTicketForm({ title: "", description: "", screenshot: "", projectDeadline: "" });
+        setNewTicketForm({ title: "", description: "", screenshot: "", projectDeadline: "", attachments: [] });
         await fetchTickets();
+        // Auto-select the newly created ticket to show AI Triage immediately
         setSelectedTicketId(newTicket.id);
-      } else {
-        alert("Erro ao gravar chamado no banco de dados.");
       }
     } catch (error) {
       console.error("Erro ao abrir chamado:", error);
@@ -793,31 +940,22 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
     setIsSubmittingUser(true);
     try {
-      const uId = editingUserId || Date.now().toString();
-      
-      let finalPassword = newUserForm.password;
-      if (isEdit) {
-        const existing = users.find(u => u.id === editingUserId);
-        finalPassword = newUserForm.password || existing?.password || "123";
-      }
+      const url = editingUserId ? `/api/users/${editingUserId}` : "/api/users";
+      const method = editingUserId ? "PUT" : "POST";
 
-      const userToSave: User = {
-        id: uId,
-        name: newUserForm.name,
-        email: newUserForm.email.toLowerCase().trim(),
-        password: finalPassword,
-        department: newUserForm.department,
-        role: newUserForm.role,
-        mustChangePassword: isEdit ? false : true
-      };
+      const response = await fetch(getApiUrl(url), {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newUserForm)
+      });
 
-      const isSuccess = await saveUser(userToSave);
-      if (isSuccess) {
+      if (response.ok) {
+        const data = await response.json();
         if (editingUserId) {
-          setUserFormSuccess(`Colaborador ${userToSave.name} atualizado com sucesso!`);
+          setUserFormSuccess(`Colaborador ${data.name} atualizado com sucesso!`);
           handleCancelEditUser();
         } else {
-          setUserFormSuccess(`Colaborador ${userToSave.name} cadastrado com sucesso!`);
+          setUserFormSuccess(`Colaborador ${data.name} cadastrado com sucesso!`);
           setNewUserForm({
             name: "",
             email: "",
@@ -826,13 +964,14 @@ CREATE TABLE IF NOT EXISTS public.tickets (
             role: "colaborador"
           });
         }
-        await fetchUsers(); // Update in real-time
+        await fetchUsers(); // Atualiza a lista em tempo real
       } else {
-        setUserFormError("Erro ao gravar dados do colaborador.");
+        const errData = await response.json();
+        setUserFormError(errData.error || "Erro ao salvar informações do colaborador.");
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("Erro ao salvar colaborador:", error);
-      setUserFormError("Erro ao salvar colaborador: " + (error.message || error));
+      setUserFormError("Erro de conexão ao processar as informações.");
     } finally {
       setIsSubmittingUser(false);
     }
@@ -846,8 +985,11 @@ CREATE TABLE IF NOT EXISTS public.tickets (
     if (!deletingUser) return;
     
     try {
-      const isSuccess = await deleteUser(deletingUser.id);
-      if (isSuccess) {
+      const response = await fetch(getApiUrl(`/api/users/${deletingUser.id}`), {
+        method: "DELETE"
+      });
+
+      if (response.ok) {
         const emailDeleted = deletingUser.email;
         setDeletingUser(null);
         await fetchUsers();
@@ -857,32 +999,35 @@ CREATE TABLE IF NOT EXISTS public.tickets (
           handleLogout();
         }
       } else {
-        alert("Erro ao excluir o colaborador.");
+        const errData = await response.json();
+        alert(errData.error || "Erro ao excluir o colaborador.");
         setDeletingUser(null);
       }
     } catch (error) {
       console.error("Erro ao deletar:", error);
-      alert("Erro ao excluir colaborador.");
+      alert("Erro de conexão ao tentar excluir colaborador.");
       setDeletingUser(null);
     }
   };
 
   const handleUpdateTicketMeta = async (ticketId: string, fields: Partial<Ticket>) => {
     try {
-      const ticket = tickets.find(t => t.id === ticketId);
-      if (!ticket) return;
-
-      const updatedTicket: Ticket = {
-        ...ticket,
+      const payload = {
         ...fields,
-        updatedAt: new Date().toISOString()
+        requesterUser: currentSession?.name || null
       };
-
-      const isSuccess = await saveTicket(updatedTicket);
-      if (isSuccess) {
-        setTickets(prev => prev.map(t => t.id === ticketId ? updatedTicket : t));
+      const response = await fetch(getApiUrl(`/api/tickets/${ticketId}`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (response.ok) {
+        const updated = await response.json();
+        // Update local state smoothly
+        setTickets(prev => prev.map(t => t.id === ticketId ? updated : t));
       } else {
-        alert("Erro ao atualizar chamado.");
+        const errData = await response.json();
+        alert(errData.error || "Erro ao atualizar chamado.");
       }
     } catch (error) {
       console.error("Erro ao atualizar chamado:", error);
@@ -894,33 +1039,33 @@ CREATE TABLE IF NOT EXISTS public.tickets (
     if (!selectedTicketId || (!newCommentText.trim() && !commentAttachment)) return;
 
     try {
-      const ticket = tickets.find(t => t.id === selectedTicketId);
-      if (!ticket) return;
+      const response = await fetch(getApiUrl(`/api/tickets/${selectedTicketId}/comments`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          authorName: currentSession.name,
+          authorRole: currentSession.role,
+          content: newCommentText.trim() || `[Anexo: ${commentAttachmentName || 'Documento/Imagem'}]`,
+          attachmentUrl: commentAttachment || undefined,
+          attachmentName: commentAttachmentName || undefined
+        })
+      });
 
-      const newComment: Comment = {
-        id: "comment-" + Date.now(),
-        authorName: currentSession.name,
-        authorRole: currentSession.role,
-        content: newCommentText.trim() || `[Anexo: ${commentAttachmentName || 'Documento/Imagem'}]`,
-        timestamp: new Date().toISOString(),
-        attachmentUrl: commentAttachment || undefined,
-        attachmentName: commentAttachmentName || undefined
-      };
-
-      const updatedTicket: Ticket = {
-        ...ticket,
-        comments: [...(ticket.comments || []), newComment],
-        updatedAt: new Date().toISOString()
-      };
-
-      const isSuccess = await saveTicket(updatedTicket);
-      if (isSuccess) {
-        setTickets(prev => prev.map(t => t.id === selectedTicketId ? updatedTicket : t));
+      if (response.ok) {
+        const newComment = await response.json();
+        setTickets(prev => prev.map(t => {
+          if (t.id === selectedTicketId) {
+            return {
+              ...t,
+              comments: [...t.comments, newComment],
+              updatedAt: new Date().toISOString()
+            };
+          }
+          return t;
+        }));
         setNewCommentText("");
         setCommentAttachment(null);
         setCommentAttachmentName("");
-      } else {
-        alert("Erro ao adicionar comentário.");
       }
     } catch (error) {
       console.error("Erro ao adicionar comentário:", error);
@@ -960,21 +1105,21 @@ CREATE TABLE IF NOT EXISTS public.tickets (
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-emerald-400/[0.04] rounded-full blur-[80px] pointer-events-none" />
 
       {/* Main Glassmorphic Card */}
-      <div className="relative z-10 max-w-sm w-full mx-4 border border-emerald-500/10 bg-neutral-950/50 backdrop-blur-md rounded-3xl p-8 shadow-[0_0_80px_rgba(16,185,129,0.05),inset_0_1px_1px_rgba(255,255,255,0.05)] text-center flex flex-col items-center gap-7 overflow-hidden">
+      <div className="relative z-10 max-w-[290px] xs:max-w-[320px] sm:max-w-sm w-full mx-4 border border-emerald-500/10 bg-neutral-950/50 backdrop-blur-md rounded-2xl sm:rounded-3xl p-5 sm:p-8 shadow-[0_0_80px_rgba(16,185,129,0.05),inset_0_1px_1px_rgba(255,255,255,0.05)] text-center flex flex-col items-center gap-5 sm:gap-7 overflow-hidden">
         {/* Futuristic HUD corner brackets */}
-        <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-emerald-500/30" />
-        <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-emerald-500/30" />
-        <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-emerald-500/30" />
-        <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-emerald-500/30" />
+        <div className="absolute top-0 left-0 w-3 sm:w-4 h-3 sm:h-4 border-t-2 border-l-2 border-emerald-500/30" />
+        <div className="absolute top-0 right-0 w-3 sm:w-4 h-3 sm:h-4 border-t-2 border-r-2 border-emerald-500/30" />
+        <div className="absolute bottom-0 left-0 w-3 sm:w-4 h-3 sm:h-4 border-b-2 border-l-2 border-emerald-500/30" />
+        <div className="absolute bottom-0 right-0 w-3 sm:w-4 h-3 sm:h-4 border-b-2 border-r-2 border-emerald-500/30" />
 
         {/* Top HUD Tag */}
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/20 border border-emerald-500/10 text-[8px] font-mono font-bold tracking-wider text-emerald-400 uppercase">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+        <div className="flex items-center gap-1.5 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full bg-emerald-950/20 border border-emerald-500/10 text-[7px] sm:text-[8px] font-mono font-bold tracking-wider text-emerald-400 uppercase">
+          <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full bg-emerald-400 animate-pulse" />
           <span>SISTEMA ATIVO // SECURE GATEWAY</span>
         </div>
 
         {/* Logo Area with dynamic rings */}
-        <div className="relative w-28 h-28 flex items-center justify-center mt-2">
+        <div className="relative w-20 h-20 sm:w-28 sm:h-28 flex items-center justify-center mt-1 sm:mt-2">
           {/* Dashed outer spinner */}
           <div className="absolute inset-0 rounded-full border border-dashed border-emerald-500/20 animate-[spin_12s_linear_infinite]" />
           {/* Glowing ring */}
@@ -983,39 +1128,37 @@ CREATE TABLE IF NOT EXISTS public.tickets (
           <div className="absolute -inset-2 rounded-full border border-emerald-400/5 animate-ping [animation-duration:4s]" />
           
           {/* Deep glow underlogo */}
-          <div className="absolute inset-4 bg-emerald-500/10 rounded-full blur-xl" />
+          <div className="absolute inset-3 sm:inset-4 bg-emerald-500/10 rounded-full blur-lg sm:blur-xl" />
 
           <img
-            src={logoImg}
+            src={logoMin}
             alt="GRAN7"
-            className="w-16 h-16 object-contain relative z-10 filter drop-shadow-[0_0_12px_rgba(16,185,129,0.35)] transition-all duration-300"
+            className="w-11 h-11 sm:w-16 sm:h-16 object-contain relative z-10 filter drop-shadow-[0_0_12px_rgba(16,185,129,0.35)] transition-all duration-300"
           />
         </div>
 
         {/* Text Area */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-center gap-1.5">
-            <span className="font-display font-black text-2xl tracking-tight text-white">GRAN</span>
-            <span className="font-display font-black text-2xl italic text-emerald-400 px-1 bg-emerald-500/10 rounded-md border border-emerald-500/20">7</span>
-            <span className="font-display font-light text-xl tracking-[0.2em] text-emerald-400/90 ml-1">HELP</span>
-          </div>
-          <p className="text-[10px] uppercase tracking-[0.25em] text-slate-500 font-extrabold">Help Desk inteligente corporativo</p>
+        <div className="space-y-1 sm:space-y-1.5 text-center">
+          <h1 className="font-display font-black text-lg sm:text-2xl tracking-tight text-white flex items-center justify-center">
+            GRAN<span className="text-emerald-400 font-bold italic">7</span><span className="text-emerald-400 font-light tracking-[0.2em] ml-1 sm:ml-1.5"> HELP</span>
+          </h1>
+          <p className="text-[8px] sm:text-[10px] uppercase tracking-[0.2em] sm:tracking-[0.25em] text-slate-500 font-extrabold">Help Desk inteligente corporativo</p>
         </div>
 
         {/* Detailed Progress Loading Section */}
-        <div className="w-full space-y-2 mt-2">
+        <div className="w-full space-y-1.5 sm:space-y-2 mt-1 sm:mt-2">
           {/* Percentage & Status Label Row */}
-          <div className="flex justify-between items-center text-[10px] font-mono font-bold tracking-wider text-slate-400 px-0.5">
-            <div className="flex items-center gap-1.5 text-emerald-400/90">
-              <StatusIcon className="h-3.5 w-3.5 animate-pulse text-emerald-400" />
-              <span className="uppercase text-[9px] font-mono tracking-widest text-slate-400 truncate max-w-[200px]">
+          <div className="flex justify-between items-center text-[8px] sm:text-[10px] font-mono font-bold tracking-wider text-slate-400 px-0.5">
+            <div className="flex items-center gap-1 sm:gap-1.5 text-emerald-400/90">
+              <StatusIcon className="h-3 w-3 sm:h-3.5 sm:w-3.5 animate-pulse text-emerald-400" />
+              <span className="uppercase text-[8px] sm:text-[9px] font-mono tracking-widest text-slate-400 truncate max-w-[140px] xs:max-w-[180px] sm:max-w-[200px]">
                 {statusText}
               </span>
             </div>
             <span className="text-emerald-400 font-mono font-extrabold">{preloaderProgress}%</span>
           </div>
           {/* Progress Bar Container */}
-          <div className="w-full h-2 bg-neutral-950/80 rounded-full border border-neutral-900 overflow-hidden p-[1px]">
+          <div className="w-full h-1.5 sm:h-2 bg-neutral-950/80 rounded-full border border-neutral-900 overflow-hidden p-[1px]">
             <div 
               className="h-full bg-gradient-to-r from-emerald-500 to-emerald-300 rounded-full shadow-[0_0_12px_rgba(16,185,129,0.6)] transition-all duration-100 ease-out"
               style={{ width: `${preloaderProgress}%` }}
@@ -1024,7 +1167,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
         </div>
 
         {/* Small HUD style metadata footer */}
-        <div className="flex items-center justify-between w-full border-t border-neutral-900/50 pt-4 text-[8px] font-mono text-slate-600 uppercase tracking-widest mt-1">
+        <div className="flex items-center justify-between w-full border-t border-neutral-900/50 pt-3 sm:pt-4 text-[7px] sm:text-[8px] font-mono text-slate-600 uppercase tracking-widest mt-0.5 sm:mt-1">
           <span>SSL SECURE CONNECTION</span>
           <span className="text-emerald-500/50 font-bold">READY v2.4.0</span>
         </div>
@@ -1062,7 +1205,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
   // Filtered tickets calculation
   const filteredTickets = useMemo(() => {
-    const filtered = userVisibleTickets.filter(t => {
+    return userVisibleTickets.filter(t => {
       // Tab filtering: hide active projects from normal ticket queue and vice versa
       if (activeTab === "painel") {
         // "Fila de Chamados" hides active projects
@@ -1090,26 +1233,6 @@ CREATE TABLE IF NOT EXISTS public.tickets (
         (selectedStatus === "Active" ? (t.status === "Aberto" || t.status === "Em Atendimento") : t.status === selectedStatus);
 
       return matchesSearch && matchesCategory && matchesPriority && matchesStatus;
-    });
-
-    // Ordenação da fila de chamados:
-    // 1. Status ativo (Aberto/Em Atendimento) no topo antes de Resolvido/Fechado.
-    // 2. Maior prioridade primeiro (Urgente > Alta > Média > Baixa).
-    // 3. Mais recentes primeiro (data de criação decrescente).
-    return filtered.sort((a, b) => {
-      const aIsActive = a.status === "Aberto" || a.status === "Em Atendimento";
-      const bIsActive = b.status === "Aberto" || b.status === "Em Atendimento";
-      if (aIsActive && !bIsActive) return -1;
-      if (!aIsActive && bIsActive) return 1;
-
-      const priorityWeights: Record<string, number> = { Urgente: 4, Alta: 3, Média: 2, Baixa: 1 };
-      const aWeight = priorityWeights[a.priority] || 0;
-      const bWeight = priorityWeights[b.priority] || 0;
-      if (aWeight !== bWeight) {
-        return bWeight - aWeight;
-      }
-
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
   }, [userVisibleTickets, activeTab, searchTerm, selectedCategory, selectedPriority, selectedStatus]);
 
@@ -1196,50 +1319,320 @@ CREATE TABLE IF NOT EXISTS public.tickets (
   return (
     <div className="min-h-screen bg-black text-slate-100 flex flex-col md:flex-row font-sans relative">
       <PlantationBackground />
+
+      {/* Mobile Top Header */}
+      <div className="md:hidden flex items-center justify-between px-4 py-3.5 bg-[#060606] border-b border-emerald-950/20 sticky top-0 z-40 backdrop-blur-md bg-black/85">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setMobileMenuOpen(true)}
+            className="p-1.5 rounded-xl bg-neutral-900 border border-neutral-800 text-slate-400 hover:text-white transition active:scale-95 cursor-pointer flex items-center justify-center"
+            aria-label="Abrir menu"
+          >
+            <Menu className="h-5 w-5 text-emerald-400" />
+          </button>
+          
+          <button 
+            onClick={handleGoToHome}
+            className="flex items-center hover:opacity-85 transition active:scale-98 cursor-pointer text-left"
+            title="Ir para o início"
+          >
+            <img 
+              src={logoImg} 
+              alt="GRAN7 HELP" 
+              className="h-8 md:h-9 w-auto object-contain shrink-0"
+            />
+          </button>
+        </div>
+
+        {/* Quick User Avatar Button at Right */}
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={() => {
+              if (currentSession?.role === "tecnico") {
+                setMyTicketsViewMode("resolved");
+              } else {
+                setMyTicketsViewMode("created");
+              }
+              setMyTicketsTab("all");
+              setIsMyTicketsModalOpen(true);
+            }}
+            className="w-8 h-8 rounded-full bg-neutral-950 border border-neutral-850 flex items-center justify-center text-xs font-bold text-emerald-400 shadow-md active:scale-95"
+            title={`Ver chamados de ${currentSession.name}`}
+          >
+            {currentSession.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
+          </button>
+        </div>
+      </div>
+
+      {/* Animated Mobile Slide-out Drawer */}
+      <AnimatePresence>
+        {mobileMenuOpen && (
+          <>
+            {/* Dark Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMobileMenuOpen(false)}
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 md:hidden"
+            />
+
+            {/* Slide-out Menu */}
+            <motion.div
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="fixed inset-y-0 left-0 w-4/5 max-w-[320px] bg-[#060606] border-r border-emerald-950/30 z-50 flex flex-col md:hidden overflow-hidden shadow-2xl shadow-black"
+            >
+              {/* Drawer Brand Header */}
+              <div className="p-4 flex items-center justify-between border-b border-emerald-950/20 bg-[#0a0a0a]">
+                <button 
+                  onClick={handleGoToHome}
+                  className="flex items-center hover:opacity-85 transition active:scale-98 cursor-pointer text-left"
+                  title="Ir para o início"
+                >
+                  <img 
+                    src={logoImg} 
+                    alt="GRAN7 HELP" 
+                    className="h-8 w-auto object-contain shrink-0"
+                  />
+                </button>
+
+                <button
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="p-1.5 rounded-lg bg-neutral-900 border border-neutral-800 text-slate-400 hover:text-white transition active:scale-95"
+                  aria-label="Fechar menu"
+                >
+                  <X className="h-4 w-4 text-emerald-400" />
+                </button>
+              </div>
+
+              {/* Drawer Scrollable Content */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-6">
+                
+                {/* Access identity card */}
+                <div className="p-4 bg-[#0a0a0a] rounded-2xl border border-emerald-950/30 shadow-xl">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">Identidade de Acesso</span>
+                    <span className={`text-[9px] px-2.5 py-0.5 rounded-full font-bold uppercase ${currentSession.role === "tecnico" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-emerald-600/5 text-emerald-300 border border-emerald-500/10"}`}>
+                      {currentSession.role === "tecnico" ? "Técnico" : "Colaborador"}
+                    </span>
+                  </div>
+
+                  <div 
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      setIsMyTicketsModalOpen(true);
+                    }}
+                    className="flex items-center gap-3 p-2 bg-black rounded-xl border border-neutral-900 hover:border-emerald-400/20 cursor-pointer transition-all duration-200"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-[#050505] border border-neutral-800 flex items-center justify-center text-xs font-bold text-emerald-400 shrink-0">
+                      {currentSession.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
+                    </div>
+                    <div className="overflow-hidden flex-1">
+                      <p className="text-xs font-bold text-white truncate">{currentSession.name}</p>
+                      <p className="text-[9px] text-neutral-400 truncate">{currentSession.department}</p>
+                    </div>
+                    <span className="text-[9px] text-emerald-400 font-semibold pr-1 shrink-0">Ver</span>
+                  </div>
+
+                  <div className="mt-3.5 flex flex-col gap-2">
+                    <button
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        if (currentSession?.role === "tecnico") {
+                          setMyTicketsViewMode("resolved");
+                        } else {
+                          setMyTicketsViewMode("created");
+                        }
+                        setMyTicketsTab("all");
+                        setIsMyTicketsModalOpen(true);
+                      }}
+                      className="w-full py-2 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 border border-emerald-500/20 cursor-pointer"
+                    >
+                      <Layers className="h-3.5 w-3.5" />
+                      Ver Meus Chamados
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const result = await requestDesktopNotificationPermission();
+                        if (result === "granted") {
+                          showDesktopNotification(
+                            "Notificações Ativadas!",
+                            "Agora você receberá notificações na área de trabalho mesmo fora do site!"
+                          );
+                        }
+                      }}
+                      className={`w-full py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 border cursor-pointer ${
+                        desktopNotificationPermission === "granted"
+                          ? "bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                          : desktopNotificationPermission === "denied"
+                          ? "bg-rose-500/5 hover:bg-rose-500/10 text-rose-400 border-rose-500/20"
+                          : "bg-blue-500/5 hover:bg-blue-500/10 text-blue-400 border-blue-500/20"
+                      }`}
+                    >
+                      {desktopNotificationPermission === "granted" ? (
+                        <>
+                          <Bell className="h-3.5 w-3.5 text-emerald-400" />
+                          Notificações Ativas
+                        </>
+                      ) : desktopNotificationPermission === "denied" ? (
+                        <>
+                          <BellOff className="h-3.5 w-3.5 text-rose-400" />
+                          Notificações Bloqueadas
+                        </>
+                      ) : (
+                        <>
+                          <Bell className="h-3.5 w-3.5 text-blue-400 animate-bounce" />
+                          Ativar Notificações PC
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        handleLogout();
+                      }}
+                      className="w-full py-2 px-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 border border-rose-500/20 cursor-pointer"
+                    >
+                      <LogOut className="h-3.5 w-3.5" />
+                      Sair da Conta
+                    </button>
+                  </div>
+                </div>
+
+                {/* Dashboard Metrics */}
+                <div className="space-y-3">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">
+                    {currentSession.role === "tecnico" ? "Métricas Globais" : "Minhas Métricas"}
+                  </span>
+                  
+                  <div className={`grid ${currentSession.role === "tecnico" ? "grid-cols-3" : "grid-cols-1"} gap-2`}>
+                    <button
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        setActiveTab("painel");
+                        setSelectedStatus("Active");
+                      }}
+                      className={`p-2.5 rounded-xl border text-left transition-all hover:bg-emerald-500/5 ${
+                        activeTab === "painel" && selectedStatus === "Active" ? "border-emerald-500/40 bg-emerald-500/10" : "bg-black/50 border-neutral-900"
+                      }`}
+                    >
+                      <p className="text-[9px] font-medium text-slate-500 leading-tight">Fila Ativa</p>
+                      <p className="text-lg font-bold text-white mt-1">{activeTickets.length}</p>
+                    </button>
+                    
+                    {currentSession.role === "tecnico" && (
+                      <>
+                        <button
+                          onClick={() => {
+                            setMobileMenuOpen(false);
+                            setActiveTab("projetos");
+                          }}
+                          className={`p-2.5 rounded-xl border text-left transition-all hover:bg-emerald-500/5 ${
+                            activeTab === "projetos" ? "border-emerald-500/40 bg-emerald-500/10" : "bg-black/50 border-neutral-900"
+                          }`}
+                        >
+                          <p className="text-[9px] font-medium text-slate-500 leading-tight">Projetos</p>
+                          <p className="text-lg font-bold text-white mt-1">{activeProjects.length}</p>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setMobileMenuOpen(false);
+                            setActiveTab("sla");
+                          }}
+                          className={`p-2.5 rounded-xl border text-left transition-all hover:bg-emerald-500/5 ${
+                            activeTab === "sla" ? "border-emerald-500/40 bg-emerald-500/10" : "bg-black/50 border-neutral-900"
+                          }`}
+                        >
+                          <p className="text-[9px] font-medium text-slate-500 leading-tight">SLA Geral</p>
+                          <p className="text-lg font-bold text-emerald-400 mt-1">{slaCompliance}%</p>
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Ticket Categories Monitoring */}
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-2">
+                    {currentSession.role === "tecnico" ? "Monitoramento por Categorias" : "Minhas Categorias"}
+                  </span>
+                  {Object.entries(catStats).map(([cat, count]) => (
+                    <button
+                      key={cat}
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        setSelectedCategory(selectedCategory === cat ? "All" : cat);
+                      }}
+                      className={`w-full flex items-center justify-between text-xs px-3 py-2 rounded-xl border transition-all ${selectedCategory === cat ? "bg-emerald-500/10 text-emerald-400 border-emerald-400/30 font-semibold" : "text-slate-400 border-transparent hover:bg-neutral-900/40"}`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className={`w-1.5 h-1.5 rounded-full ${
+                          cat === 'Acesso' ? 'bg-rose-400' :
+                          cat === 'Redes' ? 'bg-emerald-400' :
+                          cat === 'Hardware' ? 'bg-amber-400' :
+                          cat === 'Software' ? 'bg-emerald-400 shadow-neon-sm' :
+                          cat === 'Sistemas' ? 'bg-emerald-500 shadow-neon-sm' : 'bg-neutral-500'
+                        }`} />
+                        {cat}
+                      </span>
+                      <span className="bg-[#111] px-1.5 py-0.5 rounded text-[10px] font-bold text-neutral-400 font-mono">{count}</span>
+                    </button>
+                  ))}
+                </div>
+
+              </div>
+
+              {/* Drawer Footer */}
+              <div className="p-4 border-t border-neutral-900 bg-[#0a0a0a]">
+                <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    GRAN7 HELP <span className="text-neutral-600 font-bold">v2.4.0</span>
+                  </span>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
       
-      {/* Sidebar - Bento Style */}
-      <aside className={`w-full ${sidebarCollapsed ? "md:w-20" : "md:w-80"} bg-[#060606] border-b md:border-b-0 md:border-r border-emerald-950/20 flex flex-col shrink-0 transition-all duration-300 relative`}>
+      {/* Sidebar - Bento Style (Desktop only) */}
+      <aside className={`hidden md:flex md:flex-col ${sidebarCollapsed ? "md:w-20" : "md:w-80"} bg-[#060606] border-b md:border-b-0 md:border-r border-emerald-950/20 shrink-0 transition-all duration-300 relative`}>
         <div className={`p-4 flex transition-all border-b border-emerald-950/20 ${
           sidebarCollapsed 
             ? "md:flex-col md:p-3 md:py-4 gap-3 items-center justify-center" 
             : "md:p-6 items-center justify-between"
         }`}>
-          {(!sidebarCollapsed || logoError) ? (
-            <div className={`${sidebarCollapsed ? "md:hidden" : "block"} transition-all duration-200`}>
-              {!logoError ? (
-                <img 
-                  src="/assets/logo.png" 
-                  alt="GRAN7 HELP" 
-                  className="h-12 w-auto object-contain max-w-full"
-                  onError={() => setLogoError(true)}
-                />
-              ) : (
-                <div className="flex items-center gap-3 w-full">
-                  <img 
-                    src={logoImg} 
-                    alt="GRAN7" 
-                    className="w-10 h-10 object-contain rounded-xl shadow-lg border border-emerald-400/25 shrink-0"
-                  />
-                  <div>
-                    <h1 className="font-display font-extrabold text-white tracking-tight text-lg">
-                      GRAN<span className="text-emerald-400 font-bold italic tracking-wide text-lg">7</span><span className="text-emerald-400 font-light tracking-widest text-sm"> HELP</span>
-                    </h1>
-                    <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Help Desk inteligente</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : null}
-
-          {sidebarCollapsed && !logoError && (
-            <div className="hidden md:flex items-center justify-center transition-all duration-200">
+          {!sidebarCollapsed ? (
+            <button 
+              onClick={handleGoToHome}
+              className="block transition-all duration-200 hover:opacity-85 cursor-pointer text-left focus:outline-none"
+              title="Ir para o início"
+            >
               <img 
                 src={logoImg} 
-                alt="GRAN7" 
-                className="w-9 h-9 object-contain rounded-lg border border-emerald-400/20 shadow-md shrink-0"
-                onError={() => setLogoError(true)}
+                alt="GRAN7 HELP" 
+                className="h-12 w-auto object-contain max-w-full"
               />
-            </div>
+            </button>
+          ) : (
+            <button 
+              onClick={handleGoToHome}
+              className="hidden md:flex items-center justify-center transition-all duration-200 hover:opacity-85 cursor-pointer focus:outline-none"
+              title="Ir para o início"
+            >
+              <img 
+                src={logoMin} 
+                alt="GRAN7" 
+                className="w-10 h-10 object-contain rounded-lg border border-emerald-400/20 shadow-md shrink-0"
+              />
+            </button>
           )}
 
           <button
@@ -1271,9 +1664,9 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                   setIsMyTicketsModalOpen(true);
                 }}
                 className="w-10 h-10 rounded-full bg-neutral-950 border border-neutral-900 flex items-center justify-center text-xs font-bold text-emerald-400 hover:border-emerald-400/40 hover:bg-emerald-500/10 transition-all cursor-pointer shadow-md group relative"
-                title={`Ver chamados de ${currentSession?.name || ""}`}
+                title={`Ver chamados de ${currentSession.name}`}
               >
-                {(currentSession?.name || "User").split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
+                {currentSession.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
                 <span className="absolute -bottom-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-black"></span>
               </button>
 
@@ -1373,14 +1766,14 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                 title="Clique para ver seus chamados"
               >
                 <div className="w-9 h-9 rounded-full bg-[#050505] border border-neutral-800 flex items-center justify-center text-sm font-bold text-emerald-400 group-hover:bg-emerald-400/10 group-hover:border-emerald-400/30 transition-all">
-                  {(currentSession?.name || "User").split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
+                  {currentSession.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
                 </div>
                 <div className="overflow-hidden flex-1">
                   <div className="flex items-center gap-1.5">
-                    <p className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors truncate">{currentSession?.name || ""}</p>
+                    <p className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors truncate">{currentSession.name}</p>
                     <Layers className="h-3 w-3 text-neutral-500 group-hover:text-emerald-400 transition-colors flex-shrink-0" />
                   </div>
-                  <p className="text-[10px] text-neutral-400 group-hover:text-neutral-300 transition-colors truncate">{currentSession?.department || ""}</p>
+                  <p className="text-[10px] text-neutral-400 group-hover:text-neutral-300 transition-colors truncate">{currentSession.department}</p>
                 </div>
                 <span className="text-[9px] text-neutral-500 group-hover:text-emerald-400 font-medium transition-colors pr-1">Ver</span>
               </div>
@@ -1400,6 +1793,43 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                 >
                   <Layers className="h-3.5 w-3.5" />
                   Ver Meus Chamados
+                </button>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const result = await requestDesktopNotificationPermission();
+                    if (result === "granted") {
+                      showDesktopNotification(
+                        "Notificações Ativadas!",
+                        "Agora você receberá notificações na área de trabalho mesmo fora do site!"
+                      );
+                    }
+                  }}
+                  className={`w-full py-1.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 border cursor-pointer ${
+                    desktopNotificationPermission === "granted"
+                      ? "bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                      : desktopNotificationPermission === "denied"
+                      ? "bg-rose-500/5 hover:bg-rose-500/10 text-rose-400 border-rose-500/20"
+                      : "bg-blue-500/5 hover:bg-blue-500/10 text-blue-400 border-blue-500/20"
+                  }`}
+                >
+                  {desktopNotificationPermission === "granted" ? (
+                    <>
+                      <Bell className="h-3.5 w-3.5 text-emerald-400" />
+                      Notificações Ativas
+                    </>
+                  ) : desktopNotificationPermission === "denied" ? (
+                    <>
+                      <BellOff className="h-3.5 w-3.5 text-rose-400" />
+                      Notificações Bloqueadas
+                    </>
+                  ) : (
+                    <>
+                      <Bell className="h-3.5 w-3.5 text-blue-400 animate-bounce" />
+                      Ativar Notificações PC
+                    </>
+                  )}
                 </button>
 
                 <button
@@ -1501,7 +1931,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                   GRAN7 HELP Online <span className="text-neutral-600 font-bold ml-0.5">v2.4.0</span>
                 </span>
-                {currentSession?.name?.toLowerCase() === "daniel kevin" && (
+                {currentSession?.role === "tecnico" && (
                   <span 
                     onClick={() => setActiveTab("banco_dados")}
                     className={`flex items-center gap-1.5 cursor-pointer transition ${dbStatus?.connected ? "text-emerald-400 hover:text-emerald-300 font-bold" : "text-amber-500 hover:text-amber-400"}`}
@@ -1539,63 +1969,170 @@ CREATE TABLE IF NOT EXISTS public.tickets (
           <div className="flex flex-col items-stretch md:items-end gap-2.5 shrink-0">
             {/* First Row: Modules Navigation (Upper right corner) */}
             {currentSession.role === "tecnico" && (
-              <div className="flex items-center gap-2 justify-end w-full md:w-auto">
-                <button
-                  onClick={() => setModulesCollapsed(!modulesCollapsed)}
-                  className="p-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-850 border border-neutral-800 text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center h-9 shrink-0"
-                  title={modulesCollapsed ? "Expandir módulos de atendimento" : "Recolher módulos de atendimento"}
-                >
-                  {modulesCollapsed ? (
-                    <ChevronRight className="h-4 w-4 text-emerald-400" />
-                  ) : (
-                    <ChevronLeft className="h-4 w-4" />
-                  )}
-                </button>
+              <>
+                {/* Desktop view: collapsible horizontal navigation */}
+                <div className="hidden md:flex items-center gap-2 justify-end w-full md:w-auto">
+                  <button
+                    onClick={() => setModulesCollapsed(!modulesCollapsed)}
+                    className="p-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-850 border border-neutral-800 text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center h-9 shrink-0"
+                    title={modulesCollapsed ? "Expandir módulos de atendimento" : "Recolher módulos de atendimento"}
+                  >
+                    {modulesCollapsed ? (
+                      <ChevronRight className="h-4 w-4 text-emerald-400" />
+                    ) : (
+                      <ChevronLeft className="h-4 w-4" />
+                    )}
+                  </button>
 
-                <div 
-                  className={`flex items-center transition-all duration-300 ease-in-out bg-black rounded-xl shadow-sm ${
-                    modulesCollapsed 
-                      ? "max-w-0 opacity-0 border-transparent p-0 gap-0 pointer-events-none overflow-hidden" 
-                      : "max-w-full md:max-w-[1000px] opacity-100 border border-neutral-900 p-1 gap-1.5 overflow-x-auto scrollbar-none"
-                  }`}
-                >
-                  <button
-                    onClick={() => setActiveTab("painel")}
-                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${activeTab === "painel" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
+                  <div 
+                    className={`flex items-center transition-all duration-300 ease-in-out bg-black rounded-xl shadow-sm ${
+                      modulesCollapsed 
+                        ? "max-w-0 opacity-0 border-transparent p-0 gap-0 pointer-events-none overflow-hidden" 
+                        : "max-w-full md:max-w-[1000px] opacity-100 border border-neutral-900 p-1 gap-1.5 overflow-x-auto scrollbar-none"
+                    }`}
                   >
-                    Fila de Chamados
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("projetos")}
-                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${activeTab === "projetos" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
-                  >
-                    Projetos em Andamento
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("sla")}
-                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${activeTab === "sla" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
-                  >
-                    Análise de SLA
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("colaboradores")}
-                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${activeTab === "colaboradores" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
-                  >
-                    Gestão de Colaboradores
-                  </button>
-                  {currentSession?.name?.toLowerCase() === "daniel kevin" && (
                     <button
-                      onClick={() => {
-                        setActiveTab("banco_dados");
-                        fetchDbStatus();
-                      }}
-                      className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${activeTab === "banco_dados" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
+                      onClick={() => setActiveTab("painel")}
+                      className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${activeTab === "painel" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
                     >
-                      Banco de Dados
+                      Fila de Chamados
                     </button>
+                    <button
+                      onClick={() => setActiveTab("projetos")}
+                      className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${activeTab === "projetos" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
+                    >
+                      Projetos em Andamento
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("sla")}
+                      className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${activeTab === "sla" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
+                    >
+                      Análise de SLA
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("colaboradores")}
+                      className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${activeTab === "colaboradores" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
+                    >
+                      Gestão de Colaboradores
+                    </button>
+                    {currentSession?.role === "tecnico" && (
+                      <button
+                        onClick={() => {
+                          setActiveTab("banco_dados");
+                          fetchDbStatus();
+                        }}
+                        className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${activeTab === "banco_dados" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
+                      >
+                        Banco de Dados
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Mobile view: beautiful custom selector dropdown */}
+                <div className="relative md:hidden w-full">
+                  <button
+                    onClick={() => setIsMobileModulesOpen(!isMobileModulesOpen)}
+                    className="w-full h-10 flex items-center justify-between px-4 bg-black border border-neutral-850 hover:border-emerald-500/40 rounded-xl text-xs font-semibold text-white transition-all cursor-pointer shadow-md focus:outline-none"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)] animate-pulse" />
+                      <span className="text-slate-500 uppercase tracking-wider text-[9px] font-bold">Módulo:</span>
+                      <span className="text-emerald-400 font-black tracking-tight">
+                        {activeTab === "painel" && "Fila de Chamados"}
+                        {activeTab === "projetos" && "Projetos em Andamento"}
+                        {activeTab === "sla" && "Análise de SLA"}
+                        {activeTab === "colaboradores" && "Gestão de Colaboradores"}
+                        {activeTab === "banco_dados" && "Banco de Dados"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-emerald-400">
+                      <span className="text-[9px] uppercase tracking-wider font-mono bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 font-bold">Menu</span>
+                      <ChevronRight className={`h-4 w-4 transition-transform duration-200 ${isMobileModulesOpen ? "rotate-90" : ""}`} />
+                    </div>
+                  </button>
+                  
+                  {isMobileModulesOpen && (
+                    <>
+                      {/* Fullscreen Backdrop Overlay */}
+                      <div 
+                        className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-all duration-200"
+                        onClick={() => setIsMobileModulesOpen(false)}
+                      />
+                      {/* Floating custom dropdown options list */}
+                      <div className="absolute left-0 right-0 mt-1.5 z-50 bg-[#050505] border border-neutral-900 rounded-xl p-1.5 shadow-[0_10px_30px_rgba(0,0,0,0.8)] flex flex-col gap-1 select-none">
+                        <div className="px-3 py-2 text-[9px] uppercase tracking-widest text-slate-500 font-black border-b border-neutral-900/50 mb-1 flex items-center justify-between">
+                          <span>Navegar para Módulo</span>
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                        </div>
+                        
+                        <button
+                          onClick={() => {
+                            setActiveTab("painel");
+                            setIsMobileModulesOpen(false);
+                          }}
+                          className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeTab === "painel" ? "bg-emerald-400/10 text-emerald-400 border border-emerald-500/20" : "text-slate-400 hover:text-white hover:bg-neutral-900 border border-transparent"}`}
+                        >
+                          <Layers className="h-4 w-4 text-emerald-400 shrink-0" />
+                          <span className="flex-1 text-left">Fila de Chamados</span>
+                          {activeTab === "painel" && <Check className="h-3.5 w-3.5 text-emerald-400 font-black" />}
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            setActiveTab("projetos");
+                            setIsMobileModulesOpen(false);
+                          }}
+                          className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeTab === "projetos" ? "bg-emerald-400/10 text-emerald-400 border border-emerald-500/20" : "text-slate-400 hover:text-white hover:bg-neutral-900 border border-transparent"}`}
+                        >
+                          <FolderKanban className="h-4 w-4 text-emerald-400 shrink-0" />
+                          <span className="flex-1 text-left">Projetos em Andamento</span>
+                          {activeTab === "projetos" && <Check className="h-3.5 w-3.5 text-emerald-400 font-black" />}
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            setActiveTab("sla");
+                            setIsMobileModulesOpen(false);
+                          }}
+                          className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeTab === "sla" ? "bg-emerald-400/10 text-emerald-400 border border-emerald-500/20" : "text-slate-400 hover:text-white hover:bg-neutral-900 border border-transparent"}`}
+                        >
+                          <Sliders className="h-4 w-4 text-emerald-400 shrink-0" />
+                          <span className="flex-1 text-left">Análise de SLA</span>
+                          {activeTab === "sla" && <Check className="h-3.5 w-3.5 text-emerald-400 font-black" />}
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            setActiveTab("colaboradores");
+                            setIsMobileModulesOpen(false);
+                          }}
+                          className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeTab === "colaboradores" ? "bg-emerald-400/10 text-emerald-400 border border-emerald-500/20" : "text-slate-400 hover:text-white hover:bg-neutral-900 border border-transparent"}`}
+                        >
+                          <Users className="h-4 w-4 text-emerald-400 shrink-0" />
+                          <span className="flex-1 text-left">Gestão de Colaboradores</span>
+                          {activeTab === "colaboradores" && <Check className="h-3.5 w-3.5 text-emerald-400 font-black" />}
+                        </button>
+                        
+                        {currentSession?.role === "tecnico" && (
+                          <button
+                            onClick={() => {
+                              setActiveTab("banco_dados");
+                              fetchDbStatus();
+                              setIsMobileModulesOpen(false);
+                            }}
+                            className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeTab === "banco_dados" ? "bg-emerald-400/10 text-emerald-400 border border-emerald-500/20" : "text-slate-400 hover:text-white hover:bg-neutral-900 border border-transparent"}`}
+                          >
+                            <Database className="h-4 w-4 text-emerald-400 shrink-0" />
+                            <span className="flex-1 text-left">Banco de Dados</span>
+                            {activeTab === "banco_dados" && <Check className="h-3.5 w-3.5 text-emerald-400 font-black" />}
+                          </button>
+                        )}
+                      </div>
+                    </>
                   )}
                 </div>
-              </div>
+              </>
             )}
 
             {/* Second Row: Page Actions (Aligned nicely underneath) */}
@@ -1872,7 +2409,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                         </div>
                       </div>
 
-                      <div className="divide-y divide-neutral-900 max-h-[500px] overflow-y-auto">
+                      <div className="divide-y divide-neutral-900 max-h-[500px] xl:max-h-[calc(100vh-270px)] overflow-y-auto">
                         {filteredAndSortedUsers.length === 0 ? (
                           <div className="p-8 text-center text-slate-500 text-xs">
                             Nenhum colaborador ou técnico atende aos filtros aplicados.
@@ -1954,7 +2491,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
               </div>
             </div>
           </motion.div>
-        ) : activeTab === "banco_dados" && currentSession?.name?.toLowerCase() === "daniel kevin" ? (
+        ) : activeTab === "banco_dados" && currentSession?.role === "tecnico" ? (
           <motion.div
             key="banco_dados"
             initial={{ opacity: 0, y: 15 }}
@@ -2015,26 +2552,26 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                   
                   <div className="mt-3">
                     {dbStatus?.connected ? (
-                      <div>
-                        <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded uppercase tracking-wider">
+                       <div>
+                         <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded uppercase tracking-wider">
                           Nuvem Online
-                        </span>
-                        <p className="text-[11px] text-slate-300 mt-2.5 leading-relaxed">
+                         </span>
+                         <p className="text-[11px] text-slate-300 mt-2.5 leading-relaxed">
                           Conectado com sucesso ao banco de dados Supabase. Leituras e escritas estão ativas e sendo persistidas em nuvem em tempo real.
-                        </p>
-                      </div>
-                    ) : (
-                      <div>
-                        <span className="text-xs font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded uppercase tracking-wider">
-                          Modo Redundante / Local
-                        </span>
-                        <p className="text-[11px] text-slate-400 mt-2.5 leading-relaxed">
-                          {dbStatus?.configured 
+                         </p>
+                       </div>
+                     ) : (
+                       <div>
+                         <span className="text-xs font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded uppercase tracking-wider">
+                           Modo Redundante / Local
+                         </span>
+                         <p className="text-[11px] text-slate-400 mt-2.5 leading-relaxed">
+                           {dbStatus?.configured 
                             ? "Não foi possível conectar ao Supabase. Operando em modo de redundância local segura." 
                             : "Credenciais do Supabase ausentes no painel Secrets do AI Studio. Usando banco local."}
-                        </p>
-                      </div>
-                    )}
+                         </p>
+                       </div>
+                     )}
                   </div>
                 </div>
 
@@ -2047,7 +2584,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                     disabled={dbChecking}
                     className="text-[10px] font-bold text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
                   >
-                    {dbChecking ? "Testando..." : "Testar Conexão ÔåÆ"}
+                    {dbChecking ? "Testando..." : "Testar Conexão →"}
                   </button>
                 </div>
               </div>
@@ -2113,7 +2650,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                     <span className="font-bold">A sincronização falhou</span>
                   </div>
                   <p className="text-[11px] text-rose-300/90 leading-relaxed pl-6">
-                    {syncDbError}. Certifique-se de que as tabelas existem no Supabase (use as instruções SQL abaixo para criá-las).
+                    {syncDbError}. Certifique-se de que as tabelas existem no Supabase (use as instruções SQL abaixo no SQL Editor para criá-las).
                   </p>
                 </div>
               )}
@@ -2127,9 +2664,9 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                       <Upload className="h-5 w-5" />
                     </div>
                     <div>
-                      <h5 className="text-xs font-bold text-white uppercase tracking-wider">Exportar Local ÔåÆ Supabase (Push)</h5>
+                      <h5 className="text-xs font-bold text-white uppercase tracking-wider">Exportar Local → Supabase (Push)</h5>
                       <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
-                        Envia todos os chamados e colaboradores salvos localmente para o banco de dados Supabase na nuvem. Use após configurar um novo banco ou resolver quedas de conexão.
+                        Envia todos os chamados e colaboradores salvos localmente para o banco de dados do Supabase. Use após configurar um novo banco ou resolver quedas de conexão.
                       </p>
                     </div>
                   </div>
@@ -2148,13 +2685,13 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                       ) : (
                         <>
                           <Upload className="h-3.5 w-3.5" />
-                          Exportar Dados para Supabase
+                          Exportar Dados para o Supabase
                         </>
                       )}
                     </button>
                     {!dbStatus?.configured && (
                       <p className="text-[9px] text-center text-amber-500 mt-2 font-medium">
-                        * Configure as chaves do Supabase nas Secrets para habilitar.
+                        * Configure as credenciais do Supabase (SUPABASE_URL e SUPABASE_KEY) nas Secrets para habilitar.
                       </p>
                     )}
                   </div>
@@ -2167,7 +2704,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                       <FileText className="h-5 w-5" />
                     </div>
                     <div>
-                      <h5 className="text-xs font-bold text-white uppercase tracking-wider">Importar Supabase ÔåÆ Local (Pull)</h5>
+                      <h5 className="text-xs font-bold text-white uppercase tracking-wider">Importar Supabase → Local (Pull)</h5>
                       <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
                         Puxa todos os chamados e colaboradores persistidos no Supabase e substitui o cache local do servidor. Ideal para inicializar novos ambientes ou baixar dados inseridos remotamente.
                       </p>
@@ -2192,13 +2729,13 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                       ) : (
                         <>
                           <Database className="h-3.5 w-3.5 text-slate-400" />
-                          Importar Dados da Nuvem
+                          Importar Dados do Supabase
                         </>
                       )}
                     </button>
                     {!dbStatus?.configured && (
                       <p className="text-[9px] text-center text-amber-500 mt-2 font-medium">
-                        * Configure as chaves do Supabase nas Secrets para habilitar.
+                        * Configure as credenciais do Supabase (SUPABASE_URL e SUPABASE_KEY) nas Secrets para habilitar.
                       </p>
                     )}
                   </div>
@@ -2215,7 +2752,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                     <Terminal className="h-4.5 w-4.5 text-emerald-400" />
                     <h4 className="text-xs font-bold text-white uppercase tracking-wider">Estrutura de Tabelas SQL do Supabase</h4>
                   </div>
-                  <p className="text-[11px] text-slate-400">Instruções e código SQL para criar a arquitetura de tabelas diretamente no Supabase.</p>
+                  <p className="text-[11px] text-slate-400">Instruções e código SQL para criar a arquitetura de tabelas no banco de dados PostgreSQL do Supabase.</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -2251,7 +2788,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
               <div className="space-y-3">
                 <p className="text-[11px] text-slate-300 leading-relaxed">
-                  Para que a sincronização funcione perfeitamente, acesse seu painel do Supabase, selecione o projeto, vá até o menu <strong className="text-white">SQL Editor</strong>, crie uma nova query, cole o código abaixo e clique em <strong className="text-white">Run</strong>.
+                  Para criar as tabelas manualmente, acesse o painel do seu projeto no <strong className="text-white">Supabase</strong>, vá em <strong className="text-white">SQL Editor</strong>, clique em <strong className="text-white">New Query</strong>, cole o código abaixo e clique em <strong className="text-white">Run</strong>.
                 </p>
 
                 <div className="relative rounded-xl overflow-hidden border border-neutral-900 bg-black/90">
@@ -2277,45 +2814,72 @@ CREATE TABLE IF NOT EXISTS public.tickets (
           >
           
           {/* LEFT SECTION (Col 7): Tickets List & Core Triage Panel */}
-          <div className={`transition-all duration-300 space-y-6 ${rightSidebarCollapsed ? "xl:col-span-12" : "xl:col-span-7"}`}>
+          <div className={`transition-all duration-300 space-y-6 ${rightSidebarCollapsed ? "xl:col-span-12" : "xl:col-span-7"} ${
+            selectedTicketId ? "hidden xl:block" : "block"
+          }`}>
             
             {/* Bento Grid Analytics Widget Row */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-3 gap-2 sm:gap-4">
               
               {/* Card 1: Tickets em Aberto */}
-              <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-4 flex flex-col justify-between min-h-[110px] shadow-lg">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Chamados Ativos</p>
-                <div className="flex items-end justify-between mt-2">
-                  <span className="text-3xl font-black text-white">{activeTickets.length}</span>
-                  <span className="text-amber-400 text-[10px] font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+              <button 
+                onClick={() => {
+                  setActiveTab("painel");
+                  setSelectedStatus("Active");
+                  setSelectedPriority("All");
+                  setSelectedCategory("All");
+                  setSearchTerm("");
+                }}
+                className="bg-[#0a0a0a] border border-neutral-900 hover:border-emerald-500/30 hover:bg-emerald-950/5 rounded-xl sm:rounded-2xl p-2.5 sm:p-4 flex flex-col justify-between min-h-[90px] sm:min-h-[110px] shadow-lg text-left transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] cursor-pointer focus:outline-none focus:ring-1 focus:ring-emerald-500/20 group"
+              >
+                <p className="text-[8px] sm:text-[10px] font-bold uppercase tracking-wider sm:tracking-widest text-slate-400 group-hover:text-emerald-400 transition-colors">Chamados Ativos</p>
+                <div className="flex items-baseline sm:items-end justify-between mt-1 sm:mt-2 gap-1 flex-wrap sm:flex-nowrap w-full">
+                  <span className="text-xl sm:text-3xl font-black text-white leading-none">{activeTickets.length}</span>
+                  <span className="text-amber-400 text-[8px] sm:text-[10px] font-bold bg-amber-500/10 px-1 sm:px-2 py-0.5 rounded border border-amber-500/20 whitespace-nowrap">
                     Aguardando TI
                   </span>
                 </div>
-              </div>
+              </button>
 
               {/* Card 2: SLA compliance status */}
-              <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-4 flex flex-col justify-between min-h-[110px] shadow-lg">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Eficiência (SLA)</p>
-                <div className="flex items-end justify-between mt-2">
-                  <span className="text-3xl font-black text-emerald-400">{slaCompliance}%</span>
-                  <span className="text-emerald-400 text-[10px] font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+              <button 
+                onClick={() => {
+                  setActiveTab("sla");
+                }}
+                className="bg-[#0a0a0a] border border-neutral-900 hover:border-emerald-500/30 hover:bg-emerald-950/5 rounded-xl sm:rounded-2xl p-2.5 sm:p-4 flex flex-col justify-between min-h-[90px] sm:min-h-[110px] shadow-lg text-left transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] cursor-pointer focus:outline-none focus:ring-1 focus:ring-emerald-500/20 group"
+              >
+                <p className="text-[8px] sm:text-[10px] font-bold uppercase tracking-wider sm:tracking-widest text-slate-400 group-hover:text-emerald-400 transition-colors">Eficiência (SLA)</p>
+                <div className="flex items-baseline sm:items-end justify-between mt-1 sm:mt-2 gap-1 flex-wrap sm:flex-nowrap w-full">
+                  <span className="text-xl sm:text-3xl font-black text-emerald-400 leading-none">{slaCompliance}%</span>
+                  <span className="text-emerald-400 text-[8px] sm:text-[10px] font-bold bg-emerald-500/10 px-1 sm:px-2 py-0.5 rounded border border-emerald-500/20 whitespace-nowrap">
                     Meta: 92%
                   </span>
                 </div>
-              </div>
+              </button>
 
               {/* Card 3: Critical alerts pending */}
-              <div className="col-span-2 sm:col-span-1 bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-4 flex flex-col justify-between min-h-[110px] shadow-lg">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Casos Críticos</p>
-                <div className="flex items-end justify-between mt-2">
-                  <span className={`text-3xl font-black ${criticalTickets.length > 0 ? "text-rose-500" : "text-white"}`}>
+              <button 
+                onClick={() => {
+                  setActiveTab("painel");
+                  setSelectedStatus("Active");
+                  // Filter by Urgente if any exists, otherwise Alta
+                  const hasUrgent = activeTickets.some(t => t.priority === "Urgente");
+                  setSelectedPriority(hasUrgent ? "Urgente" : "Alta");
+                  setSelectedCategory("All");
+                  setSearchTerm("");
+                }}
+                className="bg-[#0a0a0a] border border-neutral-900 hover:border-rose-500/30 hover:bg-rose-950/5 rounded-xl sm:rounded-2xl p-2.5 sm:p-4 flex flex-col justify-between min-h-[90px] sm:min-h-[110px] shadow-lg text-left transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] cursor-pointer focus:outline-none focus:ring-1 focus:ring-rose-500/20 group"
+              >
+                <p className="text-[8px] sm:text-[10px] font-bold uppercase tracking-wider sm:tracking-widest text-slate-400 group-hover:text-rose-400 transition-colors">Casos Críticos</p>
+                <div className="flex items-baseline sm:items-end justify-between mt-1 sm:mt-2 gap-1 flex-wrap sm:flex-nowrap w-full">
+                  <span className={`text-xl sm:text-3xl font-black leading-none ${criticalTickets.length > 0 ? "text-rose-500" : "text-white"}`}>
                     {criticalTickets.length}
                   </span>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${criticalTickets.length > 0 ? "bg-rose-500/10 text-rose-400 border-rose-500/20 animate-pulse" : "bg-neutral-900 text-slate-400 border-neutral-850"}`}>
+                  <span className={`text-[8px] sm:text-[10px] font-bold px-1 sm:px-2 py-0.5 rounded border whitespace-nowrap ${criticalTickets.length > 0 ? "bg-rose-500/10 text-rose-400 border-rose-500/20 animate-pulse" : "bg-neutral-900 text-slate-400 border-neutral-850"}`}>
                     {criticalTickets.length > 0 ? "Ação Urgente" : "Fila Limpa"}
                   </span>
                 </div>
-              </div>
+              </button>
 
             </div>
 
@@ -2396,7 +2960,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
               </div>
 
               {/* Main Interactive Ticket List container */}
-              <div className="space-y-3 max-h-[580px] overflow-y-auto pr-1">
+              <div className="space-y-3 max-h-[580px] xl:max-h-[calc(100vh-250px)] overflow-y-auto pr-1">
                 {loading ? (
                   <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-3">
                     <RefreshCw className="h-8 w-8 animate-spin text-emerald-400" />
@@ -2428,14 +2992,14 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                         id={`ticket-card-${ticket.id}`}
                         key={ticket.id}
                         onClick={() => setSelectedTicketId(ticket.id)}
-                        className={`p-4 bg-[#050505] hover:bg-[#0c0c0c] rounded-2xl border border-neutral-900 border-l-4 ${priorityBorder} flex flex-col md:flex-row justify-between md:items-center gap-4 transition-all cursor-pointer ${isSelected ? "ring-2 ring-emerald-400/35 bg-black border-emerald-400/20 shadow-neon-sm" : ""}`}
+                        className={`p-2.5 md:p-4 bg-[#050505] hover:bg-[#0c0c0c] rounded-lg md:rounded-2xl border border-neutral-900 border-l-4 ${priorityBorder} flex flex-col md:flex-row justify-between md:items-center gap-2 md:gap-4 transition-all cursor-pointer ${isSelected ? "ring-2 ring-emerald-400/35 bg-black border-emerald-400/20 shadow-neon-sm" : ""}`}
                       >
-                        <div className="flex-1 space-y-2">
-                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-[10px] font-bold text-neutral-400 uppercase">
+                        <div className="flex-1 space-y-0.5 md:space-y-2">
+                           <div className="flex flex-wrap items-center gap-1 md:gap-2">
+                            <span className="text-[8px] md:text-[10px] font-bold text-neutral-400 uppercase">
                               #{ticket.id}
                             </span>
-                            <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
+                            <span className={`text-[8px] md:text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded ${
                               ticket.status === "Aberto" ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" :
                               ticket.status === "Em Atendimento" ? "bg-sky-500/10 text-sky-400 border border-sky-500/20 shadow-[0_0_10px_rgba(56,189,248,0.05)]" :
                               ticket.status === "Resolvido" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.05)]" :
@@ -2444,7 +3008,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                             }`}>
                               {ticket.status}
                             </span>
-                            <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
+                            <span className={`text-[8px] md:text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded ${
                               ticket.category === 'Acesso' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
                               ticket.category === 'Redes' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
                               ticket.category === 'Hardware' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
@@ -2454,21 +3018,21 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                             }`}>
                               {ticket.category}
                             </span>
-                            <span className={`text-[10px] font-bold uppercase ${priorityTextClass}`}>
+                            <span className={`text-[8px] md:text-[10px] font-bold uppercase ${priorityTextClass}`}>
                               {ticket.priority}
                             </span>
                           </div>
 
-                          <h4 className="text-sm font-bold text-neutral-200 line-clamp-1">{ticket.title}</h4>
+                          <h4 className="text-[11px] sm:text-xs md:text-sm font-bold text-neutral-200 line-clamp-1">{ticket.title}</h4>
                           
-                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                          <div className="flex flex-wrap items-center gap-x-2 md:gap-x-4 gap-y-0.5 text-[9px] md:text-xs text-slate-500">
                             <span>Solicitante: <strong className="text-slate-400">{ticket.requesterName}</strong> ({ticket.requesterDepartment.split(" / ")[0]})</span>
                             <span>•</span>
                             <span>Aberto: {new Date(ticket.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} às {new Date(ticket.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
                             {ticket.projectDeadline && (
                               <>
                                 <span>•</span>
-                                <span className="flex items-center gap-1 text-emerald-400 font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 text-[10px]">
+                                <span className="flex items-center gap-1 text-emerald-400 font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 text-[8px] md:text-[10px]">
                                   <Calendar className="h-3 w-3" />
                                   Limite Projeto: {(() => {
                                     try {
@@ -2485,35 +3049,35 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                         </div>
 
                         {/* Responsible and stats alignment block */}
-                        <div className="flex md:flex-col items-center md:items-end justify-between md:justify-center shrink-0 border-t md:border-t-0 border-[#111] pt-2 md:pt-0 gap-2">
+                        <div className="flex md:flex-col items-center md:items-end justify-between md:justify-center shrink-0 border-t md:border-t-0 border-neutral-900/30 pt-1 md:pt-0 gap-1 md:gap-2">
                           <div className="text-right">
-                            <p className="text-[10px] text-slate-500 font-bold uppercase">Atribuído a</p>
-                            <div className="mt-1">
+                            <p className="text-[8px] md:text-[10px] text-slate-500 font-bold uppercase">Atribuído a</p>
+                            <div className="mt-0.5 md:mt-1">
                               {ticket.assignedTo ? (
                                 <div className="flex flex-wrap gap-1 justify-end">
                                   {getAssignedTechs(ticket.assignedTo).map((t, i) => (
-                                    <span key={i} className="bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded text-[9px] border border-emerald-500/20 font-bold shadow-sm">
+                                    <span key={i} className="bg-emerald-500/10 text-emerald-400 px-1 py-0.5 rounded text-[8px] md:text-[9px] border border-emerald-500/20 font-bold shadow-sm">
                                       {t}
                                     </span>
                                   ))}
                                 </div>
                               ) : (
-                                <span className="text-slate-500 italic text-xs block text-right">Ninguém</span>
+                                <span className="text-slate-500 italic text-[9px] md:text-xs block text-right">Ninguém</span>
                               )}
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-3 mt-1 text-slate-500">
+                          <div className="flex items-center gap-1.5 md:gap-3 mt-0.5 md:mt-1 text-slate-500">
                             {commentsCount > 0 && (
                               <div className="flex items-center gap-1" title={`${commentsCount} comentários de suporte`}>
                                 <MessageSquare className="h-3 w-3" />
-                                <span className="text-xs font-semibold">{commentsCount}</span>
+                                <span className="text-[10px] md:text-xs font-semibold">{commentsCount}</span>
                               </div>
                             )}
 
                             {/* IA Triaged icon badge indicator */}
                             {ticket.aiCategory && (
-                              <div className="flex items-center gap-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded text-[9px] font-bold" title="Triagem inteligente realizada por IA">
+                              <div className="flex items-center gap-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded text-[8px] md:text-[9px] font-bold" title="Triagem inteligente realizada por IA">
                                 <Sparkles className="h-2.5 w-2.5" />
                                 <span>IA</span>
                               </div>
@@ -2533,7 +3097,9 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
           {/* RIGHT SECTION (Col 5): Bento Ticket Detail, Diagnosis Panel & Activity */}
           {!rightSidebarCollapsed && (
-            <div className="xl:col-span-5 space-y-6 animate-in fade-in slide-in-from-right-3 duration-300">
+            <div className={`xl:col-span-5 space-y-6 animate-in fade-in slide-in-from-right-3 duration-300 ${
+              selectedTicketId ? "block" : "hidden xl:block"
+            }`}>
             
             {/* Live active team indicator module - Bento Grid Block */}
             <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-5 shadow-lg">
@@ -2548,7 +3114,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                 </span>
               </div>
               
-              <div className="space-y-3 max-h-[280px] overflow-y-auto pr-1">
+              <div className="space-y-3 max-h-[280px] xl:max-h-[calc(100vh-620px)] overflow-y-auto pr-1">
                 {(() => {
                   const filteredList = users
                     .filter(u => u.role === "tecnico")
@@ -2623,10 +3189,19 @@ CREATE TABLE IF NOT EXISTS public.tickets (
               <div className="bg-[#0a0a0a] border border-emerald-500/10 rounded-2xl overflow-hidden shadow-2xl">
                 
                 {/* Detail Header */}
-                <div className="p-4 md:p-5 bg-[#0e0e0e] border-b border-neutral-900/60 flex items-center justify-between flex-wrap gap-2">
-                  <div>
-                    <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest block mb-0.5">Diagnóstico Completo</span>
-                    <h3 className="text-sm font-bold text-white">Chamado #{selectedTicket.id}</h3>
+                <div className="p-4 md:p-5 bg-[#0e0e0e] border-b border-neutral-900/60 flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setSelectedTicketId(null)}
+                      className="xl:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-850 border border-neutral-800 text-xs font-bold text-emerald-400 transition cursor-pointer active:scale-95 shrink-0"
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                      <span>Voltar</span>
+                    </button>
+                    <div>
+                      <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest block mb-0.5">Diagnóstico Completo</span>
+                      <h3 className="text-sm font-bold text-white">Chamado #{selectedTicket.id}</h3>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -2663,7 +3238,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                 </div>
 
                 {/* Main scrollable body */}
-                <div className="p-5 space-y-5 max-h-[550px] overflow-y-auto">
+                <div className="p-5 space-y-5 max-h-[550px] xl:max-h-[calc(100vh-220px)] overflow-y-auto">
                   
                   {/* Requester overview */}
                   <div className="p-3 bg-black/40 rounded-xl border border-emerald-950/20 text-xs space-y-2">
@@ -2850,30 +3425,88 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                     </div>
                   </div>
 
-                  {/* Attached screenshot block */}
-                  {selectedTicket.screenshot && (
+                  {/* Attached files and screenshots block */}
+                  {((selectedTicket.attachments && selectedTicket.attachments.length > 0) || selectedTicket.screenshot) && (
                     <div className="space-y-2">
                       <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                        <Camera className="h-3.5 w-3.5 text-emerald-400" />
-                        Print Anexado
+                        <Paperclip className="h-3.5 w-3.5 text-emerald-400" />
+                        Prints e Arquivos Anexados
                       </span>
-                      <div className="bg-black p-3 rounded-xl border border-neutral-900 flex flex-col items-center">
-                        <button 
-                          onClick={() => setPreviewImage(selectedTicket.screenshot || null)} 
-                          className="relative block rounded-lg overflow-hidden border border-neutral-900 group cursor-zoom-in max-w-full text-left"
-                          title="Clique para abrir em tela cheia"
-                        >
-                          <img 
-                            src={selectedTicket.screenshot} 
-                            alt="Print do chamado" 
-                            className="max-h-64 object-contain rounded-lg group-hover:scale-[1.015] transition-all duration-200" 
-                          />
-                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                            <span className="bg-black/95 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-xl border border-neutral-800 shadow-xl flex items-center gap-1">
-                              <Eye className="h-3.5 w-3.5 text-emerald-400" /> Ver Imagem Completa
-                            </span>
+                      <div className="bg-black/40 p-4 rounded-xl border border-neutral-900/60 space-y-3">
+                        {/* If we have multiple attachments */}
+                        {selectedTicket.attachments && selectedTicket.attachments.length > 0 ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {selectedTicket.attachments.map((file, idx) => {
+                              const isImage = file.type.startsWith("image/");
+                              const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+                              
+                              return (
+                                <div key={idx} className="flex flex-col p-2.5 rounded-xl bg-neutral-900/60 border border-neutral-900 hover:border-neutral-800 transition justify-between gap-2.5">
+                                  <div className="flex items-center gap-2.5 min-w-0">
+                                    {isImage ? (
+                                      <div className="w-10 h-10 rounded-lg overflow-hidden border border-neutral-800 flex-shrink-0 bg-black flex items-center justify-center">
+                                        <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
+                                      </div>
+                                    ) : (
+                                      <div className={`w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center bg-black border border-neutral-800 ${isPdf ? "text-red-400" : "text-emerald-400"}`}>
+                                        <FileText className="h-5 w-5" />
+                                      </div>
+                                    )}
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-xs font-semibold text-slate-200 truncate" title={file.name}>
+                                        {file.name}
+                                      </p>
+                                      <p className="text-[9px] text-slate-500 uppercase font-mono tracking-wider">
+                                        {isPdf ? "Documento PDF" : isImage ? "Imagem" : "Arquivo"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  
+                                  <div className="flex items-center gap-2 mt-0.5">
+                                    {isImage ? (
+                                      <button
+                                        onClick={() => setPreviewImage(file.url)}
+                                        className="flex-1 py-1 px-2.5 bg-neutral-950 hover:bg-neutral-900 border border-neutral-850 rounded-lg text-[10px] font-bold text-slate-300 hover:text-emerald-400 flex items-center justify-center gap-1 transition cursor-pointer"
+                                      >
+                                        <Eye className="h-3 w-3" /> Visualizar
+                                      </button>
+                                    ) : (
+                                      <a
+                                        href={file.url}
+                                        download={file.name}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex-1 py-1 px-2.5 bg-neutral-950 hover:bg-neutral-900 border border-neutral-850 rounded-lg text-[10px] font-bold text-slate-300 hover:text-emerald-400 flex items-center justify-center gap-1 transition text-center"
+                                      >
+                                        <Upload className="h-3 w-3 rotate-180" /> Abrir / Baixar
+                                      </a>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
-                        </button>
+                        ) : (
+                          /* Legacy single screenshot fallback */
+                          <div className="flex flex-col items-center">
+                            <button 
+                              onClick={() => setPreviewImage(selectedTicket.screenshot || null)} 
+                              className="relative block rounded-lg overflow-hidden border border-neutral-900 group cursor-zoom-in max-w-full text-left"
+                              title="Clique para abrir em tela cheia"
+                            >
+                              <img 
+                                src={selectedTicket.screenshot} 
+                                alt="Print do chamado" 
+                                className="max-h-64 object-contain rounded-lg group-hover:scale-[1.015] transition-all duration-200" 
+                              />
+                              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <span className="bg-black/95 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-xl border border-neutral-800 shadow-xl flex items-center gap-1">
+                                  <Eye className="h-3.5 w-3.5 text-emerald-400" /> Ver Imagem Completa
+                                </span>
+                              </div>
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -3148,7 +3781,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                     
                     {isAssignedToOther && (
                       <div className="p-2.5 bg-amber-500/5 border border-amber-500/15 rounded-lg text-[10px] text-amber-400 leading-normal font-medium flex items-center gap-2 mb-2">
-                        <span>ÔÜá´©Å Este chamado está sob responsabilidade de <strong>{selectedTicket.assignedTo}</strong>. Apenas um dos responsáveis pode alterar ou finalizá-lo.</span>
+                        <span>⚠️ Este chamado está sob responsabilidade de <strong>{selectedTicket.assignedTo}</strong>. Apenas um dos responsáveis pode alterar ou finalizá-lo.</span>
                       </div>
                     )}
 
@@ -3341,10 +3974,10 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                           setCommentAttachment(null);
                           setCommentAttachmentName("");
                         }}
-                        className="p-1 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-slate-400 hover:text-white transition cursor-pointer"
+                        className="p-1 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center"
                         title="Remover anexo"
                       >
-                        Ô£ò
+                        <X className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   )}
@@ -3522,17 +4155,17 @@ CREATE TABLE IF NOT EXISTS public.tickets (
             )}
 
             {/* Profile context summary */}
-            <div className="px-6 py-3 bg-black/20 border-b border-neutral-900/60 flex flex-wrap items-center justify-between gap-2 text-xs">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-full bg-neutral-900 flex items-center justify-center text-[10px] font-bold text-emerald-400 border border-neutral-800">
+            <div className="px-4 sm:px-6 py-2.5 sm:py-3 bg-black/20 border-b border-neutral-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-neutral-900 flex items-center justify-center text-[8px] sm:text-[10px] font-bold text-emerald-400 border border-neutral-800 shrink-0">
                   {currentSession.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
                 </div>
-                <div>
-                  <span className="text-slate-400 font-semibold">{currentSession.name}</span>
-                  <span className="text-slate-500 text-[10px] ml-1.5 font-medium">({currentSession.department})</span>
+                <div className="flex flex-wrap items-baseline gap-1 sm:gap-1.5">
+                  <span className="text-slate-400 font-semibold text-[11px] sm:text-xs">{currentSession.name}</span>
+                  <span className="text-slate-500 text-[9px] sm:text-[10px] font-medium">({currentSession.department})</span>
                 </div>
               </div>
-              <div className="text-[10px] text-slate-500 font-medium">
+              <div className="text-[9px] sm:text-[10px] text-slate-500 font-medium">
                 {myTicketsViewMode === "resolved" ? (
                   <>
                     Total de chamados resolvidos por você: <strong className="text-emerald-400">{tickets.filter(t => getAssignedTechs(t.assignedTo).includes(currentSession.name) && (t.status === "Resolvido" || t.status === "Fechado")).length}</strong>
@@ -3547,17 +4180,17 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
             {/* Tabs filter */}
             {myTicketsViewMode === "created" ? (
-              <div className="p-4 border-b border-neutral-900 flex gap-2">
+              <div className="p-3 sm:p-4 border-b border-neutral-900 flex gap-1.5 sm:gap-2 overflow-x-auto scrollbar-none">
                 <button
                   onClick={() => setMyTicketsTab("all")}
-                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0 ${
                     myTicketsTab === "all"
                       ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/10"
                       : "bg-black text-slate-400 hover:text-white border border-neutral-900"
                   }`}
                 >
                   <span>Todos</span>
-                  <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-md ${
+                  <span className={`text-[8px] sm:text-[10px] font-extrabold px-1 sm:px-1.5 py-0.5 rounded-md ${
                     myTicketsTab === "all" ? "bg-black/20 text-slate-950" : "bg-neutral-900 text-slate-400"
                   }`}>
                     {tickets.filter(t => t.requesterName === currentSession.name).length}
@@ -3566,14 +4199,14 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
                 <button
                   onClick={() => setMyTicketsTab("unresolved")}
-                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0 ${
                     myTicketsTab === "unresolved"
                       ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/10"
                       : "bg-black text-slate-400 hover:text-white border border-neutral-900"
                   }`}
                 >
                   <span>Pendentes</span>
-                  <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-md ${
+                  <span className={`text-[8px] sm:text-[10px] font-extrabold px-1 sm:px-1.5 py-0.5 rounded-md ${
                     myTicketsTab === "unresolved" ? "bg-black/20 text-slate-950" : "bg-neutral-900 text-slate-400"
                   }`}>
                     {tickets.filter(t => t.requesterName === currentSession.name && t.status !== "Resolvido" && t.status !== "Fechado").length}
@@ -3582,14 +4215,14 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
                 <button
                   onClick={() => setMyTicketsTab("resolved")}
-                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0 ${
                     myTicketsTab === "resolved"
                       ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/10"
                       : "bg-black text-slate-400 hover:text-white border border-neutral-900"
                   }`}
                 >
                   <span>Resolvidos</span>
-                  <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-md ${
+                  <span className={`text-[8px] sm:text-[10px] font-extrabold px-1 sm:px-1.5 py-0.5 rounded-md ${
                     myTicketsTab === "resolved" ? "bg-black/20 text-slate-950" : "bg-neutral-900 text-slate-400"
                   }`}>
                     {tickets.filter(t => t.requesterName === currentSession.name && (t.status === "Resolvido" || t.status === "Fechado")).length}
@@ -3597,9 +4230,9 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                 </button>
               </div>
             ) : (
-              <div className="px-6 py-4 border-b border-neutral-900 bg-black/20 flex items-center justify-between">
-                <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Histórico de Atendimentos Concluídos</span>
-                <span className="text-xs bg-emerald-500/10 text-emerald-400 font-semibold px-2.5 py-1 rounded-xl border border-emerald-500/20 shadow-neon-sm">
+              <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-neutral-900 bg-black/20 flex items-center justify-between gap-3">
+                <span className="text-[10px] sm:text-xs text-slate-400 font-bold uppercase tracking-wider truncate">Histórico de Atendimentos Concluídos</span>
+                <span className="text-[9px] sm:text-xs bg-emerald-500/10 text-emerald-400 font-semibold px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg sm:rounded-xl border border-emerald-500/20 shadow-neon-sm whitespace-nowrap">
                   {tickets.filter(t => getAssignedTechs(t.assignedTo).includes(currentSession.name) && (t.status === "Resolvido" || t.status === "Fechado")).length} Chamado(s)
                 </span>
               </div>
@@ -4155,100 +4788,113 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
 
 
-              {/* Screenshot attachment field */}
+              {/* Screenshot and multiple attachments field */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
-                  <Camera className="h-3.5 w-3.5 text-emerald-400" />
-                  Anexar Print/Imagem (Opcional)
+                <label className="text-xs font-bold text-slate-400 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Camera className="h-3.5 w-3.5 text-emerald-400" />
+                    Anexar Prints / Imagens / PDFs (Opcional)
+                  </span>
+                  <span className="text-[10px] text-neutral-500 font-normal">
+                    {newTicketForm.attachments.length} {newTicketForm.attachments.length === 1 ? "anexo" : "anexos"}
+                  </span>
                 </label>
                 
-                {!newTicketForm.screenshot ? (
-                  <div 
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      const file = e.dataTransfer.files?.[0];
-                      if (file && file.type.startsWith("image/")) {
-                        compressImage(file)
-                          .then((compressedUrl) => {
-                            setNewTicketForm({ ...newTicketForm, screenshot: compressedUrl });
-                          })
-                          .catch(() => {
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              setNewTicketForm({ ...newTicketForm, screenshot: reader.result as string });
-                            };
-                            reader.readAsDataURL(file);
-                          });
-                      }
-                    }}
-                    onPaste={(e) => {
-                      const item = e.clipboardData?.items?.[0];
-                      if (item && item.type.startsWith("image/")) {
-                        const file = item.getAsFile();
-                        if (file) {
-                          compressImage(file)
-                            .then((compressedUrl) => {
-                              setNewTicketForm({ ...newTicketForm, screenshot: compressedUrl });
-                            })
-                            .catch(() => {
-                              const reader = new FileReader();
-                              reader.onloadend = () => {
-                                setNewTicketForm({ ...newTicketForm, screenshot: reader.result as string });
-                              };
-                              reader.readAsDataURL(file);
-                            });
+                <div 
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (e.dataTransfer.files) {
+                      handleAddFiles(e.dataTransfer.files);
+                    }
+                  }}
+                  onPaste={(e) => {
+                    const items = e.clipboardData?.items;
+                    if (items) {
+                      const files: File[] = [];
+                      for (let i = 0; i < items.length; i++) {
+                        const item = items[i];
+                        if (item.kind === "file") {
+                          const file = item.getAsFile();
+                          if (file) files.push(file);
                         }
                       }
+                      if (files.length > 0) {
+                        handleAddFiles(files);
+                      }
+                    }
+                  }}
+                  className="border border-dashed border-neutral-900 hover:border-emerald-500/20 bg-black hover:bg-[#070707] transition rounded-xl p-4 text-center cursor-pointer relative group"
+                >
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt"
+                    onChange={(e) => {
+                      if (e.target.files) {
+                        handleAddFiles(e.target.files);
+                      }
                     }}
-                    className="border border-dashed border-neutral-900 hover:border-emerald-500/20 bg-black hover:bg-[#070707] transition rounded-xl p-4 text-center cursor-pointer relative group"
-                  >
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          compressImage(file)
-                            .then((compressedUrl) => {
-                              setNewTicketForm({ ...newTicketForm, screenshot: compressedUrl });
-                            })
-                            .catch(() => {
-                              const reader = new FileReader();
-                              reader.onloadend = () => {
-                                setNewTicketForm({ ...newTicketForm, screenshot: reader.result as string });
-                              };
-                              reader.readAsDataURL(file);
-                            });
-                        }
-                      }}
-                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                    />
-                    <Upload className="h-5 w-5 text-slate-500 group-hover:text-emerald-400 mx-auto mb-1.5 transition-colors" />
-                    <p className="text-[11px] text-slate-400 font-medium">
-                      Clique para selecionar ou <span className="text-emerald-400">arraste e solte</span> a imagem aqui
-                    </p>
-                    <p className="text-[9px] text-slate-500 mt-0.5">
-                      Você também pode pressionar <kbd className="bg-[#151515] px-1.5 py-0.5 rounded text-[8px]">Ctrl+V</kbd> para colar um print
-                    </p>
-                  </div>
-                ) : (
-                  <div className="relative w-full rounded-xl overflow-hidden border border-neutral-900 bg-black/50 p-2.5 flex flex-col items-center">
-                    <img 
-                      src={newTicketForm.screenshot} 
-                      alt="Preview do print" 
-                      className="max-h-40 rounded-lg object-contain border border-neutral-900" 
-                    />
-                    <div className="mt-2 flex items-center justify-between w-full text-[10px] text-slate-400 px-1">
-                      <span className="truncate max-w-[200px] text-slate-500">Imagem anexada com sucesso</span>
-                      <button
-                        type="button"
-                        onClick={() => setNewTicketForm({ ...newTicketForm, screenshot: "" })}
-                        className="text-rose-400 hover:text-rose-300 font-bold flex items-center gap-1 transition cursor-pointer"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" /> Remover
-                      </button>
-                    </div>
+                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                  />
+                  <Upload className="h-5 w-5 text-slate-500 group-hover:text-emerald-400 mx-auto mb-1.5 transition-colors" />
+                  <p className="text-[11px] text-slate-400 font-medium">
+                    Clique para selecionar ou <span className="text-emerald-400">arraste e solte</span> arquivos aqui
+                  </p>
+                  <p className="text-[9px] text-slate-500 mt-0.5">
+                    Aceita imagens, PDFs e documentos. Ctrl+V para colar prints.
+                  </p>
+                </div>
+
+                {/* Attachments Preview Grid */}
+                {newTicketForm.attachments.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 max-h-48 overflow-y-auto pr-1">
+                    {newTicketForm.attachments.map((file, idx) => {
+                      const isImage = file.type.startsWith("image/");
+                      const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+                      
+                      return (
+                        <div key={idx} className="flex items-center justify-between p-2 rounded-xl bg-neutral-900/40 border border-neutral-900 hover:border-neutral-800 transition">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            {isImage ? (
+                              <div className="w-8 h-8 rounded-lg overflow-hidden border border-neutral-850 flex-shrink-0 bg-black flex items-center justify-center">
+                                <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
+                              </div>
+                            ) : (
+                              <div className={`w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center bg-black border border-neutral-850 ${isPdf ? "text-red-400" : "text-emerald-400"}`}>
+                                <FileText className="h-4 w-4" />
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[11px] font-semibold text-slate-300 truncate animate-pulse-once" title={file.name}>
+                                {file.name}
+                              </p>
+                              <p className="text-[9px] text-slate-500 capitalize">
+                                {isPdf ? "Documento PDF" : isImage ? "Imagem" : "Arquivo"}
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewTicketForm((prev) => {
+                                const newAttachments = prev.attachments.filter((_, i) => i !== idx);
+                                const firstImage = newAttachments.find(a => a.type.startsWith("image/"))?.url || "";
+                                return {
+                                  ...prev,
+                                  attachments: newAttachments,
+                                  screenshot: firstImage
+                                };
+                              });
+                            }}
+                            className="p-1 text-rose-400 hover:bg-rose-500/10 rounded-lg transition"
+                            title="Remover anexo"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -4376,9 +5022,10 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                       e.stopPropagation();
                       setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
                     }}
-                    className="text-slate-400 hover:text-white transition-colors text-xs font-bold leading-none p-1 -m-1"
+                    className="text-slate-400 hover:text-white transition-colors p-1 -m-1 focus:outline-none flex items-center justify-center"
+                    title="Fechar"
                   >
-                    Ô£ò
+                    <X className="h-3.5 w-3.5" />
                   </button>
                 </div>
                 
@@ -4431,7 +5078,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                 className="p-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center"
                 title="Fechar visualização"
               >
-                <span className="text-sm font-bold px-1">Ô£ò</span>
+                <X className="h-4 w-4" />
               </button>
             </div>
           </div>

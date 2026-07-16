@@ -7,6 +7,7 @@ interface WindowsDatePickerProps {
   disabled?: boolean;
   placeholder?: string;
   headerText?: string;
+  align?: "left" | "right";
 }
 
 const MONTHS_PT = [
@@ -41,7 +42,8 @@ export default function WindowsDatePicker({
   onChange, 
   disabled = false,
   placeholder = "Escolha uma data limite...",
-  headerText = "Data do Projeto"
+  headerText = "Data do Projeto",
+  align = "left"
 }: WindowsDatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'days' | 'months' | 'years'>('days');
@@ -267,7 +269,7 @@ export default function WindowsDatePicker({
       {/* Windows 11 Fluent-style Calendar Popover */}
       {isOpen && (
         <div 
-          className="absolute z-50 left-0 right-0 mt-2 bg-neutral-950 border border-neutral-900 shadow-2xl rounded-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 p-4"
+          className={`absolute z-50 ${align === "left" ? "left-0" : "right-0"} mt-2 bg-neutral-950 border border-neutral-900 shadow-2xl rounded-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 p-4`}
           style={{ width: "320px", maxWidth: "100vw" }}
         >
           {/* Windows Header Info Panel */}

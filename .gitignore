@@ -1,8 +1,14 @@
 node_modules/
 build/
-# dist/
+dist/
 coverage/
 .DS_Store
 *.log
 .env*
 !.env.example
+
+# Local Database and Cache files
+*-local.json
+active-users.json
+users-db.json
+tickets-db.json

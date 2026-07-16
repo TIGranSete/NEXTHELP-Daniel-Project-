@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Ticket } from "../types";
-import { AlertCircle, Clock, CheckCircle2, TrendingUp, HelpCircle, Activity, Download, Calendar, User, Users, X, FileText, Layers } from "lucide-react";
+import { AlertCircle, Clock, CheckCircle2, TrendingUp, HelpCircle, Activity, Download, Calendar, User, Users, X, FileText, Layers, ChevronDown, ChevronUp } from "lucide-react";
 import { jsPDF } from "jspdf";
+import WindowsDatePicker from "./WindowsDatePicker";
 
 const isTicketOverdue = (t: Ticket) => {
   if (t.status === "Resolvido" || t.status === "Fechado") return false;
@@ -27,6 +28,8 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [selectedSectorForMembers, setSelectedSectorForMembers] = useState<string | null>(null);
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
+  const [statusCategoryFilter, setStatusCategoryFilter] = useState<string | null>(null);
 
   const handleUserClick = (userName: string, userDepartment: string) => {
     if (onViewUserProfile) {
@@ -168,6 +171,39 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
   ];
 
   const maxCategoryCount = Math.max(...Object.values(categories), projectsCount, 1);
+
+  // Helper to get category count for a specific status
+  const getCategoriesForStatus = (status: string) => {
+    const counts: Record<string, number> = {
+      Hardware: 0,
+      Software: 0,
+      Redes: 0,
+      Acesso: 0,
+      Sistemas: 0,
+      Outros: 0,
+      Projetos: 0
+    };
+    
+    filteredTickets.forEach(t => {
+      const match = status === "Resolvido"
+        ? (t.status === "Resolvido" || t.status === "Fechado")
+        : (t.status === status);
+      
+      if (match) {
+        if (t.projectDeadline) {
+          counts["Projetos"]++;
+        } else if (counts[t.category] !== undefined) {
+          counts[t.category]++;
+        } else {
+          counts["Outros"]++;
+        }
+      }
+    });
+    
+    return Object.entries(counts)
+      .filter(([_, count]) => count > 0)
+      .sort((a, b) => b[1] - a[1]);
+  };
 
   // Group by sector (requesterDepartment)
   const sectorCounts: Record<string, number> = {};
@@ -851,18 +887,41 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
 
 
   return (
-    <div className="bg-black rounded-2xl border border-emerald-500/15 p-6 shadow-neon-sm hover:shadow-neon transition-all duration-500 mb-8 animate-in fade-in duration-300">
+    <div className="bg-black rounded-2xl border border-emerald-500/15 shadow-neon-sm hover:shadow-neon transition-all duration-500 mb-8 animate-in fade-in duration-300 p-6">
       
       {/* Dynamic Header with Indicators & Tag */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-        <div className="flex items-center space-x-2">
+        <div 
+          className="flex items-center space-x-2 cursor-pointer select-none group"
+          onClick={() => setIsCollapsed(!isCollapsed)}
+        >
           <Activity className="h-5 w-5 text-emerald-400 animate-pulse" />
-          <h2 className="font-display text-lg font-bold text-white tracking-tight">Indicadores Operacionais <span className="text-emerald-400 font-mono text-xs ml-2">[SLA & Métricas]</span></h2>
+          <h2 className="font-display text-lg font-bold text-white tracking-tight flex items-center gap-2 group-hover:text-emerald-400 transition-colors">
+            Indicadores Operacionais <span className="text-emerald-400 font-mono text-xs">[SLA & Métricas]</span>
+            {isCollapsed ? (
+              <ChevronDown className="h-4 w-4 text-slate-400" />
+            ) : (
+              <ChevronUp className="h-4 w-4 text-slate-400" />
+            )}
+          </h2>
         </div>
-        <span className="text-xs bg-emerald-500/10 text-emerald-400 px-3 py-1.5 rounded-xl font-semibold flex items-center gap-1.5 self-start sm:self-auto border border-emerald-500/20 shadow-neon-sm">
-          <TrendingUp className="h-3.5 w-3.5" /> Tempo de Resposta Reduzido por IA
-        </span>
+        <div className="flex items-center gap-3 self-start sm:self-auto">
+          <span className="text-xs bg-emerald-500/10 text-emerald-400 px-3 py-1.5 rounded-xl font-semibold flex items-center gap-1.5 border border-emerald-500/20 shadow-neon-sm">
+            <TrendingUp className="h-3.5 w-3.5" /> Tempo de Resposta Reduzido por IA
+          </span>
+          <button
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-neutral-900 border border-neutral-800 text-slate-300 hover:text-white hover:bg-neutral-850 transition cursor-pointer"
+            title={isCollapsed ? "Expandir Painel" : "Recolher Painel"}
+          >
+            {isCollapsed ? <ChevronDown className="h-4 w-4 text-emerald-400" /> : <ChevronUp className="h-4 w-4 text-emerald-400" />}
+            <span className="hidden sm:inline">{isCollapsed ? "Expandir" : "Recolher"}</span>
+          </button>
+        </div>
       </div>
+
+      {!isCollapsed && (
+        <div className="space-y-6 animate-in fade-in slide-in-from-top-2 duration-300">
 
       {/* Control Panel: Period Filter, Technician Filter and Export Button */}
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 mb-6 p-4 bg-[#050505] border border-neutral-900 rounded-2xl">
@@ -898,19 +957,25 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
 
             {period === "custom" && (
               <div className="flex items-center gap-2 animate-in fade-in slide-in-from-left-2 duration-200 mt-2 lg:mt-0 bg-black/40 border border-neutral-900/60 rounded-xl p-1.5">
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="bg-black border border-neutral-900 rounded-lg py-1 px-2 text-[10px] text-slate-300 focus:outline-none focus:border-emerald-500 cursor-pointer font-bold uppercase"
-                />
-                <span className="text-[9px] text-slate-500 font-bold uppercase">até</span>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="bg-black border border-neutral-900 rounded-lg py-1 px-2 text-[10px] text-slate-300 focus:outline-none focus:border-emerald-500 cursor-pointer font-bold uppercase"
-                />
+                <div className="w-[145px] sm:w-[155px]">
+                  <WindowsDatePicker
+                    value={startDate || undefined}
+                    onChange={(date) => setStartDate(date || "")}
+                    placeholder="Data Inicial"
+                    headerText="Data Inicial"
+                    align="left"
+                  />
+                </div>
+                <span className="text-[10px] text-slate-500 font-bold uppercase shrink-0 px-1">até</span>
+                <div className="w-[145px] sm:w-[155px]">
+                  <WindowsDatePicker
+                    value={endDate || undefined}
+                    onChange={(date) => setEndDate(date || "")}
+                    placeholder="Data Final"
+                    headerText="Data Final"
+                    align="right"
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -1060,8 +1125,11 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
         </div>
 
       </div>
+    </div>
+  )}
 
-      {/* Interactive Charts: Category Distribution and Ticket States */}
+      <div className="space-y-6 mt-6">
+        {/* Interactive Charts: Category Distribution and Ticket States */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 font-mono">
         
         {/* Category distribution visualizer */}
@@ -1106,62 +1174,187 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
 
         {/* Dynamic Ticket State doughnut layout */}
         <div className="lg:col-span-5 bg-[#050505] border border-neutral-900 rounded-2xl p-5 flex flex-col justify-between hover:border-emerald-500/10 transition-all">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400 mb-3">Distribuição por Status</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">Distribuição por Status</h3>
+            {statusCategoryFilter && (
+              <button 
+                onClick={() => setStatusCategoryFilter(null)}
+                className="text-[9px] bg-neutral-900 hover:bg-neutral-850 text-slate-300 border border-neutral-800 px-2 py-1 rounded-lg uppercase font-bold transition cursor-pointer"
+              >
+                Ver Geral
+              </button>
+            )}
+          </div>
           
-          <div className="flex items-center justify-center py-4 flex-1">
-            {/* Elegant SVG Custom Doughnut Chart */}
-            <div className="relative h-32 w-32 flex items-center justify-center">
-              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 42 42">
-                <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#121212" strokeWidth="4"></circle>
+          <div className="flex flex-col justify-center py-3 flex-1 min-h-[144px]">
+            {/* Elegant SVG Custom Doughnut Chart - ALWAYS RENDERED AS CIRCLE */}
+            <div className="flex justify-center items-center py-1 animate-in fade-in zoom-in duration-200">
+              <div className="relative h-28 w-28 flex items-center justify-center">
+                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 42 42">
+                  <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#121212" strokeWidth="4"></circle>
+                  
+                  {statusCategoryFilter ? (
+                    (() => {
+                      const statusCats = getCategoriesForStatus(statusCategoryFilter);
+                      const statusTotal = statusCats.reduce((sum, [_, count]) => sum + count, 0);
+                      
+                      if (statusTotal === 0) return null;
+                      
+                      let accumulatedOffset = 100;
+                      const catColors: Record<string, string> = {
+                        Hardware: "#f59e0b",
+                        Software: "#86efac",
+                        Redes: "#34d399",
+                        Acesso: "#f43f5e",
+                        Sistemas: "#10b981",
+                        Outros: "#737373",
+                        Projetos: "#22d3ee"
+                      };
+                      
+                      return statusCats.map(([cat, count]) => {
+                        const pct = (count / statusTotal) * 100;
+                        const offset = accumulatedOffset;
+                        accumulatedOffset -= pct;
+                        
+                        return (
+                          <circle 
+                            key={cat}
+                            cx="21" cy="21" r="15.915" fill="transparent" 
+                            stroke={catColors[cat] || "#737373"} strokeWidth="4" 
+                            strokeDasharray={`${pct} ${100 - pct}`}
+                            strokeDashoffset={offset}
+                            className="transition-all duration-500"
+                          />
+                        );
+                      });
+                    })()
+                  ) : (
+                    total > 0 ? (
+                      <>
+                        {/* Open circle segment */}
+                        <circle 
+                          cx="21" cy="21" r="15.915" fill="transparent" 
+                          stroke="#f59e0b" strokeWidth="4" 
+                          strokeDasharray={`${(openCount / total) * 100} ${100 - (openCount / total) * 100}`}
+                          strokeDashoffset="100"
+                        ></circle>
+                        {/* In progress circle segment */}
+                        <circle 
+                          cx="21" cy="21" r="15.915" fill="transparent" 
+                          stroke="#00FF55" strokeWidth="4" 
+                          strokeDasharray={`${(inProgressCount / total) * 100} ${100 - (inProgressCount / total) * 100}`}
+                          strokeDashoffset={`${100 - (openCount / total) * 100}`}
+                        ></circle>
+                        {/* Resolved circle segment */}
+                        <circle 
+                          cx="21" cy="21" r="15.915" fill="transparent" 
+                          stroke="#00802B" strokeWidth="4" 
+                          strokeDasharray={`${(resolvedCount / total) * 100} ${100 - (resolvedCount / total) * 100}`}
+                          strokeDashoffset={`${100 - (openCount / total) * 100 - (inProgressCount / total) * 100}`}
+                        ></circle>
+                      </>
+                    ) : null
+                  )}
+                </svg>
                 
-                {total > 0 ? (
-                  <>
-                    {/* Open circle segment */}
-                    <circle 
-                      cx="21" cy="21" r="15.915" fill="transparent" 
-                      stroke="#f59e0b" strokeWidth="4" 
-                      strokeDasharray={`${(openCount / total) * 100} ${100 - (openCount / total) * 100}`}
-                      strokeDashoffset="100"
-                    ></circle>
-                    {/* In progress circle segment */}
-                    <circle 
-                      cx="21" cy="21" r="15.915" fill="transparent" 
-                      stroke="#00FF55" strokeWidth="4" 
-                      strokeDasharray={`${(inProgressCount / total) * 100} ${100 - (inProgressCount / total) * 100}`}
-                      strokeDashoffset={`${100 - (openCount / total) * 100}`}
-                    ></circle>
-                    {/* Resolved circle segment */}
-                    <circle 
-                      cx="21" cy="21" r="15.915" fill="transparent" 
-                      stroke="#00802B" strokeWidth="4" 
-                      strokeDasharray={`${(resolvedCount / total) * 100} ${100 - (resolvedCount / total) * 100}`}
-                      strokeDashoffset={`${100 - (openCount / total) * 100 - (inProgressCount / total) * 100}`}
-                    ></circle>
-                  </>
-                ) : null}
-              </svg>
-              {/* Inner Label */}
-              <div className="absolute flex flex-col items-center">
-                <span className="text-2xl font-black font-display text-white neon-glow-text">{total}</span>
-                <span className="text-[9px] uppercase tracking-wider text-neutral-500 font-bold">Total</span>
+                {/* Inner Label dynamically updating based on filter */}
+                <div className="absolute flex flex-col items-center text-center">
+                  {statusCategoryFilter ? (
+                    (() => {
+                      const count = statusCategoryFilter === "Aberto" ? openCount :
+                                    statusCategoryFilter === "Em Atendimento" ? inProgressCount : resolvedCount;
+                      const label = statusCategoryFilter === "Aberto" ? "Abertos" :
+                                    statusCategoryFilter === "Em Atendimento" ? "Fila" : "Concluídos";
+                      return (
+                        <>
+                          <span className="text-xl font-black font-display text-white neon-glow-text">{count}</span>
+                          <span className="text-[7px] uppercase tracking-wider text-neutral-400 font-bold max-w-[65px] leading-none mt-0.5">{label}</span>
+                        </>
+                      );
+                    })()
+                  ) : (
+                    <>
+                      <span className="text-xl font-black font-display text-white neon-glow-text">{total}</span>
+                      <span className="text-[8px] uppercase tracking-wider text-neutral-500 font-bold">Total</span>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Map legend labels */}
-          <div className="grid grid-cols-3 gap-2.5 text-[10px] pt-3 border-t border-neutral-900">
-            <div className="flex flex-col items-center p-1.5 bg-amber-500/5 rounded-xl border border-amber-500/10 text-center">
+          {/* Miniature color legend only shown when a status category filter is active */}
+          {statusCategoryFilter && (
+            <div className="flex flex-wrap justify-center gap-x-2 gap-y-1 mt-1 mb-2 px-1 text-[8px] animate-in fade-in duration-200">
+              {(() => {
+                const statusCats = getCategoriesForStatus(statusCategoryFilter);
+                const statusTotal = statusCats.reduce((sum, [_, count]) => sum + count, 0);
+                const catColors: Record<string, string> = {
+                  Hardware: "bg-amber-500",
+                  Software: "bg-emerald-300",
+                  Redes: "bg-emerald-400",
+                  Acesso: "bg-rose-500",
+                  Sistemas: "bg-emerald-500",
+                  Outros: "bg-neutral-500",
+                  Projetos: "bg-cyan-400"
+                };
+                
+                if (statusTotal === 0) {
+                  return <span className="text-neutral-500 font-mono">Sem chamados</span>;
+                }
+                
+                return statusCats.map(([cat, count]) => {
+                  const pct = statusTotal > 0 ? Math.round((count / statusTotal) * 100) : 0;
+                  return (
+                    <div key={cat} className="flex items-center space-x-1 text-neutral-300 font-mono">
+                      <span className={`h-1.5 w-1.5 rounded-full ${catColors[cat] || "bg-neutral-500"}`}></span>
+                      <span className="font-semibold">{cat}</span>
+                      <span className="text-neutral-500">({count})</span>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          )}
+
+          {/* Map legend labels as interactive buttons */}
+          <div className="grid grid-cols-3 gap-2.5 text-[10px] pt-3 border-t border-neutral-900 mt-2">
+            <button
+              onClick={() => setStatusCategoryFilter(statusCategoryFilter === "Aberto" ? null : "Aberto")}
+              className={`flex flex-col items-center p-1.5 rounded-xl text-center cursor-pointer transition-all ${
+                statusCategoryFilter === "Aberto"
+                  ? "bg-amber-500/15 border-amber-500 shadow-neon-sm scale-[1.03]"
+                  : "bg-amber-500/5 border-amber-500/10 hover:border-amber-500/30 hover:bg-amber-500/10"
+              } border`}
+              title="Clique para ver categorias deste status"
+            >
               <span className="font-bold text-amber-400">{openCount}</span>
               <span className="text-neutral-400 text-[9px] font-semibold">Abertos</span>
-            </div>
-            <div className="flex flex-col items-center p-1.5 bg-emerald-500/5 rounded-xl border border-emerald-500/10 text-center">
+            </button>
+            <button
+              onClick={() => setStatusCategoryFilter(statusCategoryFilter === "Em Atendimento" ? null : "Em Atendimento")}
+              className={`flex flex-col items-center p-1.5 rounded-xl text-center cursor-pointer transition-all ${
+                statusCategoryFilter === "Em Atendimento"
+                  ? "bg-emerald-500/15 border-emerald-500 shadow-neon-sm scale-[1.03]"
+                  : "bg-emerald-500/5 border-emerald-500/10 hover:border-emerald-500/30 hover:bg-emerald-500/10"
+              } border`}
+              title="Clique para ver categorias deste status"
+            >
               <span className="font-bold text-emerald-400">{inProgressCount}</span>
               <span className="text-neutral-400 text-[9px] font-semibold">Em Fila</span>
-            </div>
-            <div className="flex flex-col items-center p-1.5 bg-emerald-950/10 rounded-xl border border-emerald-400/20 text-center">
+            </button>
+            <button
+              onClick={() => setStatusCategoryFilter(statusCategoryFilter === "Resolvido" ? null : "Resolvido")}
+              className={`flex flex-col items-center p-1.5 rounded-xl text-center cursor-pointer transition-all ${
+                statusCategoryFilter === "Resolvido"
+                  ? "bg-emerald-400/15 border-emerald-400 shadow-neon-sm scale-[1.03]"
+                  : "bg-emerald-950/10 border-emerald-400/20 hover:border-emerald-400/40 hover:bg-emerald-400/10"
+              } border`}
+              title="Clique para ver categorias deste status"
+            >
               <span className="font-bold text-emerald-300">{resolvedCount}</span>
               <span className="text-neutral-400 text-[9px] font-semibold">Concluídos</span>
-            </div>
+            </button>
           </div>
 
         </div>
@@ -1365,6 +1558,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
           </div>
         );
       })()}
+      </div>
 
       {/* Custom Export Modal for Individualization */}
       {isExportModalOpen && (

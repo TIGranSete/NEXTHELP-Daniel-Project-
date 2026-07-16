@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { UserSession } from "../types";
-import { changeUserPassword } from "../lib/supabase-client-db";
+import { getApiUrl } from "../lib/api";
 import { 
   Lock, 
   CheckCircle2, 
@@ -11,8 +11,8 @@ import {
   Eye,
   EyeOff
 } from "lucide-react";
-import loginBg from "../assets/images/WALLPAPER GRAN7 4.jpg";
-import logoImg from "../assets/images/7.png";
+import loginBg from "../assets/images/WALLPAPER GRAN7 4.png";
+import logoImg from "../assets/images/logo.png";
 
 interface ChangePasswordScreenProps {
   session: UserSession;
@@ -54,8 +54,25 @@ export default function ChangePasswordScreen({ session, onPasswordChanged, onLog
     setLoading(true);
 
     try {
-      const isSuccess = await changeUserPassword(session.email, newPassword);
-      if (isSuccess) {
+      const response = await fetch(getApiUrl("/api/change-password"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: session.email,
+          newPassword
+        })
+      });
+
+      const errText = await response.text();
+      let errorMsg = "Ocorreu um erro ao definir sua nova senha.";
+      let parsedData: any = {};
+      try {
+        parsedData = JSON.parse(errText);
+      } catch (e) {
+        // Not JSON
+      }
+
+      if (response.ok) {
         setSuccess(true);
         // Wait a moment so the user sees the success state
         setTimeout(() => {
@@ -65,11 +82,11 @@ export default function ChangePasswordScreen({ session, onPasswordChanged, onLog
           });
         }, 2000);
       } else {
-        setError("Erro ao salvar sua nova senha no banco de dados.");
+        setError(parsedData.error || `Erro no servidor (${response.status}): ${errText.substring(0, 80)}`);
       }
     } catch (err: any) {
       console.error("Erro ao alterar senha:", err);
-      setError(err.message || "Erro ao salvar sua nova senha.");
+      setError(`Erro de conexão ao servidor: ${err.message || err}`);
     } finally {
       setLoading(false);
     }

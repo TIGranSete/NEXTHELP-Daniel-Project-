@@ -18,6 +18,7 @@ export interface Ticket {
   requesterName: string;
   requesterDepartment: string;
   assignedTo: string | null;
+  firstAssignedTo?: string | null;
   createdAt: string;
   updatedAt: string;
   slaLimit: string;
@@ -28,6 +29,13 @@ export interface Ticket {
   comments: Comment[];
   screenshot?: string;
   projectDeadline?: string;
+  attachments?: Attachment[];
+}
+
+export interface Attachment {
+  name: string;
+  url: string;
+  type: string;
 }
 
 export type UserRole = "colaborador" | "tecnico";

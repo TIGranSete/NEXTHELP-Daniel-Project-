@@ -1,13 +1,25 @@
 import dotenv from "dotenv";
+import path from "path";
+import fs from "fs";
+
+// Load .env.local, .env.development, then .env with override so that local files have higher priority
+const envFiles = [".env.local", ".env.development", ".env"];
+envFiles.forEach((file) => {
+  const filePath = path.join(process.cwd(), file);
+  if (fs.existsSync(filePath)) {
+    dotenv.config({ path: filePath, override: true });
+  }
+});
+// Fallback standard config in case loop didn't run or missed something
 dotenv.config();
 
 import express from "express";
-import path from "path";
-import fs from "fs";
 import crypto from "crypto";
+import os from "os";
 import { GoogleGenAI, Type } from "@google/genai";
 import {
   isSupabaseConfigured,
+  isSupabaseHealthy,
   testSupabaseConnection,
   getSupabaseUsers,
   saveSupabaseUser,
@@ -21,6 +33,30 @@ import {
   getBackendConfig
 } from "./supabase-db";
 
+// Fallback defaults if users-db.json or tickets-db.json are not found
+const DEFAULT_INITIAL_USERS = [
+  {
+    id: "u1",
+    name: "Daniel Kevin",
+    email: "daniel.souza@gransete.com",
+    password: "123",
+    department: "TI",
+    role: "tecnico" as const,
+    mustChangePassword: false
+  },
+  {
+    id: "u2",
+    name: "Suporte Gran7",
+    email: "til7sete@gmail.com",
+    password: "123",
+    department: "TI",
+    role: "tecnico" as const,
+    mustChangePassword: false
+  }
+];
+
+const DEFAULT_INITIAL_TICKETS: any[] = [];
+
 // Dynamically read initial users and tickets configuration at runtime to avoid build errors on Vercel
 let initialUsers: any[] = [];
 try {
@@ -30,6 +66,9 @@ try {
   }
 } catch (err) {
   console.warn("Failed to load initial users in server.ts:", err);
+}
+if (!initialUsers || initialUsers.length === 0) {
+  initialUsers = DEFAULT_INITIAL_USERS;
 }
 
 let initialTickets: any[] = [];
@@ -41,6 +80,9 @@ try {
 } catch (err) {
   console.warn("Failed to load initial tickets in server.ts:", err);
 }
+if (!initialTickets || initialTickets.length === 0) {
+  initialTickets = DEFAULT_INITIAL_TICKETS;
+}
 
 const app = express();
 
@@ -51,11 +93,63 @@ const isAIStudio = !!process.env.APPLET_ID || process.env.DISABLE_HMR === "true"
 const PORT: string | number = (!isAIStudio && process.env.PORT)
   ? (isNaN(Number(process.env.PORT)) ? process.env.PORT : Number(process.env.PORT))
   : 3000;
-const DB_FILE = path.join(process.cwd(), "tickets-db.json");
-const USERS_FILE = path.join(process.cwd(), "users-db.json");
+const isServerless = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+const DB_FILE = isServerless ? path.join(os.tmpdir(), "tickets-db-local.json") : path.join(process.cwd(), "tickets-db-local.json");
+const USERS_FILE = isServerless ? path.join(os.tmpdir(), "users-db-local.json") : path.join(process.cwd(), "users-db-local.json");
 
-// Map to track the last activity timestamp (Date.now()) of logged-in users by email
-const activeUsers = new Map<string, number>();
+// Shared file to track active users across processes (e.g. Hostinger cluster/PM2)
+const ACTIVE_USERS_FILE = isServerless ? path.join(os.tmpdir(), "active-users.json") : path.join(process.cwd(), "active-users.json");
+
+function getActiveUsersMap(): Map<string, number> {
+  const map = new Map<string, number>();
+  try {
+    if (fs.existsSync(ACTIVE_USERS_FILE)) {
+      const content = fs.readFileSync(ACTIVE_USERS_FILE, "utf-8").trim();
+      if (content) {
+        const obj = JSON.parse(content);
+        for (const [key, val] of Object.entries(obj)) {
+          if (typeof val === "number") {
+            map.set(key.toLowerCase().trim(), val);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    // Fail silently
+  }
+  return map;
+}
+
+function saveActiveUsersMap(map: Map<string, number>) {
+  try {
+    const obj: Record<string, number> = {};
+    const now = Date.now();
+    for (const [key, val] of map.entries()) {
+      if (now - val < 60000) { // Keep only users active within the last 1 minute
+        obj[key] = val;
+      }
+    }
+    fs.writeFileSync(ACTIVE_USERS_FILE, JSON.stringify(obj, null, 2), "utf-8");
+  } catch (err) {
+    // Fail silently
+  }
+}
+
+function markUserActive(email: string) {
+  if (!email || typeof email !== "string") return;
+  const emailLower = email.toLowerCase().trim();
+  const map = getActiveUsersMap();
+  map.set(emailLower, Date.now());
+  saveActiveUsersMap(map);
+}
+
+function isUserOnline(email: string, now: number): boolean {
+  if (!email || typeof email !== "string") return false;
+  const emailLower = email.toLowerCase().trim();
+  const map = getActiveUsersMap();
+  const lastActive = map.get(emailLower);
+  return !!(lastActive && (now - lastActive < 60000));
+}
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -97,6 +191,12 @@ interface Comment {
   timestamp: string;
 }
 
+interface Attachment {
+  name: string;
+  url: string;
+  type: string;
+}
+
 interface Ticket {
   id: string;
   title: string;
@@ -107,6 +207,7 @@ interface Ticket {
   requesterName: string;
   requesterDepartment: string;
   assignedTo: string | null;
+  firstAssignedTo?: string | null;
   createdAt: string;
   updatedAt: string;
   slaLimit: string;
@@ -117,6 +218,7 @@ interface Ticket {
   comments: Comment[];
   screenshot?: string;
   projectDeadline?: string;
+  attachments?: Attachment[];
 }
 
 // Default Seed Data
@@ -131,32 +233,63 @@ let lastUsersCacheTime = 0;
 const CACHE_TTL_MS = 15000; // 15 seconds Cache TTL
 
 // Helper to load/save database
+let isRevalidatingTickets = false;
+
+// Helper to load/save database
 async function loadTickets(): Promise<Ticket[]> {
   const now = Date.now();
-  if (cachedTickets !== null && (now - lastTicketsCacheTime < CACHE_TTL_MS)) {
-    return cachedTickets;
-  }
 
-  let tickets: any = null;
-
-  if (isSupabaseConfigured()) {
+  // If Supabase is configured and healthy, and we have no cache or it is stale, try to fetch synchronously first
+  if (isSupabaseConfigured() && isSupabaseHealthy() && (cachedTickets === null || now - lastTicketsCacheTime >= CACHE_TTL_MS)) {
     try {
-      tickets = await getSupabaseTickets();
+      const tickets = await getSupabaseTickets();
       if (tickets !== null && Array.isArray(tickets)) {
-        // Also save to local JSON file as a cache/backup
         try {
           fs.writeFileSync(DB_FILE, JSON.stringify(tickets, null, 2), "utf-8");
         } catch (e) {}
-        
         cachedTickets = tickets;
         lastTicketsCacheTime = now;
         return tickets;
       }
     } catch (error) {
-      console.warn("Erro ao carregar chamados do Supabase, usando arquivo local:", error);
+      console.warn("Erro ao carregar chamados do Supabase em tempo real, tentando ler cache local:", error);
     }
   }
 
+  // If we have cached tickets in memory
+  if (cachedTickets !== null) {
+    // If cache is still fresh, just return it
+    if (now - lastTicketsCacheTime < CACHE_TTL_MS) {
+      return cachedTickets;
+    }
+
+    // Cache is stale. Trigger background revalidation if not already running
+    if (isSupabaseConfigured() && isSupabaseHealthy() && !isRevalidatingTickets) {
+      isRevalidatingTickets = true;
+      getSupabaseTickets()
+        .then((tickets) => {
+          if (tickets !== null && Array.isArray(tickets)) {
+            try {
+              fs.writeFileSync(DB_FILE, JSON.stringify(tickets, null, 2), "utf-8");
+            } catch (e) {}
+            cachedTickets = tickets;
+            lastTicketsCacheTime = Date.now();
+          }
+        })
+        .catch((error) => {
+          console.warn("Erro na revalidação em segundo plano dos chamados do Supabase:", error);
+        })
+        .finally(() => {
+          isRevalidatingTickets = false;
+        });
+    }
+
+    // Return stale memory cache immediately
+    return cachedTickets;
+  }
+
+  // If memory cache is null, try to read from local file synchronously (instant)
+  let tickets: any = null;
   try {
     if (fs.existsSync(DB_FILE)) {
       const data = fs.readFileSync(DB_FILE, "utf-8").trim();
@@ -165,14 +298,38 @@ async function loadTickets(): Promise<Ticket[]> {
         if (Array.isArray(tickets)) {
           cachedTickets = tickets;
           lastTicketsCacheTime = now;
-          return tickets;
         }
       }
     }
   } catch (error) {
-    console.error("Erro ao ler banco de dados de chamados local, reiniciando com semente:", error);
+    console.error("Erro ao ler banco de dados de chamados local:", error);
   }
-  // Initialize with static seed data if file doesn't exist or is invalid
+
+  // If we loaded tickets from file, trigger background revalidation to update memory & file
+  if (cachedTickets !== null) {
+    if (isSupabaseConfigured() && isSupabaseHealthy() && !isRevalidatingTickets) {
+      isRevalidatingTickets = true;
+      getSupabaseTickets()
+        .then((tickets) => {
+          if (tickets !== null && Array.isArray(tickets)) {
+            try {
+              fs.writeFileSync(DB_FILE, JSON.stringify(tickets, null, 2), "utf-8");
+            } catch (e) {}
+            cachedTickets = tickets;
+            lastTicketsCacheTime = Date.now();
+          }
+        })
+        .catch((error) => {
+          console.warn("Erro na revalidação em segundo plano dos chamados do Supabase:", error);
+        })
+        .finally(() => {
+          isRevalidatingTickets = false;
+        });
+    }
+    return cachedTickets;
+  }
+
+  // Initialize with static seed data if everything else fails
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(initialTickets, null, 2), "utf-8");
   } catch (e) {}
@@ -194,7 +351,7 @@ async function saveTickets(tickets: Ticket[], singleChangedTicket?: Ticket) {
     console.error("Erro ao salvar banco de dados de chamados local:", error);
   }
 
-  if (isSupabaseConfigured()) {
+  if (isSupabaseConfigured() && isSupabaseHealthy()) {
     try {
       if (singleChangedTicket) {
         // High-performance selective sync for the changed ticket only
@@ -222,12 +379,76 @@ function hashPassword(password: string): string {
 }
 
 // Helper to load/save users database
+let isRevalidatingUsers = false;
+
+// Helper to load/save users database
 async function loadUsers(): Promise<User[]> {
   const now = Date.now();
-  if (cachedUsers !== null && (now - lastUsersCacheTime < CACHE_TTL_MS)) {
+
+  // If Supabase is configured and healthy, and we have no cache or it is stale, try to fetch synchronously first
+  if (isSupabaseConfigured() && isSupabaseHealthy() && (cachedUsers === null || now - lastUsersCacheTime >= CACHE_TTL_MS)) {
+    try {
+      const supabaseUsers = await getSupabaseUsers();
+      if (supabaseUsers !== null && Array.isArray(supabaseUsers)) {
+        let secured = supabaseUsers.map(u => {
+          if (u.password && !/^[a-f0-9]{64}$/i.test(u.password)) {
+            u.password = hashPassword(u.password);
+          }
+          return u;
+        });
+        try {
+          fs.writeFileSync(USERS_FILE, JSON.stringify(secured, null, 2), "utf-8");
+        } catch (e) {}
+        cachedUsers = secured;
+        lastUsersCacheTime = now;
+        return secured;
+      }
+    } catch (error) {
+      console.warn("Erro ao carregar colaboradores do Supabase em tempo real, tentando ler cache local:", error);
+    }
+  }
+
+  // If we have cached users in memory
+  if (cachedUsers !== null) {
+    // If cache is still fresh, just return it
+    if (now - lastUsersCacheTime < CACHE_TTL_MS) {
+      return cachedUsers;
+    }
+
+    // Cache is stale. Trigger background revalidation if not already running
+    if (isSupabaseConfigured() && isSupabaseHealthy() && !isRevalidatingUsers) {
+      isRevalidatingUsers = true;
+      getSupabaseUsers()
+        .then((supabaseUsers) => {
+          if (supabaseUsers !== null && Array.isArray(supabaseUsers)) {
+            let needsRewrite = false;
+            let secured = supabaseUsers.map(u => {
+              if (u.password && !/^[a-f0-9]{64}$/i.test(u.password)) {
+                u.password = hashPassword(u.password);
+                needsRewrite = true;
+              }
+              return u;
+            });
+            try {
+              fs.writeFileSync(USERS_FILE, JSON.stringify(secured, null, 2), "utf-8");
+            } catch (e) {}
+            cachedUsers = secured;
+            lastUsersCacheTime = Date.now();
+          }
+        })
+        .catch((error) => {
+          console.warn("Erro na revalidação em segundo plano dos colaboradores do Supabase:", error);
+        })
+        .finally(() => {
+          isRevalidatingUsers = false;
+        });
+    }
+
+    // Return stale memory cache immediately
     return cachedUsers;
   }
 
+  // If memory cache is null, try to read from local file synchronously (instant)
   let localUsers: User[] = [];
   try {
     if (fs.existsSync(USERS_FILE)) {
@@ -258,47 +479,6 @@ async function loadUsers(): Promise<User[]> {
     return u;
   });
 
-  if (isSupabaseConfigured()) {
-    try {
-      const supabaseUsers = await getSupabaseUsers();
-      if (supabaseUsers !== null) {
-        // Merge them: keep all from Supabase, and add any local cached ones that are not in Supabase by email
-        let merged = [...supabaseUsers];
-        for (const localU of localUsers) {
-          const match = merged.find(u => u.email.toLowerCase() === localU.email.toLowerCase());
-          if (!match) {
-            merged.push(localU);
-          } else {
-            if (match.mustChangePassword === undefined) {
-              match.mustChangePassword = localU.mustChangePassword !== false;
-            }
-          }
-        }
-
-        // Secure all passwords in the merged array
-        merged = merged.map(u => {
-          if (u.password && !/^[a-f0-9]{64}$/i.test(u.password)) {
-            u.password = hashPassword(u.password);
-            needsRewrite = true;
-          }
-          return u;
-        });
-
-        if (needsRewrite) {
-          try {
-            fs.writeFileSync(USERS_FILE, JSON.stringify(merged, null, 2), "utf-8");
-          } catch (e) {}
-        }
-
-        cachedUsers = merged;
-        lastUsersCacheTime = now;
-        return merged;
-      }
-    } catch (error) {
-      console.warn("Erro ao carregar colaboradores do Supabase, usando arquivo local:", error);
-    }
-  }
-
   if (needsRewrite) {
     try {
       fs.writeFileSync(USERS_FILE, JSON.stringify(localUsers, null, 2), "utf-8");
@@ -307,6 +487,36 @@ async function loadUsers(): Promise<User[]> {
 
   cachedUsers = localUsers;
   lastUsersCacheTime = now;
+
+  // Trigger background revalidation to update memory & file from Supabase
+  if (isSupabaseConfigured() && isSupabaseHealthy() && !isRevalidatingUsers) {
+    isRevalidatingUsers = true;
+    getSupabaseUsers()
+      .then((supabaseUsers) => {
+        if (supabaseUsers !== null && Array.isArray(supabaseUsers)) {
+          let needsRewriteSupabase = false;
+          let secured = supabaseUsers.map(u => {
+            if (u.password && !/^[a-f0-9]{64}$/i.test(u.password)) {
+              u.password = hashPassword(u.password);
+              needsRewriteSupabase = true;
+            }
+            return u;
+          });
+          try {
+            fs.writeFileSync(USERS_FILE, JSON.stringify(secured, null, 2), "utf-8");
+          } catch (e) {}
+          cachedUsers = secured;
+          lastUsersCacheTime = Date.now();
+        }
+      })
+      .catch((error) => {
+        console.warn("Erro na revalidação em segundo plano dos colaboradores do Supabase:", error);
+      })
+      .finally(() => {
+        isRevalidatingUsers = false;
+      });
+  }
+
   return localUsers;
 }
 
@@ -327,7 +537,7 @@ async function saveUsers(users: User[], changedUser?: User | User[]) {
     console.error("Erro ao salvar banco de dados de usuários local:", error);
   }
 
-  if (isSupabaseConfigured()) {
+  if (isSupabaseConfigured() && isSupabaseHealthy()) {
     try {
       if (changedUser) {
         const toSync = Array.isArray(changedUser) ? changedUser : [changedUser];
@@ -393,12 +603,13 @@ function defaultLocalTriage(title: string, description: string) {
 async function triageWithGemini(title: string, description: string, screenshot?: string) {
   const { gemini: geminiKey } = getBackendConfig();
   if (!geminiKey) {
-    console.log("Gemini API Key não configurada. Usando triagem padrão local.");
+    console.log("GEMINI_API_KEY não configurada. Usando triagem padrão local.");
     return defaultLocalTriage(title, description);
   }
 
-  const maxAttempts = 2;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+  const modelsToTry = ["gemini-3.5-flash", "gemini-3.1-flash-lite"];
+  for (let attempt = 1; attempt <= modelsToTry.length; attempt++) {
+    const currentModel = modelsToTry[attempt - 1];
     try {
       const ai = new GoogleGenAI({
         apiKey: geminiKey,
@@ -447,7 +658,7 @@ Use os seguintes critérios de prioridade:
       const parts = imagePart ? [imagePart, { text: promptText }] : [{ text: promptText }];
 
       const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: currentModel,
         contents: { parts },
         config: {
           responseMimeType: "application/json",
@@ -475,8 +686,8 @@ Use os seguintes critérios de prioridade:
         };
       }
     } catch (error: any) {
-      console.warn(`[Gemini API] Tentativa ${attempt}/${maxAttempts} falhou:`, error?.message || error);
-      if (attempt < maxAttempts) {
+      console.warn(`[Gemini API] Tentativa ${attempt}/${modelsToTry.length} com modelo ${currentModel} falhou:`, error?.message || error);
+      if (attempt < modelsToTry.length) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
@@ -486,100 +697,82 @@ Use os seguintes critérios de prioridade:
   return defaultLocalTriage(title, description);
 }
 
-// Route to dynamically serve config.js so self-hosted users can edit public/config.js and see changes instantly
-// Route to dynamically serve config.js using environment variables so we don't expose keys in source control
-app.get("/config.js", (req, res) => {
-  const url = process.env.SUPABASE_URL || "";
-  const key = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY || "";
-  const gemini = process.env.GEMINI_API_KEY || "";
+// REST API Endpoints
 
+// Route to dynamically serve config.js so self-hosted users can edit public/config.js and see changes instantly
+app.get("/config.js", (req, res) => {
+  const customPath = path.join(process.cwd(), "public", "config.js");
+  if (fs.existsSync(customPath)) {
+    res.setHeader("Content-Type", "application/javascript");
+    return res.sendFile(customPath);
+  }
+  const distConfigPath = path.join(process.cwd(), "dist", "config.js");
+  if (fs.existsSync(distConfigPath)) {
+    res.setHeader("Content-Type", "application/javascript");
+    return res.sendFile(distConfigPath);
+  }
   res.setHeader("Content-Type", "application/javascript");
-  res.send(`window.SUPABASE_CONFIG = {
-  SUPABASE_URL: ${JSON.stringify(url)},
-  SUPABASE_KEY: ${JSON.stringify(key)},
-  GEMINI_API_KEY: ${JSON.stringify(gemini)}
-};`);
+  res.send("// Dynamic configuration not found");
 });
 
-// Proxy route to secure and relay client requests to self-hosted Supabase instances (eliminates CORS / Mixed Content issues)
-app.all("/api/supabase-proxy/*", async (req, res) => {
+// Secure bulk ticket saving / upserting endpoint
+app.post("/api/tickets/save", async (req, res) => {
   try {
-    const { url: supabaseUrl, key: supabaseKey } = getBackendConfig();
-    if (!supabaseUrl || !supabaseKey) {
-      return res.status(500).json({ error: "Supabase não está configurado no servidor." });
+    const ticket = req.body;
+    if (!ticket || !ticket.id) {
+      return res.status(400).json({ error: "Dados do chamado inválidos." });
     }
-
-    // Extract target path from request path
-    const targetPath = req.path.replace(/^\/api\/supabase-proxy/, "");
-    
-    // Construct target URL
-    const normalizedBase = supabaseUrl.endsWith("/") ? supabaseUrl.slice(0, -1) : supabaseUrl;
-    const normalizedPath = targetPath.startsWith("/") ? targetPath : "/" + targetPath;
-    
-    const queryString = req.url.includes("?") ? req.url.substring(req.url.indexOf("?")) : "";
-    const targetFullUrl = normalizedBase + normalizedPath + queryString;
-
-    // Filter headers to forward
-    const headers: Record<string, string> = {};
-    for (const [key, value] of Object.entries(req.headers)) {
-      if (typeof value === "string") {
-        const lowerKey = key.toLowerCase();
-        if (["host", "connection", "accept-encoding", "origin", "referer", "host-header", "x-forwarded-for", "x-forwarded-proto", "x-forwarded-port", "cookie"].includes(lowerKey)) {
-          continue;
-        }
-        headers[key] = value;
-      }
-    }
-
-    // Enforce correct credentials from backend
-    headers["apikey"] = supabaseKey;
-    if (req.headers["authorization"]) {
-      headers["authorization"] = req.headers["authorization"] as string;
+    const tickets = await loadTickets();
+    const idx = tickets.findIndex(t => t.id === ticket.id);
+    if (idx >= 0) {
+      tickets[idx] = ticket;
     } else {
-      headers["authorization"] = `Bearer ${supabaseKey}`;
+      tickets.push(ticket);
     }
-
-    let body: any = undefined;
-    if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method || "")) {
-      if (req.body && typeof req.body === "object") {
-        body = JSON.stringify(req.body);
-      } else {
-        body = req.body;
-      }
-    }
-
-    const response = await fetch(targetFullUrl, {
-      method: req.method,
-      headers: headers,
-      body: body,
-    });
-
-    res.status(response.status);
-
-    // Copy essential response headers
-    const responseHeadersToForward = ["content-type", "content-range", "preference-applied"];
-    responseHeadersToForward.forEach(headerName => {
-      const headerVal = response.headers.get(headerName);
-      if (headerVal) {
-        res.setHeader(headerName, headerVal);
-      }
-    });
-
-    const contentType = response.headers.get("content-type") || "";
-    if (contentType.includes("application/json")) {
-      const json = await response.json();
-      return res.json(json);
-    } else {
-      const text = await response.text();
-      return res.send(text);
-    }
-  } catch (error: any) {
-    console.error("[Supabase Proxy Error]:", error);
-    return res.status(500).json({ error: "Erro ao intermediar requisição para o Supabase", message: error.message });
+    await saveTickets(tickets, ticket);
+    res.json({ success: true, ticket });
+  } catch (error) {
+    console.error("Erro ao salvar chamado via API:", error);
+    res.status(500).json({ error: "Erro interno ao salvar chamado." });
   }
 });
 
-// REST API Endpoints
+// Secure bulk user saving / upserting endpoint
+app.post("/api/users/save", async (req, res) => {
+  try {
+    const user = req.body;
+    if (!user || !user.id) {
+      return res.status(400).json({ error: "Dados do colaborador inválidos." });
+    }
+    const users = await loadUsers();
+    const idx = users.findIndex(u => u.id === user.id);
+    if (idx >= 0) {
+      users[idx] = user;
+    } else {
+      users.push(user);
+    }
+    await saveUsers(users, user);
+    res.json({ success: true, user });
+  } catch (error) {
+    console.error("Erro ao salvar colaborador via API:", error);
+    res.status(500).json({ error: "Erro interno ao salvar colaborador." });
+  }
+});
+
+// Secure client-side Gemini Triage API proxy
+app.post("/api/triage", async (req, res) => {
+  try {
+    const { title, description, screenshot } = req.body;
+    if (!title || !description) {
+      return res.status(400).json({ error: "Título e descrição do chamado são obrigatórios para triagem." });
+    }
+    const triage = await triageWithGemini(title, description, screenshot);
+    res.json(triage);
+  } catch (error) {
+    console.error("Erro ao processar triagem inteligente via API:", error);
+    res.status(500).json({ error: "Erro interno ao realizar triagem." });
+  }
+});
 
 // Supabase diagnostics and setup endpoints
 app.get("/api/supabase/status", async (req, res) => {
@@ -607,7 +800,7 @@ app.get("/api/supabase/sql", (req, res) => {
 app.post("/api/supabase/sync", async (req, res) => {
   try {
     if (!isSupabaseConfigured()) {
-      return res.status(400).json({ error: "Supabase não está configurado. Por favor, adicione as credenciais no painel de Secrets." });
+      return res.status(400).json({ error: "Supabase não está configurado. Por favor, adicione as credenciais SUPABASE_URL e SUPABASE_KEY no painel de Secrets." });
     }
 
     const connection = await testSupabaseConnection();
@@ -633,7 +826,7 @@ app.post("/api/supabase/sync", async (req, res) => {
 app.post("/api/supabase/pull", async (req, res) => {
   try {
     if (!isSupabaseConfigured()) {
-      return res.status(400).json({ error: "Supabase não está configurado. Por favor, adicione as credenciais no painel de Secrets." });
+      return res.status(400).json({ error: "Supabase não está configurado. Por favor, adicione as credenciais SUPABASE_URL e SUPABASE_KEY no painel de Secrets." });
     }
 
     const connection = await testSupabaseConnection();
@@ -654,8 +847,18 @@ app.post("/api/supabase/pull", async (req, res) => {
       password: u.password ? hashPassword(u.password) : undefined
     }));
 
-    fs.writeFileSync(USERS_FILE, JSON.stringify(securedUsers, null, 2), "utf-8");
-    fs.writeFileSync(DB_FILE, JSON.stringify(supabaseTickets, null, 2), "utf-8");
+    // Update in-memory cache immediately so that it is active on stateless/serverless runtimes
+    cachedUsers = securedUsers;
+    lastUsersCacheTime = Date.now();
+    cachedTickets = supabaseTickets;
+    lastTicketsCacheTime = Date.now();
+
+    try {
+      fs.writeFileSync(USERS_FILE, JSON.stringify(securedUsers, null, 2), "utf-8");
+      fs.writeFileSync(DB_FILE, JSON.stringify(supabaseTickets, null, 2), "utf-8");
+    } catch (fsError) {
+      console.warn("Não foi possível salvar os dados importados no disco local:", fsError);
+    }
 
     res.json({
       message: "Dados importados do Supabase com sucesso!",
@@ -663,7 +866,7 @@ app.post("/api/supabase/pull", async (req, res) => {
       ticketsCount: supabaseTickets.length
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || "Erro desconhecido durante importação de dados." });
+    res.status(500).json({ error: error.message || "Erro desconhecido ao puxar dados." });
   }
 });
 
@@ -671,7 +874,7 @@ app.post("/api/supabase/pull", async (req, res) => {
 app.post("/api/heartbeat", (req, res) => {
   const { email } = req.body;
   if (email && typeof email === "string") {
-    activeUsers.set(email.toLowerCase().trim(), Date.now());
+    markUserActive(email);
   }
   res.json({ status: "ok" });
 });
@@ -685,176 +888,68 @@ app.post("/api/login", async (req, res) => {
       return res.status(400).json({ error: "E-mail e senha são obrigatórios para realizar o login." });
     }
 
-    // If Supabase is configured, try authenticating with Supabase Auth or database query first
-    if (isSupabaseConfigured()) {
-      const client = getSupabaseClient();
-      if (client) {
-        try {
-          const emailLower = email.trim().toLowerCase();
-          console.log(`[Supabase Login] Procurando usuário na tabela 'users' para o e-mail: ${emailLower}`);
+    // If Supabase database is configured, try authenticating with database query first
+    if (isSupabaseConfigured() && isSupabaseHealthy()) {
+      try {
+        const emailLower = email.trim().toLowerCase();
+        console.log(`[Supabase Login] Procurando usuário na tabela 'users' para o e-mail: ${emailLower}`);
 
-          // Query the public.users table directly for the email (this is highly reliable and supports table-editor created users)
-          const { data: dbUser, error: dbError } = await client
-            .from("users")
-            .select("*")
-            .eq("email", emailLower)
-            .maybeSingle();
+        const dbUsers = await getSupabaseUsers();
+        const dbUser = dbUsers ? dbUsers.find(u => u.email.toLowerCase() === emailLower) : null;
 
-          if (dbError) {
-            console.error("[Supabase Login] Erro ao consultar tabela 'users':", dbError.message);
-          } else if (dbUser) {
-            console.log(`[Supabase Login] Usuário encontrado na tabela 'users': ${dbUser.name} (${dbUser.role})`);
-            
-            // Compare password (both plaintext or hashed)
-            const storedPass = dbUser.password || "";
-            const isMatch = storedPass === password || storedPass === hashPassword(password);
-            if (isMatch) {
-              let mustChange = true;
-              if (dbUser.must_change_password === false) {
-                mustChange = false;
-              } else if (dbUser.must_change_password === undefined || dbUser.must_change_password === null) {
-                try {
-                  const localUsers = await loadUsers();
-                  const cached = localUsers.find(u => u.email.toLowerCase() === emailLower);
-                  mustChange = cached ? (cached.mustChangePassword !== false) : false;
-                } catch {
-                  mustChange = false;
-                }
-              }
+        if (dbUser) {
+          console.log(`[Supabase Login] Usuário encontrado na tabela 'users': ${dbUser.name} (${dbUser.role})`);
+          
+          // Compare password (both plaintext or hashed)
+          const storedPass = dbUser.password || "";
+          const isMatch = storedPass === password || storedPass === hashPassword(password);
+          if (isMatch) {
+            let mustChange = dbUser.mustChangePassword !== false;
 
-              // Robust override: If the password hash in DB is different from the initial seed password, they don't need to reset
-              const defaultHash = initialPasswordHashes.get(emailLower);
-              if (defaultHash && storedPass !== defaultHash) {
-                mustChange = false;
-              }
-              const loggedUser: User = {
-                id: dbUser.id,
-                name: dbUser.name,
-                email: dbUser.email,
-                password: dbUser.password,
-                department: dbUser.department,
-                role: dbUser.role as "colaborador" | "tecnico",
-                mustChangePassword: mustChange
-              };
-
-              // Self-heal/cache locally so they immediately show up in active list
-              try {
-                const localUsers = await loadUsers();
-                if (!localUsers.some(u => u.email.toLowerCase() === emailLower)) {
-                  localUsers.push(loggedUser);
-                  fs.writeFileSync(USERS_FILE, JSON.stringify(localUsers, null, 2), "utf-8");
-                }
-              } catch (cacheErr) {
-                console.error("[Supabase Login] Falha ao atualizar cache local do usuário:", cacheErr);
-              }
-
-              // Mark active immediately
-              activeUsers.set(emailLower, Date.now());
-
-              return res.json({
-                id: loggedUser.id,
-                name: loggedUser.name,
-                email: loggedUser.email,
-                department: loggedUser.department,
-                role: loggedUser.role,
-                mustChangePassword: mustChange
-              });
-            } else {
-              return res.status(401).json({ error: "Senha de acesso incorreta." });
+            // Robust override: If the password hash in DB is different from the initial seed password, they don't need to reset
+            const defaultHash = initialPasswordHashes.get(emailLower);
+            if (defaultHash && storedPass !== defaultHash) {
+              mustChange = false;
             }
-          }
 
-          // If not in the 'users' table, try traditional Auth sign-in
-          console.log(`[Supabase Login] Não encontrado na tabela 'users'. Tentando login via Supabase Auth...`);
-          const { data: authData, error: authError } = await client.auth.signInWithPassword({
-            email,
-            password
-          });
+            const loggedUser: User = {
+              id: dbUser.id,
+              name: dbUser.name,
+              email: dbUser.email,
+              password: dbUser.password,
+              department: dbUser.department,
+              role: dbUser.role,
+              mustChangePassword: mustChange
+            };
 
-          if (!authError && authData.user) {
-            // Success! The user exists in Supabase Auth.
-            // Check if they are already in our public.users table or if we need to auto-create them.
-            const { data: profile, error: profileErr } = await client
-              .from("users")
-              .select("*")
-              .eq("email", emailLower)
-              .maybeSingle();
-
-            if (profile) {
-              // Mark active immediately
-              activeUsers.set(emailLower, Date.now());
-
-              let mustChange = true;
-              if (profile.must_change_password === false) {
-                mustChange = false;
-              } else if (profile.must_change_password === undefined || profile.must_change_password === null) {
-                try {
-                  const localUsers = await loadUsers();
-                  const cached = localUsers.find(u => u.email.toLowerCase() === emailLower);
-                  mustChange = cached ? (cached.mustChangePassword !== false) : false;
-                } catch {
-                  mustChange = false;
-                }
+            // Self-heal/cache locally so they immediately show up in active list
+            try {
+              const localUsers = await loadUsers();
+              if (!localUsers.some(u => u.email.toLowerCase() === emailLower)) {
+                localUsers.push(loggedUser);
+                fs.writeFileSync(USERS_FILE, JSON.stringify(localUsers, null, 2), "utf-8");
               }
-
-              // Robust override: If the password hash in DB is different from the initial seed password, they don't need to reset
-              const defaultHash = initialPasswordHashes.get(emailLower);
-              if (defaultHash && profile.password && profile.password !== defaultHash) {
-                mustChange = false;
-              }
-
-              return res.json({
-                id: profile.id,
-                name: profile.name,
-                email: profile.email,
-                department: profile.department,
-                role: profile.role,
-                mustChangePassword: mustChange
-              });
-            } else {
-              // Create user profile
-              const derivedName = email.split("@")[0]
-                .split(/[\._\-]/)
-                .map((part: string) => part.charAt(0).toUpperCase() + part.slice(1))
-                .join(" ");
-
-              const isTechEmail = emailLower.includes("ti") || 
-                                  emailLower.includes("suporte") || 
-                                  emailLower.includes("admin") || 
-                                  emailLower.includes("tech") ||
-                                  emailLower.includes("tecnico") ||
-                                  emailLower.includes("daniel");
-
-              const newUserProfile: User = {
-                id: authData.user.id,
-                name: derivedName || "Novo Colaborador",
-                email: email.toLowerCase(),
-                password: password,
-                department: isTechEmail ? "TI" : "Financeiro",
-                role: isTechEmail ? "tecnico" : "colaborador",
-                mustChangePassword: true
-              };
-
-              await saveSupabaseUser(newUserProfile);
-
-              // Mark active immediately
-              activeUsers.set(emailLower, Date.now());
-
-              return res.json({
-                id: newUserProfile.id,
-                name: newUserProfile.name,
-                email: newUserProfile.email,
-                department: newUserProfile.department,
-                role: newUserProfile.role,
-                mustChangePassword: true
-              });
+            } catch (cacheErr) {
+              console.error("[Supabase Login] Falha ao atualizar cache local do usuário:", cacheErr);
             }
+
+            // Mark active immediately
+            markUserActive(emailLower);
+
+            return res.json({
+              id: loggedUser.id,
+              name: loggedUser.name,
+              email: loggedUser.email,
+              department: loggedUser.department,
+              role: loggedUser.role,
+              mustChangePassword: mustChange
+            });
           } else {
-            console.log("[Supabase Login] Supabase Auth falhou ou usuário ausente:", authError?.message);
+            return res.status(401).json({ error: "Senha de acesso incorreta." });
           }
-        } catch (authExc) {
-          console.error("[Supabase Login] Exceção geral de login do Supabase:", authExc);
         }
+      } catch (authExc) {
+        console.error("[Supabase Login] Exceção geral de login:", authExc);
       }
     }
 
@@ -889,7 +984,7 @@ app.post("/api/login", async (req, res) => {
     };
 
     // Mark active immediately
-    activeUsers.set(email.toLowerCase().trim(), Date.now());
+    markUserActive(email);
 
     res.json(safeUser);
   } catch (error) {
@@ -932,38 +1027,25 @@ app.post("/api/change-password", async (req, res) => {
     await saveUsers(users, user);
 
     // Sync with Supabase if configured
-    if (isSupabaseConfigured()) {
-      const client = getSupabaseClient();
-      if (client) {
-        try {
-          const updatePayload: any = {
-            password: hashPassword(newPassword),
-            must_change_password: false
-          };
-
-          let { error: updateError } = await client
-            .from("users")
-            .update(updatePayload)
-            .eq("email", email.trim().toLowerCase());
-
-          if (updateError && (updateError.code === "PGRST204" || updateError.message?.includes("must_change_password") || updateError.message?.includes("column"))) {
-            console.warn("[Supabase Change Password] Coluna 'must_change_password' não encontrada na tabela 'users'. Tentando atualizar apenas a senha.");
-            delete updatePayload.must_change_password;
-            const retryResult = await client
-              .from("users")
-              .update(updatePayload)
-              .eq("email", email.trim().toLowerCase());
-            updateError = retryResult.error;
-          }
-
-          if (updateError) {
-            console.error("[Supabase Change Password] Erro ao atualizar no Supabase:", updateError.message);
-          } else {
-            console.log("[Supabase Change Password] Senha atualizada com sucesso no Supabase para:", email);
-          }
-        } catch (dbErr: any) {
-          console.error("[Supabase Change Password] Falha ao sincronizar com Supabase:", dbErr.message);
+    if (isSupabaseConfigured() && isSupabaseHealthy()) {
+      try {
+        const dbUser: User = {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          password: newPassword, // saveSupabaseUser will hash this securely
+          department: user.department,
+          role: user.role as "colaborador" | "tecnico",
+          mustChangePassword: false
+        };
+        const success = await saveSupabaseUser(dbUser);
+        if (success) {
+          console.log("[Supabase Change Password] Senha atualizada com sucesso no Supabase para:", email);
+        } else {
+          console.error("[Supabase Change Password] Falha ao atualizar senha no Supabase para:", email);
         }
+      } catch (dbErr: any) {
+        console.error("[Supabase Change Password] Falha ao sincronizar com Supabase:", dbErr.message);
       }
     }
 
@@ -983,7 +1065,7 @@ app.get("/api/users", async (req, res) => {
       const emailLower = (u.email || "").toLowerCase().trim();
       // User is considered online if they had login/heartbeat activity within the last 10 seconds
       // This ensures extremely precise and near-instant status tracking matching user requests
-      const isOnline = activeUsers.has(emailLower) && (now - activeUsers.get(emailLower)! < 10000);
+      const isOnline = isUserOnline(emailLower, now);
       return {
         id: u.id,
         name: u.name,
@@ -1149,7 +1231,7 @@ app.get("/api/tickets", async (req, res) => {
 // Create a new ticket
 app.post("/api/tickets", async (req, res) => {
   try {
-    const { title, description, requesterName, requesterDepartment, screenshot, projectDeadline } = req.body;
+    const { title, description, requesterName, requesterDepartment, screenshot, projectDeadline, attachments } = req.body;
 
     if (!title || !description || !requesterName || !requesterDepartment) {
       return res.status(400).json({ error: "Título, descrição, solicitante e departamento são obrigatórios." });
@@ -1184,6 +1266,7 @@ app.post("/api/tickets", async (req, res) => {
       requesterName,
       requesterDepartment,
       assignedTo: null,
+      firstAssignedTo: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       slaLimit: new Date(Date.now() + 3600000 * hoursToAdd).toISOString(),
@@ -1193,6 +1276,7 @@ app.post("/api/tickets", async (req, res) => {
       aiSuggestions: "Aguardando conclusão da análise do Gemini...",
       screenshot: screenshot || undefined,
       projectDeadline: projectDeadline || undefined,
+      attachments: attachments || undefined,
       comments: [
         {
           id: `sys-${Date.now()}`,
@@ -1323,7 +1407,8 @@ app.patch("/api/tickets/:id", async (req, res) => {
 
     // Validation: prevent another technician from modifying an already assigned ticket (stealing, priority change, category change, finalization)
     if (oldTicket.assignedTo) {
-      if (requesterUser && requesterUser !== oldTicket.assignedTo) {
+      const assignedTechs = oldTicket.assignedTo.split(",").map(s => s.trim()).filter(Boolean);
+      if (requesterUser && !assignedTechs.includes(requesterUser)) {
         const isChangingAssignedTo = assignedTo !== undefined && assignedTo !== oldTicket.assignedTo;
         const isChangingPriority = priority !== undefined && priority !== oldTicket.priority;
         const isChangingStatus = status !== undefined && status !== oldTicket.status;
@@ -1333,7 +1418,20 @@ app.patch("/api/tickets/:id", async (req, res) => {
 
         if (isChangingAssignedTo || isChangingPriority || isChangingStatus || isChangingCategory || isChangingDeadline || isChangingRequester) {
           return res.status(403).json({ 
-            error: `Este chamado já está atribuído a ${oldTicket.assignedTo}. Apenas o técnico responsável pode alterar suas informações, transferi-lo ou finalizá-lo.` 
+            error: `Este chamado já está atribuído a ${oldTicket.assignedTo}. Apenas os técnicos responsáveis podem alterar suas informações, transferi-lo ou finalizá-lo.` 
+          });
+        }
+      }
+    }
+
+    // Validation: Only the first assigned technician can change/assign other technicians
+    if (assignedTo !== undefined && assignedTo !== oldTicket.assignedTo) {
+      const oldTechs = oldTicket.assignedTo ? oldTicket.assignedTo.split(",").map(s => s.trim()).filter(Boolean) : [];
+      if (oldTechs.length > 0) {
+        const firstTech = oldTicket.firstAssignedTo || oldTechs[0];
+        if (requesterUser && requesterUser !== firstTech) {
+          return res.status(403).json({ 
+            error: `Apenas o primeiro técnico responsável por este chamado (${firstTech}) pode alterar as atribuições de técnicos.` 
           });
         }
       }
@@ -1400,22 +1498,32 @@ app.patch("/api/tickets/:id", async (req, res) => {
     }
 
     if (assignedTo !== undefined && assignedTo !== oldTicket.assignedTo) {
-      if (oldTicket.assignedTo && assignedTo) {
-        // Transfer logged clearly
-        changeLog.push(`Chamado transferido de **${oldTicket.assignedTo}** para **${assignedTo}** por **${requesterUser || "Técnico"}**`);
-        updatedTicket.assignedTo = assignedTo;
-      } else if (assignedTo) {
-        // Normal assignment
-        changeLog.push(`Responsável atribuído: **${assignedTo}**`);
-        updatedTicket.assignedTo = assignedTo;
-        if (oldTicket.status === "Aberto") {
-          updatedTicket.status = "Em Atendimento";
-          changeLog.push(`Status alterado automaticamente para **Em Atendimento**`);
+      const oldTechs = oldTicket.assignedTo ? oldTicket.assignedTo.split(",").map(s => s.trim()).filter(Boolean) : [];
+      const newTechs = assignedTo ? assignedTo.split(",").map(s => s.trim()).filter(Boolean) : [];
+
+      const added = newTechs.filter(t => !oldTechs.includes(t));
+      const removed = oldTechs.filter(t => !newTechs.includes(t));
+
+      if (added.length > 0) {
+        changeLog.push(`Técnico(s) adicionado(s): **${added.join(", ")}**`);
+      }
+      if (removed.length > 0) {
+        changeLog.push(`Técnico(s) removido(s): **${removed.join(", ")}**`);
+      }
+
+      updatedTicket.assignedTo = assignedTo || null;
+
+      if (newTechs.length > 0) {
+        if (!oldTicket.firstAssignedTo) {
+          updatedTicket.firstAssignedTo = newTechs[0];
         }
       } else {
-        // Removed assignment
-        changeLog.push(`Responsável removido: **${oldTicket.assignedTo}**`);
-        updatedTicket.assignedTo = null;
+        updatedTicket.firstAssignedTo = null;
+      }
+
+      if (newTechs.length > 0 && oldTicket.status === "Aberto") {
+        updatedTicket.status = "Em Atendimento";
+        changeLog.push(`Status alterado automaticamente para **Em Atendimento**`);
       }
     }
 
@@ -1502,8 +1610,9 @@ app.delete("/api/tickets/:id", async (req, res) => {
     }
 
     const ticket = tickets[index];
-    if (!ticket.assignedTo || ticket.assignedTo !== userName) {
-      return res.status(403).json({ error: "Apenas o técnico responsável por este chamado pode excluí-lo." });
+    const assignedTechs = ticket.assignedTo ? ticket.assignedTo.split(",").map(s => s.trim()).filter(Boolean) : [];
+    if (!userName || !assignedTechs.includes(userName as string)) {
+      return res.status(403).json({ error: "Apenas um dos técnicos responsáveis por este chamado pode excluí-lo." });
     }
 
     if (isSupabaseConfigured()) {
@@ -1539,8 +1648,8 @@ app.post("/api/reset", async (req, res) => {
       }
     }
     
-    await saveTickets(DEFAULT_TICKETS);
-    await saveUsers(DEFAULT_USERS);
+    await saveTickets(initialTickets);
+    await saveUsers(initialUsers);
     res.json({ message: "Banco de dados e lista de colaboradores reiniciados com sucesso." });
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Erro ao resetar banco de dados." });
@@ -1548,7 +1657,12 @@ app.post("/api/reset", async (req, res) => {
 });
 
 // Serve frontend assets
-if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
+const isProduction = process.env.NODE_ENV === "production" || 
+                     !!process.env.VERCEL || 
+                     !fs.existsSync(path.join(process.cwd(), "server.ts")) ||
+                     (typeof process !== "undefined" && process.argv && process.argv[1] && process.argv[1].endsWith(".cjs"));
+
+if (!isProduction) {
   const startVite = async () => {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
