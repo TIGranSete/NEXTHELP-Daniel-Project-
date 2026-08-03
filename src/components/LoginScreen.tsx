@@ -316,6 +316,47 @@ export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps)
   const [error, setError] = useState("");
   const [logoError, setLogoError] = useState(false);
 
+  // Helper to compute SHA-256 hex string in browser
+  async function hashPasswordSHA256(str: string): Promise<string> {
+    if (!str) return "";
+    if (/^[a-f0-9]{64}$/i.test(str)) return str;
+    try {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(str);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+    } catch (e) {
+      return str;
+    }
+  }
+
+  // Fallback verification against local users array if API returns HTML or encounters a network error
+  const fallbackLocalLogin = async () => {
+    const inputEmail = email.trim().toLowerCase();
+    const localMatch = users.find(u => u.email && u.email.trim().toLowerCase() === inputEmail);
+    if (!localMatch) {
+      setError("E-mail de colaborador não cadastrado.");
+      return;
+    }
+
+    const hashedInput = await hashPasswordSHA256(password);
+    const storedPass = localMatch.password || "";
+    const isMatch = storedPass === password || storedPass === hashedInput;
+
+    if (isMatch) {
+      onLoginSuccess({
+        name: localMatch.name,
+        department: localMatch.department,
+        role: localMatch.role,
+        email: localMatch.email,
+        mustChangePassword: localMatch.mustChangePassword
+      });
+    } else {
+      setError("Senha de acesso incorreta.");
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim() || !password.trim()) {
@@ -333,30 +374,13 @@ export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps)
           "Content-Type": "application/json",
           "Accept": "application/json"
         },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email: email.trim(), password })
       });
 
       const contentType = response.headers.get("content-type");
       const isJson = contentType && contentType.includes("application/json");
 
-      if (response.ok) {
-        if (!isJson) {
-          // If server returned 200 OK HTML instead of JSON, check local prop users array
-          const localMatch = users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
-          if (localMatch) {
-            onLoginSuccess({
-              name: localMatch.name,
-              department: localMatch.department,
-              role: localMatch.role,
-              email: localMatch.email,
-              mustChangePassword: localMatch.mustChangePassword
-            });
-            return;
-          }
-          setError("O servidor retornou uma resposta em HTML em vez de JSON. Tente novamente.");
-          return;
-        }
-
+      if (response.ok && isJson) {
         const user = await response.json();
         onLoginSuccess({
           name: user.name,
@@ -365,32 +389,23 @@ export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps)
           email: user.email,
           mustChangePassword: user.mustChangePassword
         });
-      } else {
-        const errText = await response.text();
-        let errorMsg = "Credenciais inválidas. Verifique seu e-mail e senha.";
-        try {
-          const errData = JSON.parse(errText);
-          errorMsg = errData.error || errorMsg;
-        } catch (e) {
-          errorMsg = `Erro no servidor (${response.status}): Credenciais incorretas ou resposta inválida.`;
-        }
-        setError(errorMsg);
-      }
-    } catch (err: any) {
-      console.error("Erro na requisição de login:", err);
-      // Fallback check against local users if server/network fails
-      const localMatch = users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
-      if (localMatch) {
-        onLoginSuccess({
-          name: localMatch.name,
-          department: localMatch.department,
-          role: localMatch.role,
-          email: localMatch.email,
-          mustChangePassword: localMatch.mustChangePassword
-        });
         return;
       }
-      setError(`Erro de conexão ao servidor: ${err.message || err}`);
+
+      // If server returned JSON error (e.g., 401 with { error: "..." })
+      if (isJson) {
+        const errData = await response.json().catch(() => null);
+        if (errData && errData.error) {
+          setError(errData.error);
+          return;
+        }
+      }
+
+      // If server returned non-JSON (e.g. HTML) or ambiguous error, fallback to local users verification
+      await fallbackLocalLogin();
+    } catch (err: any) {
+      console.warn("Erro na requisição de login para API, tentando autenticação local:", err);
+      await fallbackLocalLogin();
     } finally {
       setLoading(false);
     }
