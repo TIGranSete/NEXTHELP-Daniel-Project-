@@ -4729,15 +4729,7 @@ export default function App() {
                 </div>
 
               </div>
-            ) : (
-              <div className="bg-[#0a0a0a] border border-emerald-950/15 rounded-2xl p-8 text-center text-slate-500 space-y-3">
-                <AlertCircle className="h-10 w-10 text-emerald-400 mx-auto" />
-                <div>
-                  <h4 className="text-sm font-bold text-slate-300">Nenhum chamado selecionado</h4>
-                  <p className="text-xs mt-1">Selecione qualquer ticket na fila da prioridade ao lado para verificar os detalhes, histórico de conversas, e recomendações em tempo real geradas por IA.</p>
-                </div>
-              </div>
-            )}
+            ) : null}
 
             </div>
           )}
