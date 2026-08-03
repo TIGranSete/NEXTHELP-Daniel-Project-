@@ -352,7 +352,11 @@ export default function App() {
 
   const fallbackNotification = (title: string, options: NotificationOptions, ticketId?: string) => {
     try {
-      const notification = new Notification(title, options);
+      const notification = new Notification(title, {
+        ...options,
+        icon: "/icon.png",
+        badge: "/icon.png"
+      });
       if (ticketId) {
         notification.onclick = () => {
           window.focus();
@@ -366,13 +370,18 @@ export default function App() {
 
   const showDesktopNotification = (title: string, body: string, ticketId?: string) => {
     if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
-      const options: NotificationOptions & { data?: any } = {
+      const options: NotificationOptions & { data?: any; actions?: any[]; renotify?: boolean; vibrate?: number[] } = {
         body,
-        icon: "/src/assets/images/7.png",
-        badge: "/src/assets/images/7.png",
-        tag: ticketId ? `ticket-${ticketId}` : undefined,
+        icon: "/icon.png",
+        badge: "/icon.png",
+        tag: ticketId ? `ticket-${ticketId}` : "gran7-alert",
+        renotify: true,
         requireInteraction: true,
-        data: ticketId ? { ticketId } : undefined
+        vibrate: [200, 100, 200, 100, 200],
+        data: ticketId ? { ticketId } : undefined,
+        actions: [
+          { action: "open_ticket", title: "💬 Abrir Chamado" }
+        ]
       };
 
       // Try service worker notification first (essential for background/desktop notifications)
@@ -399,8 +408,8 @@ export default function App() {
     }
     if (perm === "granted") {
       showDesktopNotification(
-        "💬 Chat HelpDesk GRAN7 (Notificação de Sistema)",
-        "Sucesso! Notificação nativa do Windows/Mac ativa. Você receberá popups em tempo real ao ser respondido no chat.",
+        "⚡ GRAN7 HELP • Notificações do Sistema",
+        "Sucesso! Permissão ativa no Google Chrome. Notificações nativas configuradas com ícone e atalho para o chat.",
         selectedTicketId || undefined
       );
       playNotificationSound();
@@ -798,8 +807,8 @@ export default function App() {
         if (currentSession?.role === "tecnico") {
           hasNewNotification = true;
           showDesktopNotification(
-            `Novo Chamado: ${t.title}`,
-            `Solicitante: ${t.requesterName} (${t.requesterDepartment || "TI"})`,
+            `🔔 Novo Chamado #${t.id} • ${t.title}`,
+            `Solicitante: ${t.requesterName} (${t.requesterDepartment || "TI"}) | Prioridade: ${t.priority.toUpperCase()}`,
             t.id
           );
           const newNotif: AppNotification = {
@@ -834,7 +843,7 @@ export default function App() {
             hasNewNotification = true;
 
             showDesktopNotification(
-              `Mensagem em: ${t.title}`,
+              `💬 Chat HelpDesk • ${t.title}`,
               `${c.authorName}: ${c.content}`,
               t.id
             );

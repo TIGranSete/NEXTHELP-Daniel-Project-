@@ -8,10 +8,10 @@ self.addEventListener('activate', function(event) {
   event.waitUntil(self.clients.claim());
 });
 
-// Handle click on desktop notification
+// Handle click on desktop notification or action button
 self.addEventListener('notificationclick', function(event) {
   event.notification.close();
-  
+
   const ticketId = event.notification.data ? event.notification.data.ticketId : null;
   const targetUrl = ticketId ? `${self.location.origin}/?ticket=${ticketId}` : self.location.origin;
 
@@ -39,21 +39,28 @@ self.addEventListener('notificationclick', function(event) {
 // Handle push notification event (if backend push is integrated)
 self.addEventListener('push', function(event) {
   if (!event.data) return;
-  
+
   try {
     const payload = event.data.json();
     const title = payload.title || 'GRAN7 HELP';
+    const ticketId = payload.ticketId;
     const options = {
       body: payload.body || '',
-      icon: '/src/assets/images/7.png',
-      badge: '/src/assets/images/7.png',
+      icon: '/icon.png',
+      badge: '/icon.png',
+      image: payload.image || undefined,
       data: {
-        ticketId: payload.ticketId
+        ticketId: ticketId
       },
-      tag: payload.ticketId ? `ticket-${payload.ticketId}` : 'general-alert',
-      requireInteraction: true
+      tag: ticketId ? `ticket-${ticketId}` : 'gran7-help-alert',
+      renotify: true,
+      requireInteraction: true,
+      vibrate: [200, 100, 200, 100, 200],
+      actions: [
+        { action: 'open_ticket', title: '💬 Abrir Chamado' }
+      ]
     };
-    
+
     event.waitUntil(
       self.registration.showNotification(title, options)
     );
@@ -62,9 +69,15 @@ self.addEventListener('push', function(event) {
     event.waitUntil(
       self.registration.showNotification('Novo Alerta - GRAN7 HELP', {
         body: text,
-        icon: '/src/assets/images/7.png',
-        badge: '/src/assets/images/7.png',
-        requireInteraction: true
+        icon: '/icon.png',
+        badge: '/icon.png',
+        tag: 'gran7-help-alert',
+        renotify: true,
+        requireInteraction: true,
+        vibrate: [200, 100, 200, 100, 200],
+        actions: [
+          { action: 'open_ticket', title: '💬 Abrir Chamado' }
+        ]
       })
     );
   }
