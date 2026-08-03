@@ -19,6 +19,7 @@ import LoginScreen from "./components/LoginScreen";
 import ChangePasswordScreen from "./components/ChangePasswordScreen";
 import Gran7Brand from "./components/Gran7Brand";
 import NotificationGuideModal from "./components/NotificationGuideModal";
+import NotificationCustomizerModal, { playCustomNotificationSound, SoundTone, ToastStyle } from "./components/NotificationCustomizerModal";
 import WindowsDatePicker from "./components/WindowsDatePicker";
 import PlantationBackground from "./components/PlantationBackground";
 import logoImg from "./assets/images/logo.png";
@@ -301,6 +302,7 @@ export default function App() {
     typeof window !== "undefined" && "Notification" in window ? Notification.permission : "default"
   );
   const [isNotificationGuideOpen, setIsNotificationGuideOpen] = useState<boolean>(false);
+  const [isNotificationCustomizerOpen, setIsNotificationCustomizerOpen] = useState<boolean>(false);
 
   // Register Service Worker on mount and listen to messages
   useEffect(() => {
@@ -732,44 +734,10 @@ export default function App() {
   // Audio notification helper using Web Audio API for maximum reliability
   const playNotificationSound = () => {
     try {
-      let ctx = audioContextRef.current;
-      
-      // Fallback: If not unlocked or created yet, try creating it now
-      if (!ctx) {
-        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioContextClass) return;
-        ctx = new AudioContextClass();
-        audioContextRef.current = ctx;
-      }
-      
-      if (ctx.state === "suspended") {
-        ctx.resume();
-      }
-      
-      const now = ctx.currentTime;
-      
-      // Gentle synthesizer double chime/bell sound (C5 -> E5)
-      const osc1 = ctx.createOscillator();
-      const gain1 = ctx.createGain();
-      osc1.type = "sine";
-      osc1.frequency.setValueAtTime(523.25, now); // C5
-      gain1.gain.setValueAtTime(0.12, now);
-      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
-      osc1.connect(gain1);
-      gain1.connect(ctx.destination);
-      osc1.start(now);
-      osc1.stop(now + 0.4);
-      
-      const osc2 = ctx.createOscillator();
-      const gain2 = ctx.createGain();
-      osc2.type = "sine";
-      osc2.frequency.setValueAtTime(659.25, now + 0.12); // E5
-      gain2.gain.setValueAtTime(0.12, now + 0.12);
-      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.52);
-      osc2.connect(gain2);
-      gain2.connect(ctx.destination);
-      osc2.start(now + 0.12);
-      osc2.stop(now + 0.52);
+      const tone = (localStorage.getItem("gran7_notif_sound_tone") as SoundTone) || "gran7";
+      const volStr = localStorage.getItem("gran7_notif_volume");
+      const volume = volStr !== null ? parseFloat(volStr) : 0.8;
+      playCustomNotificationSound(tone, volume);
     } catch (error) {
       console.warn("Navegador bloqueou a reprodução automática de som de notificação:", error);
     }
@@ -2398,6 +2366,16 @@ export default function App() {
                   <span>{rightSidebarCollapsed ? "Mostrar Painel" : "Recolher Painel"}</span>
                 </button>
               )}
+
+              <button
+                type="button"
+                onClick={() => setIsNotificationCustomizerOpen(true)}
+                className="px-3.5 py-2 bg-neutral-900 hover:bg-neutral-850 border border-neutral-800 hover:border-emerald-500/40 text-emerald-400 font-bold rounded-xl transition-all duration-200 flex items-center justify-center gap-1.5 text-xs cursor-pointer h-9 shrink-0 shadow-sm"
+                title="Personalizar Notificações (Sons, Temas e Pop-ups do SO)"
+              >
+                <Sliders className="h-4 w-4 text-emerald-400" />
+                <span className="hidden sm:inline">Personalizar Alertas</span>
+              </button>
 
               <button
                 onClick={() => setIsNewTicketModalOpen(true)}
@@ -5666,16 +5644,27 @@ export default function App() {
         <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3 max-w-sm w-full pointer-events-none font-sans">
           {notifications.map((notif) => {
             const isComment = notif.type === "comment";
+            const toastStyle = (localStorage.getItem("gran7_notif_toast_style") as ToastStyle) || "emerald";
+
+            let cardContainerStyle = "bg-[#05090e]/95 border-2 border-emerald-500/80 shadow-[0_0_20px_rgba(16,185,129,0.3)]";
+            if (isComment) {
+              cardContainerStyle = "bg-[#05090e]/95 border-2 border-cyan-500/80 shadow-[0_0_20px_rgba(6,182,212,0.3)]";
+            }
+            if (toastStyle === "glass") {
+              cardContainerStyle = "bg-slate-950/90 backdrop-blur-xl border border-cyan-500/50 shadow-[0_10px_30px_rgba(0,0,0,0.8)]";
+            } else if (toastStyle === "compact") {
+              cardContainerStyle = "bg-neutral-950/95 border border-slate-700/80 shadow-lg py-2.5 px-3.5";
+            }
+
             return (
               <div
                 key={notif.id}
                 onClick={() => {
                   setSelectedTicketId(notif.ticketId);
                   setActiveTab("painel");
-                  // Clear this notification on click
                   setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
                 }}
-                className={`bg-[#05090e]/95 border-2 ${isComment ? 'border-cyan-500/80 hover:border-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.25)]' : 'border-emerald-500/80 hover:border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.25)]'} text-white rounded-2xl p-4 flex flex-col pointer-events-auto cursor-pointer animate-in slide-in-from-bottom duration-300 hover:scale-[1.02] transition-all duration-200 group`}
+                className={`${cardContainerStyle} text-white rounded-2xl p-4 flex flex-col pointer-events-auto cursor-pointer animate-in slide-in-from-bottom duration-300 hover:scale-[1.02] transition-all duration-200 group`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-2">
@@ -5781,6 +5770,21 @@ export default function App() {
         onRetryPermission={requestDesktopNotificationPermission}
         onTestNotification={testDesktopNotification}
         currentPermission={desktopNotificationPermission}
+      />
+
+      {/* Notification Customizer Modal */}
+      <NotificationCustomizerModal
+        isOpen={isNotificationCustomizerOpen}
+        onClose={() => setIsNotificationCustomizerOpen(false)}
+        desktopPermission={desktopNotificationPermission}
+        onRequestDesktopPermission={requestDesktopNotificationPermission}
+        onTriggerTestNotification={(customTitle, customBody) => {
+          showDesktopNotification(
+            customTitle || "⚡ GRAN7 HELP • Alerta de Teste",
+            customBody || "Sua notificação personalizada foi enviada com sucesso!",
+            selectedTicketId || undefined
+          );
+        }}
       />
 
       {preloaderJSX}
