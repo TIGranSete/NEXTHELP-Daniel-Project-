@@ -13,6 +13,7 @@ import {
 import loginBg from "../assets/images/WALLPAPER GRAN7 4.png";
 import logoImg from "../assets/images/logo.png";
 import logoMin from "../assets/images/7.png";
+import Gran7Brand from "./Gran7Brand";
 
 interface LoginScreenProps {
   users: User[];
@@ -379,31 +380,24 @@ export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps)
       <div className="w-full max-w-md space-y-6 z-10 animate-in fade-in duration-500">
         
         {/* App Logo & Header */}
-        <div className="text-center space-y-2">
+        <div className="text-center space-y-3 mb-2">
           {!logoError ? (
-            <div className="flex justify-center mb-6">
+            <div className="flex flex-col items-center justify-center space-y-3">
               <img 
                 src={logoImg} 
                 alt="GRAN7 HELP" 
-                className="h-20 w-auto object-contain max-w-full"
+                className="h-16 sm:h-20 w-auto object-contain max-w-full filter drop-shadow-[0_0_18px_rgba(16,185,129,0.35)]"
                 onError={() => setLogoError(true)}
               />
+              <p className="font-mono font-bold text-[9px] sm:text-[11px] text-slate-400 uppercase tracking-[0.22em] sm:tracking-[0.28em] flex items-center gap-2 justify-center">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span>HELP DESK INTELLIGENTE CORPORATIVO</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              </p>
             </div>
           ) : (
-            <>
-              <div className="inline-flex w-16 h-16 items-center justify-center mb-3">
-                <img 
-                  src={logoMin} 
-                  alt="GRAN7" 
-                  className="w-16 h-16 object-contain rounded-2xl shadow-2xl shadow-emerald-500/20 border border-emerald-400/30"
-                />
-              </div>
-              <h1 className="font-display font-extrabold text-3xl tracking-tight text-white">
-                GRAN<span className="text-emerald-400 font-bold italic tracking-wide text-3xl">7</span><span className="text-emerald-400 font-light tracking-widest text-2xl"> HELP</span>
-              </h1>
-            </>
+            <Gran7Brand size="lg" showIcon={true} showSubtitle={true} subtitleText="HELP DESK INTELLIGENTE CORPORATIVO" />
           )}
-          {/* Subtitle removed as requested */}
         </div>
 
         {/* Login Box */}

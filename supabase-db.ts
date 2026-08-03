@@ -17,17 +17,17 @@ dotenv.config();
 // Load configuration for Supabase Database from environment variables
 export function getBackendConfig() {
   const url = cleanConfigValue(
-    process.env.NEXT_PUBLIC_SUPABASE_URL || 
-    process.env.VITE_SUPABASE_URL || 
     process.env.SUPABASE_URL || 
+    process.env.VITE_SUPABASE_URL || 
+    process.env.NEXT_PUBLIC_SUPABASE_URL || 
     ""
   );
   const key = cleanConfigValue(
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
-    process.env.VITE_SUPABASE_ANON_KEY || 
     process.env.SUPABASE_KEY || 
     process.env.SUPABASE_SERVICE_ROLE_KEY || 
     process.env.SUPABASE_ANON_KEY || 
+    process.env.VITE_SUPABASE_ANON_KEY || 
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
     ""
   );
   const gemini = cleanConfigValue(process.env.GEMINI_API_KEY || "");
@@ -494,7 +494,7 @@ export async function saveSupabaseUser(user: User): Promise<boolean> {
   if (!client) return false;
 
   try {
-    const rawPassword = user.password || "123";
+    const rawPassword = user.password || "";
     const hashedPassword = hashPassword(rawPassword);
     const mustChangeVal = user.mustChangePassword !== false;
 

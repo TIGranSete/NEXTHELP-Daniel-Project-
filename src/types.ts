@@ -14,7 +14,7 @@ export interface Ticket {
   description: string;
   category: "Hardware" | "Software" | "Redes" | "Acesso" | "Sistemas" | "Outros";
   priority: "Baixa" | "Média" | "Alta" | "Urgente";
-  status: "Aberto" | "Em Atendimento" | "Resolvido" | "Fechado";
+  status: "Aberto" | "Pendente" | "Em Atendimento" | "Testando" | "Resolvido" | "Fechado";
   requesterName: string;
   requesterDepartment: string;
   assignedTo: string | null;

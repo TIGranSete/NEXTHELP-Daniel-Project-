@@ -35,26 +35,7 @@ import {
 } from "./supabase-db";
 
 // Fallback defaults if users-db.json or tickets-db.json are not found
-const DEFAULT_INITIAL_USERS = [
-  {
-    id: "u1",
-    name: "Daniel Kevin",
-    email: "daniel.souza@gransete.com",
-    password: "123",
-    department: "TI",
-    role: "tecnico" as const,
-    mustChangePassword: false
-  },
-  {
-    id: "u2",
-    name: "Suporte Gran7",
-    email: "til7sete@gmail.com",
-    password: "123456",
-    department: "TI",
-    role: "tecnico" as const,
-    mustChangePassword: false
-  }
-];
+const DEFAULT_INITIAL_USERS: any[] = [];
 
 const DEFAULT_INITIAL_TICKETS: any[] = [];
 
@@ -236,21 +217,73 @@ const CACHE_TTL_MS = 15000; // 15 seconds Cache TTL
 // Helper to load/save database
 let isRevalidatingTickets = false;
 
+// Helper to load local tickets from file synchronously
+function getLocalTickets(): Ticket[] {
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      const data = fs.readFileSync(DB_FILE, "utf-8").trim();
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed)) {
+          return parsed;
+        }
+      }
+    }
+  } catch (e) {
+    console.error("Erro ao ler chamados locais:", e);
+  }
+  return [];
+}
+
+// Merge function to reconcile local and remote tickets, prioritizing the one with the newest updatedAt timestamp
+function mergeTickets(local: Ticket[], remote: Ticket[]): Ticket[] {
+  const mergedMap = new Map<string, Ticket>();
+  
+  // 1. Put all remote tickets in the map first
+  for (const t of remote) {
+    if (t && t.id) {
+      mergedMap.set(t.id, t);
+    }
+  }
+
+  // 2. Override with local tickets if local ticket has a newer updatedAt
+  for (const t of local) {
+    if (!t || !t.id) continue;
+    const remoteT = mergedMap.get(t.id);
+    if (!remoteT) {
+      mergedMap.set(t.id, t);
+    } else {
+      const localTime = new Date(t.updatedAt || t.createdAt || 0).getTime();
+      const remoteTime = new Date(remoteT.updatedAt || remoteT.createdAt || 0).getTime();
+      if (localTime > remoteTime) {
+        mergedMap.set(t.id, t);
+        console.log(`[Supabase Sync] Chamado #${t.id} local é mais recente (${t.updatedAt}) que o Supabase (${remoteT.updatedAt}). Preservando alteração local.`);
+        // Lazy background update to Supabase to self-heal
+        saveSupabaseTicket(t).catch(err => console.error(`[Supabase Sync BG] Erro ao sincronizar chamado #${t.id} mais novo no Supabase:`, err));
+      }
+    }
+  }
+
+  return Array.from(mergedMap.values());
+}
+
 // Helper to load/save database
 async function loadTickets(): Promise<Ticket[]> {
   const now = Date.now();
+  const localTickets = getLocalTickets();
 
   // If Supabase is configured and healthy, and we have no cache or it is stale, try to fetch synchronously first
   if (isSupabaseConfigured() && isSupabaseHealthy() && (cachedTickets === null || now - lastTicketsCacheTime >= CACHE_TTL_MS)) {
     try {
-      const tickets = await getSupabaseTickets();
-      if (tickets !== null && Array.isArray(tickets)) {
+      const remoteTickets = await getSupabaseTickets();
+      if (remoteTickets !== null && Array.isArray(remoteTickets)) {
+        const merged = mergeTickets(localTickets, remoteTickets);
         try {
-          fs.writeFileSync(DB_FILE, JSON.stringify(tickets, null, 2), "utf-8");
+          fs.writeFileSync(DB_FILE, JSON.stringify(merged, null, 2), "utf-8");
         } catch (e) {}
-        cachedTickets = tickets;
+        cachedTickets = merged;
         lastTicketsCacheTime = now;
-        return tickets;
+        return merged;
       }
     } catch (error) {
       console.warn("Erro ao carregar chamados do Supabase em tempo real, tentando ler cache local:", error);
@@ -268,12 +301,14 @@ async function loadTickets(): Promise<Ticket[]> {
     if (isSupabaseConfigured() && isSupabaseHealthy() && !isRevalidatingTickets) {
       isRevalidatingTickets = true;
       getSupabaseTickets()
-        .then((tickets) => {
-          if (tickets !== null && Array.isArray(tickets)) {
+        .then((remoteTickets) => {
+          if (remoteTickets !== null && Array.isArray(remoteTickets)) {
+            const currentLocal = getLocalTickets();
+            const merged = mergeTickets(currentLocal, remoteTickets);
             try {
-              fs.writeFileSync(DB_FILE, JSON.stringify(tickets, null, 2), "utf-8");
+              fs.writeFileSync(DB_FILE, JSON.stringify(merged, null, 2), "utf-8");
             } catch (e) {}
-            cachedTickets = tickets;
+            cachedTickets = merged;
             lastTicketsCacheTime = Date.now();
           }
         })
@@ -289,34 +324,23 @@ async function loadTickets(): Promise<Ticket[]> {
     return cachedTickets;
   }
 
-  // If memory cache is null, try to read from local file synchronously (instant)
-  let tickets: any = null;
-  try {
-    if (fs.existsSync(DB_FILE)) {
-      const data = fs.readFileSync(DB_FILE, "utf-8").trim();
-      if (data) {
-        tickets = JSON.parse(data);
-        if (Array.isArray(tickets)) {
-          cachedTickets = tickets;
-          lastTicketsCacheTime = now;
-        }
-      }
-    }
-  } catch (error) {
-    console.error("Erro ao ler banco de dados de chamados local:", error);
-  }
+  // If memory cache is null, use localTickets as baseline
+  if (localTickets.length > 0) {
+    cachedTickets = localTickets;
+    lastTicketsCacheTime = now;
 
-  // If we loaded tickets from file, trigger background revalidation to update memory & file
-  if (cachedTickets !== null) {
+    // Trigger background revalidation to update memory & file
     if (isSupabaseConfigured() && isSupabaseHealthy() && !isRevalidatingTickets) {
       isRevalidatingTickets = true;
       getSupabaseTickets()
-        .then((tickets) => {
-          if (tickets !== null && Array.isArray(tickets)) {
+        .then((remoteTickets) => {
+          if (remoteTickets !== null && Array.isArray(remoteTickets)) {
+            const currentLocal = getLocalTickets();
+            const merged = mergeTickets(currentLocal, remoteTickets);
             try {
-              fs.writeFileSync(DB_FILE, JSON.stringify(tickets, null, 2), "utf-8");
+              fs.writeFileSync(DB_FILE, JSON.stringify(merged, null, 2), "utf-8");
             } catch (e) {}
-            cachedTickets = tickets;
+            cachedTickets = merged;
             lastTicketsCacheTime = Date.now();
           }
         })
@@ -327,18 +351,16 @@ async function loadTickets(): Promise<Ticket[]> {
           isRevalidatingTickets = false;
         });
     }
-    return cachedTickets;
+    return localTickets;
   }
 
-  // Initialize with static seed data if everything else fails
-  try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(initialTickets, null, 2), "utf-8");
-  } catch (e) {}
-  
-  const seed = initialTickets as any as Ticket[];
-  cachedTickets = seed;
-  lastTicketsCacheTime = now;
-  return seed;
+  // Fallback to static seed data if empty
+  if (cachedTickets === null) {
+    cachedTickets = JSON.parse(JSON.stringify(initialTickets)) as any as Ticket[];
+    lastTicketsCacheTime = now;
+  }
+
+  return cachedTickets;
 }
 
 async function saveTickets(tickets: Ticket[], singleChangedTicket?: Ticket) {
@@ -410,7 +432,7 @@ async function loadUsers(): Promise<User[]> {
               id: missingUser.id,
               name: missingUser.name,
               email: missingUser.email,
-              password: hashPassword(missingUser.password || "123"),
+              password: hashPassword(missingUser.password || ""),
               department: missingUser.department,
               role: missingUser.role === "tecnico" ? "tecnico" : "colaborador",
               mustChangePassword: missingUser.mustChangePassword !== false
@@ -466,7 +488,7 @@ async function loadUsers(): Promise<User[]> {
                   id: missingUser.id,
                   name: missingUser.name,
                   email: missingUser.email,
-                  password: hashPassword(missingUser.password || "123"),
+                  password: hashPassword(missingUser.password || ""),
                   department: missingUser.department,
                   role: missingUser.role === "tecnico" ? "tecnico" : "colaborador",
                   mustChangePassword: missingUser.mustChangePassword !== false
@@ -527,7 +549,7 @@ async function loadUsers(): Promise<User[]> {
           id: missingUser.id,
           name: missingUser.name,
           email: missingUser.email,
-          password: hashPassword(missingUser.password || "123"),
+          password: hashPassword(missingUser.password || ""),
           department: missingUser.department,
           role: missingUser.role === "tecnico" ? "tecnico" : "colaborador",
           mustChangePassword: missingUser.mustChangePassword !== false
@@ -583,7 +605,7 @@ async function loadUsers(): Promise<User[]> {
                 id: missingUser.id,
                 name: missingUser.name,
                 email: missingUser.email,
-                password: hashPassword(missingUser.password || "123"),
+                password: hashPassword(missingUser.password || ""),
                 department: missingUser.department,
                 role: missingUser.role === "tecnico" ? "tecnico" : "colaborador",
                 mustChangePassword: missingUser.mustChangePassword !== false
@@ -982,7 +1004,7 @@ app.post("/api/login", async (req, res) => {
 
     const emailLower = email.trim().toLowerCase();
 
-    // If this is an initial user (like til7sete@gmail.com), ensure they are registered and fully synced before continuing
+    // If this is an initial user, ensure they are registered and fully synced before continuing
     const matchInitial = initialUsers.find(u => u.email.toLowerCase() === emailLower);
     if (matchInitial) {
       const allUsers = await loadUsers();
@@ -992,7 +1014,7 @@ app.post("/api/login", async (req, res) => {
           id: matchInitial.id,
           name: matchInitial.name,
           email: matchInitial.email,
-          password: hashPassword(matchInitial.password || "123"),
+          password: hashPassword(matchInitial.password || ""),
           department: matchInitial.department,
           role: matchInitial.role === "tecnico" ? "tecnico" : "colaborador",
           mustChangePassword: matchInitial.mustChangePassword !== false
@@ -1535,8 +1557,13 @@ app.patch("/api/tickets/:id", async (req, res) => {
     const oldTicket = tickets[index];
     const updatedTicket = { ...oldTicket };
 
-    // Validation: prevent another technician from modifying an already assigned ticket (stealing, priority change, category change, finalization)
-    if (oldTicket.assignedTo) {
+    // Find if the requester is a technician to allow full management permissions
+    const users = await loadUsers();
+    const requester = users.find(u => u.name === requesterUser || u.email === requesterUser);
+    const isRequesterTech = requester ? requester.role === "tecnico" : false;
+
+    // Validation: prevent another technician/user from modifying an already assigned ticket (stealing, priority change, category change, finalization)
+    if (oldTicket.assignedTo && !isRequesterTech) {
       const assignedTechs = oldTicket.assignedTo.split(",").map(s => s.trim()).filter(Boolean);
       if (requesterUser && !assignedTechs.includes(requesterUser)) {
         const isChangingAssignedTo = assignedTo !== undefined && assignedTo !== oldTicket.assignedTo;
@@ -1554,8 +1581,8 @@ app.patch("/api/tickets/:id", async (req, res) => {
       }
     }
 
-    // Validation: Only the first assigned technician can change/assign other technicians
-    if (assignedTo !== undefined && assignedTo !== oldTicket.assignedTo) {
+    // Validation: Only the first assigned technician can change/assign other technicians (skip if requester is a technician/admin)
+    if (assignedTo !== undefined && assignedTo !== oldTicket.assignedTo && !isRequesterTech) {
       const oldTechs = oldTicket.assignedTo ? oldTicket.assignedTo.split(",").map(s => s.trim()).filter(Boolean) : [];
       if (oldTechs.length > 0) {
         const firstTech = oldTicket.firstAssignedTo || oldTechs[0];

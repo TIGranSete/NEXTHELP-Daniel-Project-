@@ -18,9 +18,10 @@ interface SlaAnalyticsProps {
   tickets: Ticket[];
   users?: any[];
   onViewUserProfile?: (user: any) => void;
+  onSelectTicket?: (ticketId: string) => void;
 }
 
-export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }: SlaAnalyticsProps) {
+export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, onSelectTicket }: SlaAnalyticsProps) {
   const [period, setPeriod] = useState<string>("all");
   const [selectedTech, setSelectedTech] = useState<string>("all");
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
@@ -30,6 +31,9 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
   const [selectedSectorForMembers, setSelectedSectorForMembers] = useState<string | null>(null);
   const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
   const [statusCategoryFilter, setStatusCategoryFilter] = useState<string | null>(null);
+  const [selectedCategoryForDetails, setSelectedCategoryForDetails] = useState<string | null>(null);
+  const [categorySearchQuery, setCategorySearchQuery] = useState<string>("");
+  const [categoryStatusTab, setCategoryStatusTab] = useState<string>("all");
 
   const handleUserClick = (userName: string, userDepartment: string) => {
     if (onViewUserProfile) {
@@ -1131,7 +1135,12 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
         
         {/* Category distribution visualizer */}
         <div className="lg:col-span-7 bg-[#050505] border border-neutral-900 rounded-2xl p-5 hover:border-emerald-500/10 transition-all">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400 mb-4">Volume de Chamados por Categoria</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">Volume de Chamados por Categoria</h3>
+            <span className="text-[10px] text-emerald-400/80 font-mono flex items-center gap-1">
+              <FileText className="w-3 h-3 text-emerald-400" /> Clique no tipo para ver descrições
+            </span>
+          </div>
           <div className="space-y-3.5">
             {allCategoryEntries.map(([cat, count]) => {
               const pct = Math.round((count / maxCategoryCount) * 100);
@@ -1151,15 +1160,29 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
               const unit = cat === "Projetos" ? (count !== 1 ? "projetos" : "projeto") : (count !== 1 ? "chamados" : "chamado");
 
               return (
-                <div key={cat} className="flex items-center space-x-3 text-xs">
-                  <div className="w-20 font-semibold text-neutral-300 truncate">{cat}</div>
-                  <div className="flex-1 bg-black border border-neutral-950 h-6 rounded-lg overflow-hidden relative flex items-center px-2.5">
+                <div 
+                  key={cat} 
+                  onClick={() => {
+                    setSelectedCategoryForDetails(cat);
+                    setCategorySearchQuery("");
+                    setCategoryStatusTab("all");
+                  }}
+                  className="flex items-center space-x-3 text-xs p-1.5 rounded-xl hover:bg-neutral-900/80 cursor-pointer border border-transparent hover:border-emerald-500/30 transition-all group/cat"
+                  title={`Clique para ver as descrições dos chamados da categoria ${cat}`}
+                >
+                  <div className="w-20 font-semibold text-neutral-300 truncate group-hover/cat:text-emerald-400 transition-colors flex items-center gap-1">
+                    <span>{cat}</span>
+                  </div>
+                  <div className="flex-1 bg-black border border-neutral-950 h-7 rounded-lg overflow-hidden relative flex items-center px-2.5 transition-all group-hover/cat:border-emerald-500/40">
                     <div 
-                      className={`absolute top-0 left-0 bottom-0 ${barColors[cat] || "bg-neutral-500"} rounded-r-lg transition-all duration-700 opacity-85`}
+                      className={`absolute top-0 left-0 bottom-0 ${barColors[cat] || "bg-neutral-500"} rounded-r-lg transition-all duration-700 opacity-85 group-hover/cat:opacity-100`}
                       style={{ width: `${Math.max(pct, 5)}%` }}
                     ></div>
-                    <span className="relative z-10 text-[10px] font-extrabold text-black uppercase">
-                      {count} {unit}
+                    <span className="relative z-10 text-[10px] font-extrabold text-black uppercase flex items-center justify-between w-full pr-1">
+                      <span>{count} {unit}</span>
+                      <span className="text-[9px] font-mono text-black/90 opacity-0 group-hover/cat:opacity-100 transition-opacity bg-white/60 px-1.5 py-0.5 rounded font-extrabold shadow-sm">
+                        Ver descrições ➔
+                      </span>
                     </span>
                   </div>
                   <div className="w-10 text-right text-emerald-400 text-[10px] font-bold">{totalPct}%</div>
@@ -1659,6 +1682,244 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile }:
             {/* Modal Footer */}
             <div className="p-4 bg-black/40 border-t border-neutral-900 text-center text-[10px] text-slate-500 font-medium">
               Escolha o formato ideal para a sua auditoria operacional.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Category Tickets Details Modal with Descriptions */}
+      {selectedCategoryForDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-[#0a0a0a] border border-neutral-800 rounded-3xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-neutral-900 flex items-center justify-between bg-black/60">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                  <FileText className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-sm sm:text-base font-extrabold text-white">
+                      Chamados da Categoria: <span className="text-emerald-400">{selectedCategoryForDetails}</span>
+                    </h3>
+                    <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2.5 py-0.5 rounded-full font-mono">
+                      {
+                        filteredTickets.filter(t => {
+                          const catStr = t.category as string;
+                          if (selectedCategoryForDetails === "Projetos") return !!t.projectDeadline || catStr === "Projetos";
+                          if (selectedCategoryForDetails === "Outros") return (!catStr || catStr === "Outros" || (catStr !== "Hardware" && catStr !== "Software" && catStr !== "Redes" && catStr !== "Acesso" && catStr !== "Sistemas" && catStr !== "Projetos")) && !t.projectDeadline;
+                          return catStr === selectedCategoryForDetails && !t.projectDeadline;
+                        }).length
+                      } chamado(s)
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Exibindo descrições e detalhes completos dos chamados registrados.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  setSelectedCategoryForDetails(null);
+                  setCategorySearchQuery("");
+                  setCategoryStatusTab("all");
+                }}
+                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-neutral-900 border border-transparent hover:border-neutral-800 transition cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Filter / Search Bar */}
+            <div className="p-3.5 border-b border-neutral-900 bg-neutral-950/80 flex flex-col sm:flex-row items-center justify-between gap-3 font-mono">
+              {/* Search input */}
+              <div className="relative w-full sm:w-80">
+                <input
+                  type="text"
+                  value={categorySearchQuery}
+                  onChange={(e) => setCategorySearchQuery(e.target.value)}
+                  placeholder="Buscar por código, título, solicitante ou descrição..."
+                  className="w-full bg-black border border-neutral-800 focus:border-emerald-500/50 rounded-xl px-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none transition-all"
+                />
+              </div>
+
+              {/* Status filter tabs */}
+              <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto text-[10px]">
+                {[
+                  { id: "all", label: "Todos" },
+                  { id: "Aberto", label: "Abertos" },
+                  { id: "Em Atendimento", label: "Em Fila" },
+                  { id: "Resolvido", label: "Resolvidos" },
+                  { id: "Fechado", label: "Fechados" },
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setCategoryStatusTab(tab.id)}
+                    className={`px-2.5 py-1 rounded-lg border font-bold transition-all cursor-pointer ${
+                      categoryStatusTab === tab.id
+                        ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-neon-sm"
+                        : "bg-black/40 text-neutral-400 border-neutral-850 hover:border-neutral-700"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Modal Content - List of Tickets with Descriptions */}
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1 custom-scrollbar">
+              {(() => {
+                const categoryList = filteredTickets.filter(t => {
+                  let matchesCategory = false;
+                  const catStr = t.category as string;
+                  if (selectedCategoryForDetails === "Projetos") {
+                    matchesCategory = !!t.projectDeadline || catStr === "Projetos";
+                  } else if (selectedCategoryForDetails === "Outros") {
+                    matchesCategory = (!catStr || catStr === "Outros" || (catStr !== "Hardware" && catStr !== "Software" && catStr !== "Redes" && catStr !== "Acesso" && catStr !== "Sistemas" && catStr !== "Projetos")) && !t.projectDeadline;
+                  } else {
+                    matchesCategory = catStr === selectedCategoryForDetails && !t.projectDeadline;
+                  }
+
+                  if (!matchesCategory) return false;
+
+                  if (categoryStatusTab !== "all" && t.status !== categoryStatusTab) {
+                    return false;
+                  }
+
+                  if (categorySearchQuery.trim()) {
+                    const q = categorySearchQuery.toLowerCase().trim();
+                    const matchId = t.id.toLowerCase().includes(q);
+                    const matchTitle = t.title.toLowerCase().includes(q);
+                    const matchDesc = (t.description || "").toLowerCase().includes(q);
+                    const matchUser = (t.requesterName || "").toLowerCase().includes(q);
+                    const matchDept = (t.requesterDepartment || "").toLowerCase().includes(q);
+                    return matchId || matchTitle || matchDesc || matchUser || matchDept;
+                  }
+
+                  return true;
+                });
+
+                if (categoryList.length === 0) {
+                  return (
+                    <div className="py-12 text-center text-slate-500 space-y-3 font-mono">
+                      <HelpCircle className="h-10 w-10 text-neutral-700 mx-auto" />
+                      <div>
+                        <h4 className="text-sm font-bold text-neutral-400">Nenhum chamado encontrado</h4>
+                        <p className="text-xs text-neutral-500 mt-1">
+                          {categorySearchQuery ? "Nenhum resultado corresponde à sua busca." : "Não há chamados registrados para esta categoria com o filtro selecionado."}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return categoryList.map(ticket => {
+                  const priorityBorder = 
+                    ticket.priority === "Urgente" ? "border-l-rose-500" :
+                    ticket.priority === "Alta" ? "border-l-amber-500" :
+                    ticket.priority === "Média" ? "border-l-emerald-500" : "border-l-neutral-700";
+
+                  return (
+                    <div
+                      key={ticket.id}
+                      className={`bg-neutral-950/80 border border-neutral-900 border-l-4 ${priorityBorder} rounded-2xl p-4 sm:p-5 space-y-3 transition-all hover:border-neutral-800 shadow-lg`}
+                    >
+                      {/* Header row: ID, Badges, Date */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-900/80 pb-3">
+                        <div className="flex flex-wrap items-center gap-2 font-mono">
+                          <span className="text-xs font-black text-emerald-400 bg-emerald-950/60 border border-emerald-500/20 px-2 py-0.5 rounded-md">
+                            #{ticket.id}
+                          </span>
+                          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-md ${
+                            ticket.status === "Aberto" ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" :
+                            ticket.status === "Em Atendimento" ? "bg-sky-500/10 text-sky-400 border border-sky-500/20 shadow-[0_0_10px_rgba(56,189,248,0.05)]" :
+                            ticket.status === "Resolvido" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.05)]" :
+                            ticket.status === "Fechado" ? "bg-zinc-800/40 text-zinc-400 border border-zinc-700/30" :
+                            "bg-neutral-900 text-neutral-400 border border-neutral-850"
+                          }`}>
+                            {ticket.status}
+                          </span>
+                          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-md ${
+                            ticket.priority === "Urgente" ? "bg-rose-500/10 text-rose-400 border border-rose-500/20" :
+                            ticket.priority === "Alta" ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" :
+                            ticket.priority === "Média" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" :
+                            "bg-neutral-900 text-neutral-400 border border-neutral-850"
+                          }`}>
+                            Prioridade: {ticket.priority}
+                          </span>
+                        </div>
+
+                        <div className="text-[11px] text-slate-500 font-mono flex items-center gap-1.5">
+                          <Clock className="w-3 h-3 text-slate-600" />
+                          <span>{new Date(ticket.createdAt).toLocaleDateString("pt-BR")} às {new Date(ticket.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+                        </div>
+                      </div>
+
+                      {/* Ticket Title & Solicitante */}
+                      <div>
+                        <h4 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
+                          {ticket.title}
+                        </h4>
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 mt-1 font-mono">
+                          <span className="flex items-center gap-1">
+                            <User className="w-3 h-3 text-emerald-500" />
+                            Solicitante: <strong className="text-slate-200">{ticket.requesterName || "Não informado"}</strong>
+                          </span>
+                          {ticket.requesterDepartment && (
+                            <span className="bg-neutral-900 px-2 py-0.5 rounded text-[10px] text-neutral-400 border border-neutral-850">
+                              {ticket.requesterDepartment}
+                            </span>
+                          )}
+                          {ticket.assignedTo && (
+                            <span className="text-emerald-400/90 text-[11px]">
+                              Técnico: <strong>{ticket.assignedTo}</strong>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* DESCRIÇÃO COMPLETA DO CHAMADO */}
+                      <div className="space-y-1.5 pt-1">
+                        <div className="text-[10px] font-bold text-emerald-400/90 uppercase tracking-wider font-mono flex items-center gap-1.5">
+                          <FileText className="w-3.5 h-3.5 text-emerald-400" />
+                          Descrição do Chamado:
+                        </div>
+                        <div className="p-3.5 bg-black/70 border border-neutral-850 rounded-xl text-xs text-slate-200 leading-relaxed font-sans whitespace-pre-line shadow-inner select-text">
+                          {ticket.description && ticket.description.trim() ? ticket.description : <span className="text-slate-500 italic">Sem descrição informada para este chamado.</span>}
+                        </div>
+                      </div>
+
+                      {/* Optional Action Button to open complete ticket view */}
+                      {onSelectTicket && (
+                        <div className="pt-2 flex justify-end">
+                          <button
+                            onClick={() => {
+                              onSelectTicket(ticket.id);
+                              setSelectedCategoryForDetails(null);
+                            }}
+                            className="text-xs font-bold font-mono text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 px-3 py-1.5 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                          >
+                            Abrir Chamado Completo ➔
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-neutral-900 bg-black/60 flex items-center justify-between text-xs text-slate-500 font-mono">
+              <span>Clique em "Abrir Chamado Completo" para gerenciar o chamado.</span>
+              <button
+                onClick={() => setSelectedCategoryForDetails(null)}
+                className="px-4 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-850 text-white font-bold transition cursor-pointer"
+              >
+                Fechar
+              </button>
             </div>
           </div>
         </div>

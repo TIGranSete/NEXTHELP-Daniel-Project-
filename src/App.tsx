@@ -5,6 +5,7 @@ import { getApiUrl } from "./lib/api";
 import SlaAnalytics from "./components/SlaAnalytics";
 import LoginScreen from "./components/LoginScreen";
 import ChangePasswordScreen from "./components/ChangePasswordScreen";
+import Gran7Brand from "./components/Gran7Brand";
 import WindowsDatePicker from "./components/WindowsDatePicker";
 import PlantationBackground from "./components/PlantationBackground";
 import logoImg from "./assets/images/logo.png";
@@ -165,6 +166,9 @@ export default function App() {
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState<boolean>(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [projectViewMode, setProjectViewMode] = useState<"bento" | "kanban" | "timeline">("bento");
+  const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
+  const [draggedOverColumn, setDraggedOverColumn] = useState<string | null>(null);
+
 
   // Database status and synchronization states
   const [dbStatus, setDbStatus] = useState<{ configured: boolean; connected: boolean; error: string | null } | null>(null);
@@ -1192,11 +1196,8 @@ export default function App() {
         </div>
 
         {/* Text Area */}
-        <div className="space-y-1 sm:space-y-1.5 text-center">
-          <h1 className="font-display font-black text-lg sm:text-2xl tracking-tight text-white flex items-center justify-center">
-            GRAN<span className="text-emerald-400 font-bold italic">7</span><span className="text-emerald-400 font-light tracking-[0.2em] ml-1 sm:ml-1.5"> HELP</span>
-          </h1>
-          <p className="text-[8px] sm:text-[10px] uppercase tracking-[0.2em] sm:tracking-[0.25em] text-slate-500 font-extrabold">Help Desk inteligente corporativo</p>
+        <div className="text-center py-1">
+          <Gran7Brand size="lg" showSubtitle={true} subtitleText="HELP DESK INTELLIGENTE CORPORATIVO" />
         </div>
 
         {/* Detailed Progress Loading Section */}
@@ -1647,7 +1648,8 @@ export default function App() {
                 <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
                   <span className="flex items-center gap-1.5">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    GRAN7 HELP <span className="text-neutral-600 font-bold">v2.4.0</span>
+                    <Gran7Brand size="xs" />
+                    <span className="text-neutral-600 font-bold ml-1">v2.4.0</span>
                   </span>
                 </div>
               </div>
@@ -1981,9 +1983,11 @@ export default function App() {
             {/* Footer info & resetting data */}
             <div className="p-4 border-t border-neutral-900 mt-auto">
               <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
-                <span className="flex items-center gap-1">
+                <span className="flex items-center gap-1.5">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  GRAN7 HELP Online <span className="text-neutral-600 font-bold ml-0.5">v2.4.0</span>
+                  <Gran7Brand size="xs" />
+                  <span className="text-emerald-400/80 font-bold ml-0.5">Online</span>
+                  <span className="text-neutral-600 font-bold ml-0.5">v2.4.0</span>
                 </span>
                 {currentSession?.role === "tecnico" && (
                   <span 
@@ -2229,6 +2233,10 @@ export default function App() {
                 onViewUserProfile={(user) => {
                   setSelectedTechProfile(user);
                   setIsTechProfileModalOpen(true);
+                }}
+                onSelectTicket={(ticketId) => {
+                  setSelectedTicketId(ticketId);
+                  setActiveTab("chamados");
                 }}
               />
             </motion.div>
@@ -3008,45 +3016,8 @@ export default function App() {
                     </div>
                     <div>
                       <h4 className="text-sm font-bold text-white uppercase tracking-wider">Painel de Projetos</h4>
-                      <p className="text-[10px] text-slate-400">Visão geral, quadros e cronogramas de entregas corporativas</p>
+                      <p className="text-[10px] text-slate-400">Gerenciamento ágil de projetos corporativos</p>
                     </div>
-                  </div>
-
-                  {/* Mode switcher tabs */}
-                  <div className="flex items-center gap-1.5 bg-black p-1 rounded-xl border border-neutral-900 self-start md:self-auto shrink-0">
-                    <button
-                      onClick={() => setProjectViewMode("bento")}
-                      className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
-                        projectViewMode === "bento" 
-                          ? "bg-emerald-400 text-black font-extrabold shadow-neon" 
-                          : "text-slate-400 hover:text-white"
-                      }`}
-                    >
-                      <Layers className="h-3.5 w-3.5" />
-                      <span>Bento</span>
-                    </button>
-                    <button
-                      onClick={() => setProjectViewMode("kanban")}
-                      className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
-                        projectViewMode === "kanban" 
-                          ? "bg-emerald-400 text-black font-extrabold shadow-neon" 
-                          : "text-slate-400 hover:text-white"
-                      }`}
-                    >
-                      <FolderKanban className="h-3.5 w-3.5" />
-                      <span>Kanban</span>
-                    </button>
-                    <button
-                      onClick={() => setProjectViewMode("timeline")}
-                      className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
-                        projectViewMode === "timeline" 
-                          ? "bg-emerald-400 text-black font-extrabold shadow-neon" 
-                          : "text-slate-400 hover:text-white"
-                      }`}
-                    >
-                      <Calendar className="h-3.5 w-3.5" />
-                      <span>Cronograma</span>
-                    </button>
                   </div>
                 </div>
 
@@ -3105,192 +3076,73 @@ export default function App() {
                       <p className="text-xs font-bold text-emerald-400 uppercase tracking-widest">Nenhum projeto encontrado</p>
                       <p className="text-[10px] text-neutral-600 mt-2">Ajuste os filtros ou crie um novo chamado definindo uma Data Limite.</p>
                     </div>
-                  ) : projectViewMode === "bento" ? (
-                    
-                    /* BENTO CARD VIEW */
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {filteredTickets.map((project) => {
-                        const isSelected = project.id === selectedTicketId;
-                        const commentsCount = project.comments.filter(c => c.authorRole !== "system").length;
-                        
-                        // Priority colors
-                        const priorityColor = 
-                          project.priority === "Urgente" ? "text-rose-400 bg-rose-500/10 border-rose-500/20" :
-                          project.priority === "Alta" ? "text-amber-400 bg-amber-500/10 border-amber-500/20" :
-                          project.priority === "Média" ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" : 
-                          "text-neutral-400 bg-neutral-900 border-neutral-800";
-
-                        // Project Progress Calculation
-                        let progressVal = 15;
-                        if (project.status === "Resolvido" || project.status === "Fechado") {
-                          progressVal = 100;
-                        } else if (project.status === "Em Atendimento") {
-                          if (commentsCount >= 4) progressVal = 85;
-                          else if (commentsCount === 3) progressVal = 70;
-                          else if (commentsCount === 2) progressVal = 55;
-                          else if (commentsCount === 1) progressVal = 40;
-                          else progressVal = 30;
-                        }
-
-                        // Time Calculation
-                        let timeBadge = null;
-                        const isOverdue = isTicketOverdue(project);
-                        
-                        if (project.projectDeadline) {
-                          const diffTime = new Date(project.projectDeadline).getTime() - Date.now();
-                          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                          
-                          if (isOverdue) {
-                            timeBadge = (
-                              <span className="flex items-center gap-1 px-2.5 py-1 text-[9px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-400 border border-rose-500/25 rounded-full animate-pulse">
-                                <Clock className="h-3 w-3" />
-                                Atrasado por {Math.abs(diffDays)}d
-                              </span>
-                            );
-                          } else if (diffDays === 0) {
-                            timeBadge = (
-                              <span className="flex items-center gap-1 px-2.5 py-1 text-[9px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-full animate-pulse">
-                                <Clock className="h-3 w-3" />
-                                Vence Hoje
-                              </span>
-                            );
-                          } else if (diffDays <= 3) {
-                            timeBadge = (
-                              <span className="flex items-center gap-1 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full">
-                                <Clock className="h-3 w-3" />
-                                Limite em {diffDays}d
-                              </span>
-                            );
-                          } else {
-                            timeBadge = (
-                              <span className="flex items-center gap-1 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full">
-                                <Clock className="h-3 w-3" />
-                                {diffDays}d restantes
-                              </span>
-                            );
-                          }
-                        }
-
-                        return (
-                          <div
-                            key={project.id}
-                            onClick={() => setSelectedTicketId(project.id)}
-                            className={`p-5 bg-gradient-to-br from-[#0a0a0a] to-[#050505] hover:to-[#0d0d0d] border rounded-2xl transition-all duration-300 cursor-pointer flex flex-col justify-between min-h-[200px] relative overflow-hidden group ${
-                              isSelected 
-                                ? "border-emerald-400 ring-2 ring-emerald-400/25 bg-black shadow-neon-sm" 
-                                : "border-neutral-900 hover:border-neutral-800"
-                            }`}
-                          >
-                            <div className="space-y-3.5">
-                              {/* Card Header row */}
-                              <div className="flex items-center justify-between gap-2 flex-wrap">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-[9px] font-mono font-bold text-slate-500 uppercase">
-                                    #{project.id}
-                                  </span>
-                                  <span className={`text-[8px] md:text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                                    project.status === "Aberto" ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
-                                    project.status === "Em Atendimento" ? "bg-sky-500/10 text-sky-400 border-sky-500/20" :
-                                    project.status === "Resolvido" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
-                                    "bg-zinc-850 text-zinc-400 border-zinc-800"
-                                  }`}>
-                                    {project.status}
-                                  </span>
-                                </div>
-                                {timeBadge}
-                              </div>
-
-                              {/* Title / Info */}
-                              <div>
-                                <h5 className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors line-clamp-1">{project.title}</h5>
-                                <p className="text-[11px] text-slate-400 line-clamp-2 mt-1 leading-relaxed">{project.description}</p>
-                              </div>
-                            </div>
-
-                            {/* Middle section: progress bar */}
-                            <div className="space-y-1.5 my-3.5">
-                              <div className="flex items-center justify-between text-[10px] font-bold">
-                                <span className="text-slate-500 uppercase tracking-wider text-[8px]">Progresso Estimado</span>
-                                <span className="text-emerald-400 font-mono">{progressVal}%</span>
-                              </div>
-                              <div className="h-1.5 bg-black/80 rounded-full overflow-hidden border border-neutral-900">
-                                <div 
-                                  className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full transition-all duration-500 shadow-[0_0_10px_rgba(52,211,153,0.3)]"
-                                  style={{ width: `${progressVal}%` }}
-                                />
-                              </div>
-                            </div>
-
-                            {/* Footer: Tech assignments and stats */}
-                            <div className="flex items-center justify-between border-t border-neutral-900/50 pt-3 mt-1.5 gap-2">
-                              <div className="flex items-center gap-1.5">
-                                <div className="flex -space-x-1.5 overflow-hidden">
-                                  {project.assignedTo ? (
-                                    getAssignedTechs(project.assignedTo).map((t, idx) => (
-                                      <div 
-                                        key={idx} 
-                                        className="h-5 w-5 rounded-full bg-neutral-900 border border-neutral-800 text-[8px] font-bold text-emerald-400 flex items-center justify-center shadow-sm"
-                                        title={t}
-                                      >
-                                        {t.substring(0, 2).toUpperCase()}
-                                      </div>
-                                    ))
-                                  ) : (
-                                    <span className="text-[9px] text-slate-500 italic">Sem responsável</span>
-                                  )}
-                                </div>
-                                {project.assignedTo && (
-                                  <span className="text-[8px] text-slate-500 font-bold uppercase truncate max-w-[80px]">
-                                    {getAssignedTechs(project.assignedTo)[0]}
-                                  </span>
-                                )}
-                              </div>
-
-                              <div className="flex items-center gap-2 text-slate-500 text-[10px]">
-                                {commentsCount > 0 && (
-                                  <span className="flex items-center gap-1" title={`${commentsCount} atualizações`}>
-                                    <MessageSquare className="h-3 w-3" />
-                                    <span>{commentsCount}</span>
-                                  </span>
-                                )}
-                                <span className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase border ${priorityColor}`}>
-                                  {project.priority}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                  ) : projectViewMode === "kanban" ? (
-                    
+                  ) : (
                     /* KANBAN BOARD VIEW */
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 overflow-x-auto pb-4">
-                      
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pb-4">
                       {(() => {
                         const columns = [
-                          { title: "Pendente", status: "Aberto", bg: "border-t-amber-500", text: "text-amber-400", dot: "bg-amber-400" },
-                          { title: "Em Execução", status: "Em Atendimento", bg: "border-t-sky-500", text: "text-sky-400", dot: "bg-sky-400" },
-                          { title: "Concluído", status: "Resolvido", bg: "border-t-emerald-500", text: "text-emerald-400", dot: "bg-emerald-400" }
+                          { title: "Não Iniciado", status: "Aberto" as const, bg: "border-t-amber-500", text: "text-amber-400", dot: "bg-amber-400" },
+                          { title: "Em Desenvolvimento", status: "Em Atendimento" as const, bg: "border-t-sky-500", text: "text-sky-400", dot: "bg-sky-400" },
+                          { title: "Finalizado", status: "Resolvido" as const, bg: "border-t-emerald-500", text: "text-emerald-400", dot: "bg-emerald-400" }
                         ];
 
                         return columns.map((col, colIdx) => {
-                          const colProjects = filteredTickets.filter(p => {
+                          const colProjects = filteredTickets.filter((p) => {
                             if (col.status === "Resolvido") {
                               return p.status === "Resolvido" || p.status === "Fechado";
+                            }
+                            if (col.status === "Em Atendimento") {
+                              return p.status === "Em Atendimento" || p.status === "Pendente" || p.status === "Testando";
                             }
                             return p.status === col.status;
                           });
 
+                          const isDraggedOver = draggedOverColumn === col.status;
+                          
+                          // Dynamic style for column when dragged over
+                          let highlightClass = "border-neutral-900 bg-[#050505]";
+                          if (isDraggedOver) {
+                            if (col.status === "Aberto") {
+                              highlightClass = "border-amber-500/50 bg-amber-500/[0.02] shadow-[0_0_15px_rgba(245,158,11,0.06)] scale-[1.01]";
+                            } else if (col.status === "Em Atendimento") {
+                              highlightClass = "border-sky-500/50 bg-sky-500/[0.02] shadow-[0_0_15px_rgba(56,189,248,0.06)] scale-[1.01]";
+                            } else if (col.status === "Resolvido") {
+                              highlightClass = "border-emerald-500/50 bg-emerald-500/[0.02] shadow-[0_0_15px_rgba(16,185,129,0.06)] scale-[1.01]";
+                            }
+                          }
+
                           return (
-                            <div key={colIdx} className="bg-[#050505] border border-neutral-900 rounded-2xl p-3 flex flex-col min-h-[500px]">
+                            <div 
+                              key={col.status}
+                              id={`kanban-col-${col.status.toLowerCase().replace(/\s+/g, '-')}`}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                if (draggedOverColumn !== col.status) {
+                                  setDraggedOverColumn(col.status);
+                                }
+                              }}
+                              onDragLeave={() => {
+                                setDraggedOverColumn(null);
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                setDraggedOverColumn(null);
+                                const projectId = e.dataTransfer.getData("text/plain") || draggedProjectId;
+                                if (projectId) {
+                                  handleUpdateTicketMeta(projectId, { status: col.status as Ticket["status"] });
+                                }
+                              }}
+                              className={`border p-3 flex flex-col min-h-[550px] transition-all duration-300 rounded-2xl w-full ${highlightClass}`}
+                            >
                               
                               {/* Column Header */}
-                              <div className={`flex items-center justify-between border-b border-neutral-900/60 pb-3 mb-3 border-t-2 ${col.bg} pt-1.5 px-1`}>
+                              <div className="flex items-center justify-between border-b border-neutral-900 pb-3 mb-3">
                                 <div className="flex items-center gap-2">
                                   <span className={`h-1.5 w-1.5 rounded-full ${col.dot} shadow-sm animate-pulse`} />
-                                  <span className="text-[10px] font-black uppercase text-white tracking-widest">{col.title}</span>
+                                  <span className="text-[10px] font-black uppercase text-white tracking-wider flex items-center gap-1.5">
+                                    {col.title}
+                                    {col.status === "Resolvido" && <Check className="h-3 w-3 text-emerald-400" />}
+                                  </span>
                                 </div>
                                 <span className="text-[10px] font-bold bg-neutral-900 px-2 py-0.5 rounded text-slate-400 font-mono border border-neutral-850">
                                   {colProjects.length}
@@ -3298,9 +3150,9 @@ export default function App() {
                               </div>
 
                               {/* Column Cards Container */}
-                              <div className="space-y-3 flex-1 overflow-y-auto max-h-[480px] pr-1">
+                              <div className="space-y-3 flex-1 overflow-y-auto max-h-[500px] pr-1 scrollbar-thin">
                                 {colProjects.length === 0 ? (
-                                  <div className="text-center py-10 border border-dashed border-neutral-900/40 rounded-xl text-neutral-600 text-[10px] font-mono">
+                                  <div className="text-center py-12 border border-dashed border-neutral-900/40 rounded-xl text-neutral-600 text-[10px] font-mono">
                                     Nenhum projeto nesta etapa
                                   </div>
                                 ) : (
@@ -3308,47 +3160,100 @@ export default function App() {
                                     const isSelected = project.id === selectedTicketId;
                                     const commentsCount = project.comments.filter(c => c.authorRole !== "system").length;
                                     
+                                    // Project dynamic estimation progress
                                     let progressVal = 15;
                                     if (project.status === "Resolvido" || project.status === "Fechado") {
                                       progressVal = 100;
                                     } else if (project.status === "Em Atendimento") {
                                       progressVal = commentsCount >= 3 ? 80 : commentsCount === 2 ? 60 : commentsCount === 1 ? 40 : 30;
+                                    } else if (project.status === "Testando") {
+                                      progressVal = 90;
+                                    } else if (project.status === "Pendente") {
+                                      progressVal = 20;
                                     }
+
+                                    // Priority custom pills
+                                    const priorityText = project.priority === "Urgente" ? "text-rose-400 bg-rose-500/10" : project.priority === "Alta" ? "text-amber-400 bg-amber-500/10" : "text-slate-400 bg-neutral-900";
 
                                     return (
                                       <div
                                         key={project.id}
+                                        id={`kanban-card-${project.id}`}
+                                        draggable
+                                        onDragStart={(e) => {
+                                          e.dataTransfer.setData("text/plain", project.id);
+                                          setDraggedProjectId(project.id);
+                                        }}
+                                        onDragEnd={() => {
+                                          setDraggedProjectId(null);
+                                          setDraggedOverColumn(null);
+                                        }}
                                         onClick={() => setSelectedTicketId(project.id)}
-                                        className={`p-3.5 bg-[#0a0a0a] hover:bg-neutral-900/40 border rounded-xl cursor-pointer transition-all duration-200 relative group flex flex-col justify-between gap-3 ${
+                                        className={`p-3 bg-neutral-950 hover:bg-[#070707] border transition-all duration-200 cursor-pointer rounded-xl flex flex-col justify-between gap-3 relative group overflow-hidden ${
                                           isSelected 
-                                            ? "border-emerald-400 ring-1 ring-emerald-400/20 bg-black" 
+                                            ? "border-emerald-400 ring-1 ring-emerald-400/35 bg-black shadow-neon-sm" 
                                             : "border-neutral-900 hover:border-neutral-850"
                                         }`}
                                       >
                                         <div className="space-y-1.5">
                                           <div className="flex items-center justify-between text-[8px] text-slate-500 font-bold uppercase font-mono">
                                             <span>#{project.id}</span>
-                                            <span className={project.priority === "Urgente" ? "text-rose-400" : project.priority === "Alta" ? "text-amber-400" : "text-slate-400"}>
+                                            <span className={`px-1.5 py-0.5 rounded text-[7px] font-black tracking-wider uppercase ${priorityText}`}>
                                               {project.priority}
                                             </span>
                                           </div>
+                                          
+                                          {/* Custom Tag Indicator similar to user's screenshot */}
+                                          <div className="flex flex-wrap gap-1">
+                                            {project.status === "Aberto" && (
+                                              <span className="text-[7px] font-black bg-neutral-900 text-zinc-400 border border-neutral-850 rounded px-1 uppercase tracking-wider">
+                                                IDEIA
+                                              </span>
+                                            )}
+                                            {project.status === "Em Atendimento" && (
+                                              <span className="text-[7px] font-black bg-sky-500/10 text-sky-400 border border-sky-500/20 rounded px-1 uppercase tracking-wider">
+                                                EXECUÇÃO
+                                              </span>
+                                            )}
+                                            {project.status === "Testando" && (
+                                              <span className="text-[7px] font-black bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded px-1 uppercase tracking-wider">
+                                                TESTE
+                                              </span>
+                                            )}
+                                            {project.status === "Resolvido" && (
+                                              <span className="text-[7px] font-black bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded px-1 uppercase tracking-wider">
+                                                ENTREGUE
+                                              </span>
+                                            )}
+                                            {project.status === "Fechado" && (
+                                              <span className="text-[7px] font-black bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded px-1 uppercase tracking-wider">
+                                                ABORTADO
+                                              </span>
+                                            )}
+                                            {project.status === "Pendente" && (
+                                              <span className="text-[7px] font-black bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded px-1 uppercase tracking-wider">
+                                                AGUARDANDO
+                                              </span>
+                                            )}
+                                          </div>
+
                                           <h6 className="text-[11px] font-extrabold text-white group-hover:text-emerald-400 transition-colors line-clamp-1 leading-tight">{project.title}</h6>
                                           <p className="text-[10px] text-slate-400 line-clamp-2 leading-relaxed">{project.description}</p>
                                         </div>
 
                                         {/* Progress line */}
                                         <div className="h-1 bg-black/60 rounded-full overflow-hidden">
-                                          <div className="h-full bg-emerald-400 transition-all duration-300" style={{ width: `${progressVal}%` }} />
+                                          <div className="h-full bg-emerald-400 transition-all duration-300 shadow-[0_0_6px_rgba(52,211,153,0.3)]" style={{ width: `${progressVal}%` }} />
                                         </div>
 
                                         {/* Quick status moves / assignees */}
-                                        <div className="flex items-center justify-between border-t border-neutral-900/40 pt-2 text-[9px] text-slate-500">
-                                          <div className="flex items-center gap-1 font-semibold text-[8px] bg-neutral-900 px-1.5 py-0.5 rounded text-emerald-400 border border-neutral-850">
+                                        <div className="flex items-center justify-between border-t border-neutral-900/40 pt-2 text-[9px] text-slate-500 font-bold">
+                                          <div className="flex items-center gap-1 text-[8px] bg-neutral-900 px-1.5 py-0.5 rounded text-emerald-400 border border-neutral-850">
                                             <Calendar className="h-2.5 w-2.5" />
                                             <span>
                                               {(() => {
                                                 try {
-                                                  const [y, m, d] = project.projectDeadline!.split("-");
+                                                  const [y, m, d] = project.projectDeadline.split("-");
                                                   return `${d}/${m}`;
                                                 } catch (e) {
                                                   return project.projectDeadline;
@@ -3357,29 +3262,36 @@ export default function App() {
                                             </span>
                                           </div>
 
-                                          {/* Quick Actions Switch for tech role */}
-                                          {currentSession.role === "tecnico" && (
-                                            <div className="flex items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-                                              {project.status === "Aberto" && (
-                                                <button
-                                                  onClick={() => handleUpdateTicketMeta(project.id, { status: "Em Atendimento" })}
-                                                  className="px-1.5 py-0.5 bg-sky-500/10 text-sky-400 border border-sky-500/20 rounded hover:bg-sky-500/20 text-[8px] font-black uppercase cursor-pointer"
-                                                  title="Assumir Projeto"
-                                                >
-                                                  Iniciar →
-                                                </button>
-                                              )}
-                                              {project.status === "Em Atendimento" && (
-                                                <button
-                                                  onClick={() => handleUpdateTicketMeta(project.id, { status: "Resolvido" })}
-                                                  className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded hover:bg-emerald-500/20 text-[8px] font-black uppercase cursor-pointer"
-                                                  title="Concluir Projeto"
-                                                >
-                                                  Concluir ✓
-                                                </button>
-                                              )}
-                                            </div>
-                                          )}
+                                          <div className="flex items-center gap-1.5">
+                                            {project.status !== "Resolvido" && project.status !== "Fechado" && (
+                                              <>
+                                                {project.status === "Aberto" && (
+                                                  <button
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleUpdateTicketMeta(project.id, { status: "Em Atendimento" });
+                                                    }}
+                                                    className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded hover:bg-emerald-500/20 text-[8px] font-black uppercase cursor-pointer"
+                                                    title="Iniciar Atendimento"
+                                                  >
+                                                    Iniciar →
+                                                  </button>
+                                                )}
+                                                {(project.status === "Em Atendimento" || project.status === "Pendente" || project.status === "Testando") && (
+                                                  <button
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleUpdateTicketMeta(project.id, { status: "Resolvido" });
+                                                    }}
+                                                    className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded hover:bg-emerald-500/20 text-[8px] font-black uppercase cursor-pointer"
+                                                    title="Concluir Projeto"
+                                                  >
+                                                    Concluir ✓
+                                                  </button>
+                                                )}
+                                              </>
+                                            )}
+                                          </div>
                                         </div>
                                       </div>
                                     );
@@ -3391,76 +3303,6 @@ export default function App() {
                         });
                       })()}
                     </div>
-
-                  ) : (
-                    
-                    /* TIMELINE VIEW */
-                    <div className="relative border border-neutral-900 rounded-2xl bg-[#030303] p-5 md:p-6 overflow-hidden shadow-lg">
-                      <div className="absolute left-6 md:left-8 top-10 bottom-10 w-[1px] bg-gradient-to-b from-emerald-500/30 via-emerald-500/10 to-neutral-900" />
-
-                      <div className="space-y-6 relative z-10">
-                        {(() => {
-                          const sortedProjects = [...filteredTickets].sort((a, b) => 
-                            new Date(a.projectDeadline!).getTime() - new Date(b.projectDeadline!).getTime()
-                          );
-
-                          return sortedProjects.map((project, index) => {
-                            const isSelected = project.id === selectedTicketId;
-                            const isOverdue = isTicketOverdue(project);
-                            
-                            // Color code
-                            const statusColor = 
-                              project.status === "Resolvido" || project.status === "Fechado" ? "border-emerald-500 bg-emerald-500" :
-                              isOverdue ? "border-rose-500 bg-rose-500 shadow-[0_0_10px_rgba(239,68,68,0.4)] animate-pulse" :
-                              "border-amber-500 bg-amber-500";
-
-                            return (
-                              <div
-                                key={project.id}
-                                onClick={() => setSelectedTicketId(project.id)}
-                                className="flex gap-4 md:gap-6 items-start cursor-pointer group"
-                              >
-                                {/* Timeline Bullet node */}
-                                <div className={`w-3 h-3 rounded-full border-2 ${statusColor} mt-1.5 shrink-0 z-10 transition-all duration-300 group-hover:scale-125`} />
-
-                                {/* Card on the right */}
-                                <div className={`flex-1 p-4 bg-[#0a0a0a] border hover:border-neutral-850 rounded-xl transition-all duration-200 ${
-                                  isSelected ? "border-emerald-400/50 bg-black shadow-neon-sm" : "border-neutral-900"
-                                }`}>
-                                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-1.5 mb-2">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-[9px] font-bold text-slate-500 font-mono uppercase">#{project.id}</span>
-                                      <h6 className="text-xs font-black text-white group-hover:text-emerald-400 transition-colors">{project.title}</h6>
-                                    </div>
-                                    <div className="text-[10px] font-bold text-emerald-400 flex items-center gap-1 bg-emerald-500/5 px-2 py-0.5 rounded-full border border-emerald-500/15">
-                                      <Calendar className="h-3 w-3" />
-                                      <span>
-                                        Entrega: {(() => {
-                                          try {
-                                            const [y, m, d] = project.projectDeadline!.split("-");
-                                            return `${d}/${m}/${y}`;
-                                          } catch (e) {
-                                            return project.projectDeadline;
-                                          }
-                                        })()}
-                                      </span>
-                                    </div>
-                                  </div>
-
-                                  <p className="text-[11px] text-slate-400 line-clamp-1 leading-relaxed">{project.description}</p>
-                                  
-                                  <div className="flex items-center justify-between border-t border-neutral-900/50 pt-2.5 mt-2.5 text-[9px] text-slate-500">
-                                    <span>Resp: <strong className="text-slate-400">{project.assignedTo || "Sem responsável"}</strong></span>
-                                    <span className="uppercase tracking-wider font-extrabold text-[8px] bg-neutral-900 px-1.5 py-0.5 rounded text-neutral-400 border border-neutral-850">{project.category}</span>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          });
-                        })()}
-                      </div>
-                    </div>
-
                   )}
                 </div>
 
@@ -3683,7 +3525,7 @@ export default function App() {
               selectedTicketId ? "block" : "hidden xl:block"
             }`}>
             
-            {/* Live active team indicator module - Bento Grid Block */}
+            {/* Live active IT team indicator module - Bento Grid Block */}
             <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-5 shadow-lg">
               <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                 <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 flex items-center gap-2">
@@ -3692,11 +3534,11 @@ export default function App() {
                 </h3>
                 <span className="text-[10px] bg-black text-emerald-400 px-2 py-0.5 rounded border border-neutral-900 font-bold uppercase tracking-wide flex items-center gap-1 animate-pulse">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                  Live
+                  Live ({users.filter(u => u.role === "tecnico").length})
                 </span>
               </div>
               
-              <div className="space-y-3 max-h-[280px] xl:max-h-[calc(100vh-620px)] overflow-y-auto pr-1">
+              <div className="space-y-2.5">
                 {(() => {
                   const filteredList = users
                     .filter(u => u.role === "tecnico")
@@ -3750,9 +3592,11 @@ export default function App() {
                             )}
                           </div>
                           <div>
-                            <p className="text-xs font-bold text-white">{user.name}</p>
+                            <p className="text-xs font-bold text-white flex items-center gap-1.5">
+                              <span>{user.name}</span>
+                            </p>
                             <p className="text-[10.5px] text-slate-400 font-medium">
-                              {user.department || "Suporte Técnico"} • <span className={user.isOnline ? "text-emerald-400 font-semibold" : "text-neutral-500"}>{user.isOnline ? "Ativo" : "Ausente"}</span>
+                              {user.department || "Tecnologia e Informação"} • <span className={user.isOnline ? "text-emerald-400 font-semibold" : "text-neutral-500"}>{user.isOnline ? "Ativo" : "Ausente"}</span>
                             </p>
                           </div>
                         </div>

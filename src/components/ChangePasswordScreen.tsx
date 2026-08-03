@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import loginBg from "../assets/images/WALLPAPER GRAN7 4.png";
 import logoImg from "../assets/images/logo.png";
+import Gran7Brand from "./Gran7Brand";
 
 interface ChangePasswordScreenProps {
   session: UserSession;
@@ -104,15 +105,9 @@ export default function ChangePasswordScreen({ session, onPasswordChanged, onLog
       <div className="w-full max-w-md space-y-6 z-10 animate-in fade-in duration-500">
         
         {/* App Logo & Header */}
-        <div className="text-center space-y-2">
-          <div className="inline-flex w-16 h-16 items-center justify-center mb-3">
-            <img 
-              src={logoImg} 
-              alt="GRAN7" 
-              className="w-16 h-16 object-contain rounded-2xl shadow-2xl shadow-emerald-500/20 border border-emerald-400/30"
-            />
-          </div>
-          <h1 className="font-display font-extrabold text-2xl tracking-tight text-white">
+        <div className="text-center space-y-3">
+          <Gran7Brand size="md" showIcon={true} showSubtitle={true} subtitleText="HELP DESK INTELLIGENTE CORPORATIVO" />
+          <h1 className="font-display font-extrabold text-xl tracking-tight text-white pt-2">
             Primeiro Acesso Detectado
           </h1>
           <p className="text-xs text-neutral-400 max-w-xs mx-auto">
