@@ -1766,13 +1766,36 @@ export default function App() {
               </div>
 
               {/* Drawer Footer */}
-              <div className="p-4 border-t border-neutral-900 bg-[#0a0a0a]">
-                <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
-                  <span className="flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <Gran7Brand size="xs" />
-                    <span className="text-neutral-600 font-bold ml-1">v2.4.0</span>
-                  </span>
+              <div className="p-3.5 border-t border-neutral-900 bg-[#070707]">
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-extrabold text-white text-[11px] tracking-tight">GRAN<span className="text-emerald-400 italic">7</span></span>
+                      <span className="text-[10px] text-slate-500 font-mono font-medium">v2.4</span>
+                    </div>
+                  </div>
+                  {currentSession?.role === "tecnico" && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        setActiveTab("banco_dados");
+                      }}
+                      className={`px-2.5 py-1 rounded-full text-[10px] font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
+                        dbStatus?.connected 
+                          ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20" 
+                          : "bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20"
+                      }`}
+                      title={dbStatus?.connected ? "Conectado ao Supabase" : "Modo Cache Local"}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${dbStatus?.connected ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
+                      <span>{dbStatus?.connected ? "Nuvem" : "Local"}</span>
+                    </button>
+                  )}
                 </div>
               </div>
             </motion.div>
@@ -2103,23 +2126,33 @@ export default function App() {
             </div>
 
             {/* Footer info & resetting data */}
-            <div className="p-4 border-t border-neutral-900 mt-auto">
-              <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
-                <span className="flex items-center gap-1.5">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <Gran7Brand size="xs" />
-                  <span className="text-emerald-400/80 font-bold ml-0.5">Online</span>
-                  <span className="text-neutral-600 font-bold ml-0.5">v2.4.0</span>
-                </span>
+            <div className="p-3.5 border-t border-neutral-900/80 bg-[#070707] mt-auto">
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-extrabold text-white text-[11px] tracking-tight">GRAN<span className="text-emerald-400 italic">7</span></span>
+                    <span className="text-[10px] text-slate-500 font-mono font-medium">v2.4</span>
+                  </div>
+                </div>
+
                 {currentSession?.role === "tecnico" && (
-                  <span 
+                  <button
+                    type="button"
                     onClick={() => setActiveTab("banco_dados")}
-                    className={`flex items-center gap-1.5 cursor-pointer transition ${dbStatus?.connected ? "text-emerald-400 hover:text-emerald-300 font-bold" : "text-amber-500 hover:text-amber-400"}`}
+                    className={`px-2.5 py-1 rounded-full text-[10px] font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
+                      dbStatus?.connected 
+                        ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20" 
+                        : "bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20"
+                    }`}
                     title={dbStatus?.connected ? "Conectado ao Supabase (Clique para gerenciar)" : "Modo Cache Local Ativo (Clique para gerenciar)"}
                   >
-                    <span className={`h-1.5 w-1.5 rounded-full ${dbStatus?.connected ? "bg-emerald-400 animate-pulse" : "bg-amber-500"}`} />
-                    {dbStatus?.connected ? "DB: Nuvem" : "DB: Local"}
-                  </span>
+                    <span className={`w-1.5 h-1.5 rounded-full ${dbStatus?.connected ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
+                    <span>{dbStatus?.connected ? "Nuvem" : "Local"}</span>
+                  </button>
                 )}
               </div>
             </div>
@@ -2715,7 +2748,7 @@ export default function App() {
             </div>
 
             {/* Bento Grid Analytics Row */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               
               {/* Card 1: Connection Status */}
               <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-5 flex flex-col justify-between min-h-[160px] shadow-lg">
@@ -2792,22 +2825,6 @@ export default function App() {
 
                 <div className="pt-4 border-t border-neutral-900/50 mt-4 text-[10px] text-slate-400 leading-tight">
                   Os arquivos <code className="text-emerald-400 font-mono">tickets-db.json</code> e <code className="text-emerald-400 font-mono">users-db.json</code> mantêm seus dados seguros no servidor.
-                </div>
-              </div>
-
-              {/* Card 3: Redundancy Details */}
-              <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-5 flex flex-col justify-between min-h-[160px] shadow-lg">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Garantia de Redundância</p>
-                  
-                  <p className="text-[11px] text-slate-300 mt-3 leading-relaxed">
-                    A arquitetura foi projetada para realizar <strong className="text-white">auto-cura</strong>: se o banco de dados falhar no login ou abertura de chamados, os dados são salvos localmente e podem ser sincronizados posteriormente.
-                  </p>
-                </div>
-
-                <div className="bg-emerald-950/20 border border-emerald-500/10 p-2 rounded-lg text-[9px] text-emerald-400 flex items-start gap-1.5 mt-3 leading-snug">
-                  <Shield className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                  <span>Segurança operacional máxima ativada. Suas operações são resilientes a falhas de API de terceiros.</span>
                 </div>
               </div>
 

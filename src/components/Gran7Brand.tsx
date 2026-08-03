@@ -29,11 +29,20 @@ export const Gran7Brand: React.FC<Gran7BrandProps> = ({
 
   // Subtitle size mappings
   const subtitleSizeClasses = {
-    xs: "text-[7px] tracking-[0.2em]",
-    sm: "text-[8px] sm:text-[9px] tracking-[0.22em]",
-    md: "text-[9px] sm:text-[11px] tracking-[0.25em]",
-    lg: "text-[10px] sm:text-[12px] tracking-[0.28em]",
-    xl: "text-[12px] sm:text-[14px] tracking-[0.3em]",
+    xs: "text-[7px] tracking-wider",
+    sm: "text-[8px] sm:text-[9px] tracking-wider",
+    md: "text-[9px] sm:text-[11px] tracking-[0.2em]",
+    lg: "text-[10px] sm:text-[12px] tracking-[0.25em]",
+    xl: "text-[12px] sm:text-[14px] tracking-[0.28em]",
+  }[size];
+
+  // HELP letter spacing mappings
+  const helpTrackingClasses = {
+    xs: "text-emerald-400 font-semibold tracking-normal ml-1 drop-shadow-none",
+    sm: "text-emerald-400 font-bold tracking-wider ml-1",
+    md: "text-emerald-400 font-bold tracking-[0.18em] ml-1.5 drop-shadow-[0_0_10px_rgba(52,211,153,0.4)]",
+    lg: "text-emerald-400 font-bold tracking-[0.24em] sm:tracking-[0.28em] ml-1.5 sm:ml-2 drop-shadow-[0_0_10px_rgba(52,211,153,0.4)]",
+    xl: "text-emerald-400 font-bold tracking-[0.28em] sm:tracking-[0.32em] ml-2 drop-shadow-[0_0_12px_rgba(52,211,153,0.5)]",
   }[size];
 
   // Icon size mappings
@@ -78,8 +87,8 @@ export const Gran7Brand: React.FC<Gran7BrandProps> = ({
           7
         </span>
 
-        {/* "HELP" with generous character spacing and green highlight */}
-        <span className="text-emerald-400 font-bold tracking-[0.24em] sm:tracking-[0.28em] uppercase ml-1.5 sm:ml-2 drop-shadow-[0_0_10px_rgba(52,211,153,0.4)]">
+        {/* "HELP" with proportional character spacing and green highlight */}
+        <span className={`uppercase ${helpTrackingClasses}`}>
           HELP
         </span>
       </div>

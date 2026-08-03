@@ -1021,7 +1021,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
       </div>
 
       {/* Grid of KPI cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
         
         {/* KPI 1: SLA Compliance */}
         <div className="bg-[#050505] border border-neutral-900 hover:border-emerald-500/20 rounded-2xl p-4 flex flex-col justify-between min-h-[120px] transition-all">
@@ -1110,19 +1110,6 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
               style={{ width: `${projectsCount > 0 ? (resolvedProjectsCount / projectsCount) * 100 : 0}%` }}
             ></div>
           </div>
-        </div>
-
-        {/* KPI 6: Triagem Automática */}
-        <div className="bg-emerald-950/15 border border-emerald-500/30 text-white rounded-2xl p-4 flex flex-col justify-between min-h-[120px] shadow-neon-sm hover:border-emerald-500/40 transition-all">
-          <div className="flex items-center justify-between text-emerald-300 mb-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-[10px]">Automação com IA</span>
-            <span className="bg-emerald-400 text-black font-extrabold text-[8px] tracking-wider px-1.5 py-0.5 rounded uppercase font-mono shadow-neon-sm">Gemini v3.5</span>
-          </div>
-          <div>
-            <div className="text-3xl font-black font-display text-emerald-400 neon-glow-text">94.8%</div>
-            <p className="text-[10px] text-emerald-300/80 mt-1 font-mono">Redução no tempo de triagem</p>
-          </div>
-          <p className="text-[9px] text-emerald-400/60 italic font-medium">Classificação e dicas geradas instantaneamente</p>
         </div>
 
       </div>
