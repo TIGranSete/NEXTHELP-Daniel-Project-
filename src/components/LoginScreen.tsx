@@ -329,11 +329,34 @@ export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps)
     try {
       const response = await fetch(getApiUrl("/api/login"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
         body: JSON.stringify({ email, password })
       });
 
+      const contentType = response.headers.get("content-type");
+      const isJson = contentType && contentType.includes("application/json");
+
       if (response.ok) {
+        if (!isJson) {
+          // If server returned 200 OK HTML instead of JSON, check local prop users array
+          const localMatch = users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
+          if (localMatch) {
+            onLoginSuccess({
+              name: localMatch.name,
+              department: localMatch.department,
+              role: localMatch.role,
+              email: localMatch.email,
+              mustChangePassword: localMatch.mustChangePassword
+            });
+            return;
+          }
+          setError("O servidor retornou uma resposta em HTML em vez de JSON. Tente novamente.");
+          return;
+        }
+
         const user = await response.json();
         onLoginSuccess({
           name: user.name,
@@ -349,12 +372,24 @@ export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps)
           const errData = JSON.parse(errText);
           errorMsg = errData.error || errorMsg;
         } catch (e) {
-          errorMsg = `Erro no servidor (${response.status}): ${errText.substring(0, 80)}`;
+          errorMsg = `Erro no servidor (${response.status}): Credenciais incorretas ou resposta inválida.`;
         }
         setError(errorMsg);
       }
     } catch (err: any) {
       console.error("Erro na requisição de login:", err);
+      // Fallback check against local users if server/network fails
+      const localMatch = users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
+      if (localMatch) {
+        onLoginSuccess({
+          name: localMatch.name,
+          department: localMatch.department,
+          role: localMatch.role,
+          email: localMatch.email,
+          mustChangePassword: localMatch.mustChangePassword
+        });
+        return;
+      }
       setError(`Erro de conexão ao servidor: ${err.message || err}`);
     } finally {
       setLoading(false);

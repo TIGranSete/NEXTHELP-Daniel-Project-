@@ -1813,6 +1813,20 @@ app.post("/api/reset", async (req, res) => {
   }
 });
 
+// Catch-all 404 handler for /api/* routes to ensure requests to /api never fall through to Vite HTML
+app.all("/api/*", (req, res) => {
+  res.status(404).json({ error: `Rota de API '${req.method} ${req.path}' não encontrada.` });
+});
+
+// Global error handler for API routes
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (req.path.startsWith("/api")) {
+    console.error("Erro interno no servidor API:", err);
+    return res.status(500).json({ error: err.message || "Erro interno no processamento da API." });
+  }
+  next(err);
+});
+
 // Serve frontend assets
 const isProduction = process.env.NODE_ENV === "production" || 
                      !!process.env.VERCEL || 
