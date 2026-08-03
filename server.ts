@@ -136,16 +136,36 @@ function isUserOnline(email: string, now: number): boolean {
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-// CORS: permite que o frontend (em domínio diferente) chame esta API
-// Configure ALLOWED_ORIGIN no .env com o domínio do frontend, ex: https://gran7help.com
+// CORS & URL Normalization Middleware
 const allowedOrigin = process.env.ALLOWED_ORIGIN || "*";
 app.use((req: any, res: any, next: any) => {
-  res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept");
-  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Origin", allowedOrigin);
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-user-role, x-user-name");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Credentials", "true");
   if (req.method === "OPTIONS") {
-    return res.status(204).end();
+    return res.sendStatus(200);
+  }
+
+  // Normalize URL if /api prefix was stripped by hosting platform or proxy
+  if (
+    !req.url.startsWith("/api/") &&
+    !req.url.startsWith("/api?") &&
+    req.url !== "/api" &&
+    !req.url.startsWith("/assets") &&
+    !req.url.startsWith("/@")
+  ) {
+    if (
+      req.url.startsWith("/tickets") ||
+      req.url.startsWith("/users") ||
+      req.url.startsWith("/login") ||
+      req.url.startsWith("/change-password") ||
+      req.url.startsWith("/supabase") ||
+      req.url.startsWith("/heartbeat") ||
+      req.url.startsWith("/reset")
+    ) {
+      req.url = "/api" + req.url;
+    }
   }
   next();
 });
