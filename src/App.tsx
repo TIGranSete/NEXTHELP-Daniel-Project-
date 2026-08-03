@@ -18,6 +18,7 @@ import SlaAnalytics from "./components/SlaAnalytics";
 import LoginScreen from "./components/LoginScreen";
 import ChangePasswordScreen from "./components/ChangePasswordScreen";
 import Gran7Brand from "./components/Gran7Brand";
+import NotificationGuideModal from "./components/NotificationGuideModal";
 import WindowsDatePicker from "./components/WindowsDatePicker";
 import PlantationBackground from "./components/PlantationBackground";
 import logoImg from "./assets/images/logo.png";
@@ -66,7 +67,10 @@ import {
   Menu,
   X,
   Bell,
-  BellOff
+  BellOff,
+  BellRing,
+  HelpCircle,
+  Laptop
 } from "lucide-react";
 
 const USER_PROFILES: UserSession[] = [];
@@ -296,6 +300,7 @@ export default function App() {
   const [desktopNotificationPermission, setDesktopNotificationPermission] = useState<NotificationPermission>(
     typeof window !== "undefined" && "Notification" in window ? Notification.permission : "default"
   );
+  const [isNotificationGuideOpen, setIsNotificationGuideOpen] = useState<boolean>(false);
 
   // Register Service Worker on mount and listen to messages
   useEffect(() => {
@@ -384,6 +389,23 @@ export default function App() {
       } else {
         fallbackNotification(title, options, ticketId);
       }
+    }
+  };
+
+  const testDesktopNotification = async () => {
+    let perm = desktopNotificationPermission;
+    if (perm !== "granted") {
+      perm = await requestDesktopNotificationPermission();
+    }
+    if (perm === "granted") {
+      showDesktopNotification(
+        "💬 Chat HelpDesk GRAN7 (Notificação de Sistema)",
+        "Sucesso! Notificação nativa do Windows/Mac ativa. Você receberá popups em tempo real ao ser respondido no chat.",
+        selectedTicketId || undefined
+      );
+      playNotificationSound();
+    } else if (perm === "denied") {
+      setIsNotificationGuideOpen(true);
     }
   };
 
@@ -1634,13 +1656,15 @@ export default function App() {
 
                     <button
                       type="button"
-                      onClick={async () => {
-                        const result = await requestDesktopNotificationPermission();
-                        if (result === "granted") {
-                          showDesktopNotification(
-                            "Notificações Ativadas!",
-                            "Agora você receberá notificações na área de trabalho mesmo fora do site!"
-                          );
+                      onClick={() => {
+                        if (desktopNotificationPermission === "granted") {
+                          testDesktopNotification();
+                        } else if (desktopNotificationPermission === "denied") {
+                          setIsNotificationGuideOpen(true);
+                        } else {
+                          requestDesktopNotificationPermission().then((res) => {
+                            if (res === "granted") testDesktopNotification();
+                          });
                         }
                       }}
                       className={`w-full py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 border cursor-pointer ${
@@ -1648,7 +1672,7 @@ export default function App() {
                           ? "bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
                           : desktopNotificationPermission === "denied"
                           ? "bg-rose-500/5 hover:bg-rose-500/10 text-rose-400 border-rose-500/20"
-                          : "bg-blue-500/5 hover:bg-blue-500/10 text-blue-400 border-blue-500/20"
+                          : "bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
                       }`}
                     >
                       {desktopNotificationPermission === "granted" ? (
@@ -1998,13 +2022,15 @@ export default function App() {
 
                 <button
                   type="button"
-                  onClick={async () => {
-                    const result = await requestDesktopNotificationPermission();
-                    if (result === "granted") {
-                      showDesktopNotification(
-                        "Notificações Ativadas!",
-                        "Agora você receberá notificações na área de trabalho mesmo fora do site!"
-                      );
+                  onClick={() => {
+                    if (desktopNotificationPermission === "granted") {
+                      testDesktopNotification();
+                    } else if (desktopNotificationPermission === "denied") {
+                      setIsNotificationGuideOpen(true);
+                    } else {
+                      requestDesktopNotificationPermission().then((res) => {
+                        if (res === "granted") testDesktopNotification();
+                      });
                     }
                   }}
                   className={`w-full py-1.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 border cursor-pointer ${
@@ -2012,7 +2038,7 @@ export default function App() {
                       ? "bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
                       : desktopNotificationPermission === "denied"
                       ? "bg-rose-500/5 hover:bg-rose-500/10 text-rose-400 border-rose-500/20"
-                      : "bg-blue-500/5 hover:bg-blue-500/10 text-blue-400 border-blue-500/20"
+                      : "bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
                   }`}
                 >
                   {desktopNotificationPermission === "granted" ? (
@@ -2163,6 +2189,7 @@ export default function App() {
       {/* Main Content Pane */}
       <main className="flex-1 p-4 md:p-6 flex flex-col gap-6 overflow-x-hidden">
         
+
         {/* Top Header Controls */}
         <header className="flex flex-col md:flex-row md:items-start justify-between gap-4">
           <div>
@@ -4429,6 +4456,81 @@ export default function App() {
                     )}
                   </div>
 
+                  {/* OS Local Notification Callout for Chat */}
+                  <div className={`p-3 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 ${
+                    desktopNotificationPermission === "granted"
+                      ? "bg-emerald-950/20 border-emerald-500/20 text-emerald-300"
+                      : desktopNotificationPermission === "denied"
+                      ? "bg-rose-950/20 border-rose-500/30 text-rose-300"
+                      : "bg-emerald-500/10 border-emerald-500/30 text-white"
+                  }`}>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className={`p-2 rounded-lg shrink-0 ${
+                        desktopNotificationPermission === "granted"
+                          ? "bg-emerald-500/20 text-emerald-400"
+                          : desktopNotificationPermission === "denied"
+                          ? "bg-rose-500/20 text-rose-400"
+                          : "bg-emerald-400 text-black font-extrabold"
+                      }`}>
+                        <BellRing className={`h-4 w-4 ${desktopNotificationPermission !== "granted" ? "animate-bounce" : ""}`} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-extrabold text-[11px] uppercase tracking-wider block truncate">
+                            {desktopNotificationPermission === "granted"
+                              ? "Notificações do Sistema Operacional Ativas"
+                              : desktopNotificationPermission === "denied"
+                              ? "Notificações do SO Bloqueadas"
+                              : "Ative as Notificações Nativas do Sistema para este Chat"}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-300 leading-tight mt-0.5">
+                          {desktopNotificationPermission === "granted"
+                            ? "Sua área de trabalho avisará instantaneamente quando houver novas mensagens neste chamado."
+                            : desktopNotificationPermission === "denied"
+                            ? "Bloqueado no navegador. Clique ao lado para saber como permitir alertas de chat."
+                            : "Para não perder mensagens deste chamado sem precisar ficar olhando para esta tela, ative as Notificações do SO."}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                      {desktopNotificationPermission === "granted" ? (
+                        <button
+                          type="button"
+                          onClick={testDesktopNotification}
+                          className="w-full sm:w-auto px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <Sparkles className="h-3 w-3 text-emerald-400" />
+                          Testar Pop-up SO
+                        </button>
+                      ) : desktopNotificationPermission === "denied" ? (
+                        <button
+                          type="button"
+                          onClick={() => setIsNotificationGuideOpen(true)}
+                          className="w-full sm:w-auto px-3 py-1.5 bg-rose-500 hover:bg-rose-400 text-white font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <HelpCircle className="h-3.5 w-3.5" />
+                          Como Desbloquear
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const res = await requestDesktopNotificationPermission();
+                            if (res === "granted") {
+                              testDesktopNotification();
+                            }
+                          }}
+                          className="w-full sm:w-auto px-3 py-1.5 bg-emerald-400 hover:bg-emerald-300 text-black font-extrabold text-[10.5px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer shadow-neon font-display"
+                        >
+                          <Bell className="h-3.5 w-3.5" />
+                          Ativar no SO
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
                   {/* Interaction history and discussion thread */}
                   <div className="space-y-3 pt-2">
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Histórico de Discussão & Logs</span>
@@ -5660,6 +5762,15 @@ export default function App() {
           <p className="text-[10px] text-slate-500 font-medium uppercase mt-4 select-none">Clique em qualquer lugar fora para fechar</p>
         </div>
       )}
+
+      {/* Notification Guide Modal */}
+      <NotificationGuideModal
+        isOpen={isNotificationGuideOpen}
+        onClose={() => setIsNotificationGuideOpen(false)}
+        onRetryPermission={requestDesktopNotificationPermission}
+        onTestNotification={testDesktopNotification}
+        currentPermission={desktopNotificationPermission}
+      />
 
       {preloaderJSX}
     </div>
