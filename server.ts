@@ -136,6 +136,20 @@ function isUserOnline(email: string, now: number): boolean {
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+// CORS: permite que o frontend (em domínio diferente) chame esta API
+// Configure ALLOWED_ORIGIN no .env com o domínio do frontend, ex: https://gran7help.com
+const allowedOrigin = process.env.ALLOWED_ORIGIN || "*";
+app.use((req: any, res: any, next: any) => {
+  res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+  next();
+});
+
 const initialPasswordHashes = new Map<string, string>();
 try {
   if (Array.isArray(initialUsers)) {
