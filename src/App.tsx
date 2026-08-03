@@ -352,10 +352,11 @@ export default function App() {
 
   const fallbackNotification = (title: string, options: NotificationOptions, ticketId?: string) => {
     try {
+      const fullIconUrl = typeof window !== "undefined" ? `${window.location.origin}/icon.png` : "/icon.png";
       const notification = new Notification(title, {
         ...options,
-        icon: "/icon.png",
-        badge: "/icon.png"
+        icon: fullIconUrl,
+        badge: fullIconUrl
       });
       if (ticketId) {
         notification.onclick = () => {
@@ -370,17 +371,18 @@ export default function App() {
 
   const showDesktopNotification = (title: string, body: string, ticketId?: string) => {
     if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+      const fullIconUrl = `${window.location.origin}/icon.png`;
       const options: NotificationOptions & { data?: any; actions?: any[]; renotify?: boolean; vibrate?: number[] } = {
         body,
-        icon: "/icon.png",
-        badge: "/icon.png",
+        icon: fullIconUrl,
+        badge: fullIconUrl,
         tag: ticketId ? `ticket-${ticketId}` : "gran7-alert",
         renotify: true,
         requireInteraction: true,
         vibrate: [200, 100, 200, 100, 200],
         data: ticketId ? { ticketId } : undefined,
         actions: [
-          { action: "open_ticket", title: "💬 Abrir Chamado" }
+          { action: "open_ticket", title: "💬 Abrir Chamado no Helpdesk" }
         ]
       };
 

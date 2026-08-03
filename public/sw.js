@@ -44,10 +44,11 @@ self.addEventListener('push', function(event) {
     const payload = event.data.json();
     const title = payload.title || 'GRAN7 HELP';
     const ticketId = payload.ticketId;
+    const iconUrl = self.location.origin + '/icon.png';
     const options = {
       body: payload.body || '',
-      icon: '/icon.png',
-      badge: '/icon.png',
+      icon: iconUrl,
+      badge: iconUrl,
       image: payload.image || undefined,
       data: {
         ticketId: ticketId
