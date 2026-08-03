@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import { UserSession, User } from "../types";
 import { getApiUrl } from "../lib/api";
+import { INITIAL_USERS } from "../data/initialUsers";
+import { 
+  getBrowserSupabaseClient, 
+  getSupabaseCredentials, 
+  saveSupabaseCredentials 
+} from "../lib/supabaseClient";
 import { 
   Shield, 
   Lock, 
@@ -8,7 +14,11 @@ import {
   ArrowRight, 
   AlertCircle, 
   RefreshCw,
-  Database
+  Database,
+  CheckCircle,
+  X,
+  KeyRound,
+  Globe
 } from "lucide-react";
 import loginBg from "../assets/images/WALLPAPER GRAN7 4.png";
 import logoImg from "../assets/images/logo.png";
@@ -316,6 +326,14 @@ export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps)
   const [error, setError] = useState("");
   const [logoError, setLogoError] = useState(false);
 
+  // Supabase connection configuration modal state
+  const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
+  const initialCreds = getSupabaseCredentials();
+  const [supaUrlInput, setSupaUrlInput] = useState(initialCreds.url);
+  const [supaKeyInput, setSupaKeyInput] = useState(initialCreds.key);
+  const [supaTestResult, setSupaTestResult] = useState<{ success: boolean; msg: string } | null>(null);
+  const [supaTesting, setSupaTesting] = useState(false);
+
   // Helper to compute SHA-256 hex string in browser
   async function hashPasswordSHA256(str: string): Promise<string> {
     if (!str) return "";
@@ -331,10 +349,12 @@ export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps)
     }
   }
 
-  // Fallback verification against local users array if API returns HTML or encounters a network error
+  // Fallback verification against local users array & INITIAL_USERS if network is offline or API unavailable
   const fallbackLocalLogin = async () => {
     const inputEmail = email.trim().toLowerCase();
-    const localMatch = users.find(u => u.email && u.email.trim().toLowerCase() === inputEmail);
+    const allUsers = [...users, ...INITIAL_USERS];
+    const localMatch = allUsers.find(u => u.email && u.email.trim().toLowerCase() === inputEmail);
+    
     if (!localMatch) {
       setError("E-mail de colaborador não cadastrado.");
       return;
@@ -367,6 +387,46 @@ export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps)
     setLoading(true);
     setError("");
 
+    const inputEmail = email.trim().toLowerCase();
+
+    // Tier 1: Try direct browser Supabase client if connected
+    const supaClient = getBrowserSupabaseClient();
+    if (supaClient) {
+      try {
+        const { data, error: supaErr } = await supaClient
+          .from("users")
+          .select("*")
+          .ilike("email", inputEmail)
+          .limit(1);
+
+        if (!supaErr && data && data.length > 0) {
+          const userObj = data[0];
+          const hashedInput = await hashPasswordSHA256(password);
+          const storedPass = userObj.password || "";
+          const isMatch = storedPass === password || storedPass === hashedInput;
+
+          if (isMatch) {
+            onLoginSuccess({
+              name: userObj.name,
+              department: userObj.department,
+              role: userObj.role,
+              email: userObj.email,
+              mustChangePassword: !!userObj.must_change_password || !!userObj.mustChangePassword
+            });
+            setLoading(false);
+            return;
+          } else {
+            setError("Senha de acesso incorreta.");
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn("Erro ao verificar login no Supabase via navegador:", err);
+      }
+    }
+
+    // Tier 2: Try Express API server route
     try {
       const response = await fetch(getApiUrl("/api/login"), {
         method: "POST",
@@ -401,13 +461,53 @@ export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps)
         }
       }
 
-      // If server returned non-JSON (e.g. HTML) or ambiguous error, fallback to local users verification
+      // Tier 3: Fallback to local users verification
       await fallbackLocalLogin();
     } catch (err: any) {
       console.warn("Erro na requisição de login para API, tentando autenticação local:", err);
       await fallbackLocalLogin();
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveSupabaseCredentials = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSupaTesting(true);
+    setSupaTestResult(null);
+
+    const url = supaUrlInput.trim();
+    const key = supaKeyInput.trim();
+
+    if (!url || !key) {
+      setSupaTestResult({ success: false, msg: "Preencha a URL do Supabase e a Chave Anon Key." });
+      setSupaTesting(false);
+      return;
+    }
+
+    saveSupabaseCredentials(url, key);
+    const testClient = getBrowserSupabaseClient();
+
+    if (!testClient) {
+      setSupaTestResult({ success: false, msg: "Erro ao inicializar cliente do Supabase." });
+      setSupaTesting(false);
+      return;
+    }
+
+    try {
+      const { data, error } = await testClient.from("users").select("count", { count: "exact", head: true });
+      if (error) {
+        setSupaTestResult({ success: false, msg: `Erro no Supabase: ${error.message}` });
+      } else {
+        setSupaTestResult({ success: true, msg: "Conectado ao Supabase com sucesso! Recarregando página para aplicar..." });
+        setTimeout(() => {
+          window.location.reload();
+        }, 1200);
+      }
+    } catch (e: any) {
+      setSupaTestResult({ success: false, msg: `Falha de conexão: ${e.message || "Verifique a URL e a chave"}` });
+    } finally {
+      setSupaTesting(false);
     }
   };
 
@@ -514,9 +614,117 @@ export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps)
               )}
             </button>
           </form>
+
+          {/* Direct Supabase connection settings trigger */}
+          <div className="pt-2 border-t border-emerald-500/10 flex justify-center">
+            <button
+              type="button"
+              onClick={() => setIsSupabaseModalOpen(true)}
+              className="text-[11px] font-mono text-emerald-400/80 hover:text-emerald-300 flex items-center gap-1.5 py-1 px-2.5 rounded-lg hover:bg-emerald-500/10 transition-all cursor-pointer"
+            >
+              <Database className="h-3.5 w-3.5" />
+              <span>Conexão direta Supabase DB</span>
+              {getBrowserSupabaseClient() ? (
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse ml-1" title="Supabase Conectado" />
+              ) : (
+                <span className="w-2 h-2 rounded-full bg-amber-400/60 ml-1" title="Supabase Pendente" />
+              )}
+            </button>
+          </div>
         </div>
 
-        {/* Info blocks removed as requested */}
+        {/* Modal Configuração Direct Supabase */}
+        {isSupabaseModalOpen && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+            <div className="bg-[#080808] border border-emerald-500/30 rounded-2xl w-full max-w-lg p-6 space-y-5 shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex items-center justify-between border-b border-emerald-500/20 pb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-emerald-500/10 rounded-xl text-emerald-400 border border-emerald-500/20">
+                    <Database className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white uppercase tracking-wider">Conexão Direta com Banco Supabase</h3>
+                    <p className="text-[11px] text-slate-400">Insira suas credenciais do projeto Supabase para apontar a aplicação</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsSupabaseModalOpen(false)}
+                  className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveSupabaseCredentials} className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
+                    <Globe className="h-3.5 w-3.5 text-emerald-400" />
+                    <span>URL do Projeto Supabase</span>
+                  </label>
+                  <input
+                    type="url"
+                    required
+                    placeholder="https://xyz.supabase.co"
+                    value={supaUrlInput}
+                    onChange={(e) => setSupaUrlInput(e.target.value)}
+                    className="w-full bg-black border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-400 font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
+                    <KeyRound className="h-3.5 w-3.5 text-emerald-400" />
+                    <span>Chave do Supabase (Anon Key / Public Key)</span>
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="eyJhbGciOiJIUzI1NiIsInR..."
+                    value={supaKeyInput}
+                    onChange={(e) => setSupaKeyInput(e.target.value)}
+                    className="w-full bg-black border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-400 font-mono"
+                  />
+                </div>
+
+                {supaTestResult && (
+                  <div className={`p-3 rounded-xl text-xs flex items-start gap-2 ${
+                    supaTestResult.success ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-400" : "bg-rose-500/10 border border-rose-500/30 text-rose-400"
+                  }`}>
+                    {supaTestResult.success ? <CheckCircle className="h-4 w-4 shrink-0 mt-0.5" /> : <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />}
+                    <span>{supaTestResult.msg}</span>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsSupabaseModalOpen(false)}
+                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-xl text-xs font-semibold transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={supaTesting}
+                    className="px-5 py-2 bg-emerald-400 hover:bg-emerald-300 text-black rounded-xl text-xs font-extrabold transition-all flex items-center gap-2 cursor-pointer shadow-neon"
+                  >
+                    {supaTesting ? (
+                      <>
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        Testando Conexão...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="h-4 w-4" />
+                        Salvar e Conectar Banco
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>

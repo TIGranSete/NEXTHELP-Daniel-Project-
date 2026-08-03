@@ -8,7 +8,6 @@ interface Gran7BrandProps {
   showIcon?: boolean;
   className?: string;
   glow?: boolean;
-  glow2?: boolean;
 }
 
 export const Gran7Brand: React.FC<Gran7BrandProps> = ({

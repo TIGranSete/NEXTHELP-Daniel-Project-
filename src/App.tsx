@@ -13,6 +13,7 @@ import {
   getSupabaseCredentials,
   saveSupabaseCredentials
 } from "./lib/supabaseClient";
+import { INITIAL_USERS } from "./data/initialUsers";
 import SlaAnalytics from "./components/SlaAnalytics";
 import LoginScreen from "./components/LoginScreen";
 import ChangePasswordScreen from "./components/ChangePasswordScreen";
@@ -191,7 +192,7 @@ export default function App() {
 
   // App states
   const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<User[]>(INITIAL_USERS);
   const [loading, setLoading] = useState<boolean>(true);
   const [isPolling, setIsPolling] = useState<boolean>(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -558,6 +559,11 @@ export default function App() {
           loadedUsers = JSON.parse(cached);
         }
       } catch (e) {}
+    }
+
+    // Tier 4: Fall back to INITIAL_USERS
+    if (!loadedUsers || !Array.isArray(loadedUsers) || loadedUsers.length === 0) {
+      loadedUsers = INITIAL_USERS;
     }
 
     if (loadedUsers && Array.isArray(loadedUsers)) {
