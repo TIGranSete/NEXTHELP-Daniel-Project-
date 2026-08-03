@@ -136,6 +136,38 @@ function isUserOnline(email: string, now: number): boolean {
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+// CORS & URL Normalization Middleware
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-user-role, x-user-name");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+
+  // Normalize URL if /api prefix was stripped by hosting platform or proxy
+  if (
+    !req.url.startsWith("/api/") &&
+    !req.url.startsWith("/api?") &&
+    req.url !== "/api" &&
+    !req.url.startsWith("/assets") &&
+    !req.url.startsWith("/@")
+  ) {
+    if (
+      req.url.startsWith("/tickets") ||
+      req.url.startsWith("/users") ||
+      req.url.startsWith("/login") ||
+      req.url.startsWith("/change-password") ||
+      req.url.startsWith("/supabase") ||
+      req.url.startsWith("/heartbeat") ||
+      req.url.startsWith("/reset")
+    ) {
+      req.url = "/api" + req.url;
+    }
+  }
+  next();
+});
+
 const initialPasswordHashes = new Map<string, string>();
 try {
   if (Array.isArray(initialUsers)) {
