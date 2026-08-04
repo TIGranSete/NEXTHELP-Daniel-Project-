@@ -1021,17 +1021,17 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
       </div>
 
       {/* Grid of KPI cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-5">
         
         {/* KPI 1: SLA Compliance */}
-        <div className="bg-[#050505] border border-neutral-900 hover:border-emerald-500/20 rounded-2xl p-4 flex flex-col justify-between min-h-[120px] transition-all">
+        <div className="bg-[#050505] border border-neutral-900 hover:border-emerald-500/30 rounded-xl p-3 flex flex-col justify-between transition-all">
           <div className="flex items-center justify-between text-neutral-400 mb-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-[10px]">Cumprimento de SLA</span>
-            <Clock className="h-4 w-4 text-emerald-400" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Cumprimento de SLA</span>
+            <Clock className="h-3.5 w-3.5 text-emerald-400" />
           </div>
           <div>
-            <div className="text-3xl font-black font-display text-white neon-glow-text">{slaCompliancePercent}%</div>
-            <p className="text-[10px] text-neutral-500 mt-1 font-mono">Meta corporativa: 92%</p>
+            <div className="text-xl sm:text-2xl font-black font-display text-white neon-glow-text">{slaCompliancePercent}%</div>
+            <p className="text-[9.5px] text-neutral-500 mt-0.5 font-mono">Meta corporativa: 92%</p>
           </div>
           {/* Progress Micro Bar */}
           <div className="w-full bg-neutral-950 h-1 rounded-full mt-2 overflow-hidden">
@@ -1043,31 +1043,31 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
         </div>
 
         {/* KPI 2: Critical in Queue */}
-        <div className="bg-[#050505] border border-neutral-900 hover:border-emerald-500/20 rounded-2xl p-4 flex flex-col justify-between min-h-[120px] transition-all">
+        <div className="bg-[#050505] border border-neutral-900 hover:border-emerald-500/30 rounded-xl p-3 flex flex-col justify-between transition-all">
           <div className="flex items-center justify-between text-neutral-400 mb-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-[10px]">Críticos Ativos</span>
-            <AlertCircle className={`h-4 w-4 ${criticalCount > 0 ? "text-rose-500 animate-pulse" : "text-neutral-500"}`} />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Críticos Ativos</span>
+            <AlertCircle className={`h-3.5 w-3.5 ${criticalCount > 0 ? "text-rose-500 animate-pulse" : "text-neutral-500"}`} />
           </div>
           <div>
-            <div className="text-3xl font-black font-display text-white">{criticalCount}</div>
-            <p className="text-[10px] text-neutral-500 mt-1 font-mono">Prioridade Alta/Urgente</p>
+            <div className="text-xl sm:text-2xl font-black font-display text-white">{criticalCount}</div>
+            <p className="text-[9.5px] text-neutral-500 mt-0.5 font-mono">Prioridade Alta/Urgente</p>
           </div>
           {/* Status color indicator */}
-          <div className="mt-2 text-[10px] flex items-center gap-1.5">
+          <div className="mt-2 text-[9.5px] flex items-center gap-1.5">
             <span className={`h-1.5 w-1.5 rounded-full ${criticalCount > 0 ? "bg-rose-500 animate-ping" : "bg-emerald-400"}`}></span>
             <span className="text-neutral-400 font-mono">{criticalCount > 0 ? "Ação imediata" : "Fila sob controle"}</span>
           </div>
         </div>
 
         {/* KPI 3: Resolved tickets */}
-        <div className="bg-[#050505] border border-neutral-900 hover:border-emerald-500/20 rounded-2xl p-4 flex flex-col justify-between min-h-[120px] transition-all">
+        <div className="bg-[#050505] border border-neutral-900 hover:border-emerald-500/30 rounded-xl p-3 flex flex-col justify-between transition-all">
           <div className="flex items-center justify-between text-neutral-400 mb-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-[10px]">Resolvidos Recentes</span>
-            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Resolvidos Recentes</span>
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
           </div>
           <div>
-            <div className="text-3xl font-black font-display text-white">{resolvedCount}</div>
-            <p className="text-[10px] text-neutral-500 mt-1 font-mono">Eficiência da equipe de TI</p>
+            <div className="text-xl sm:text-2xl font-black font-display text-white">{resolvedCount}</div>
+            <p className="text-[9.5px] text-neutral-500 mt-0.5 font-mono">Eficiência da equipe de TI</p>
           </div>
           <div className="w-full bg-neutral-950 h-1 rounded-full mt-2 overflow-hidden">
             <div 
@@ -1078,30 +1078,30 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
         </div>
 
         {/* KPI 4: Tempo Médio de Atendimento (TMA) */}
-        <div className="bg-[#050505] border border-neutral-900 hover:border-emerald-500/20 rounded-2xl p-4 flex flex-col justify-between min-h-[120px] transition-all">
+        <div className="bg-[#050505] border border-neutral-900 hover:border-emerald-500/30 rounded-xl p-3 flex flex-col justify-between transition-all">
           <div className="flex items-center justify-between text-neutral-400 mb-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-[10px]">Tempo Médio (TMA)</span>
-            <Clock className="h-4 w-4 text-emerald-400" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Tempo Médio (TMA)</span>
+            <Clock className="h-3.5 w-3.5 text-emerald-400" />
           </div>
           <div>
-            <div className="text-3xl font-black font-display text-white neon-glow-text">{averageResolutionTimeStr}</div>
-            <p className="text-[10px] text-neutral-500 mt-1 font-mono">Tempo médio de conclusão</p>
+            <div className="text-xl sm:text-2xl font-black font-display text-white neon-glow-text">{averageResolutionTimeStr}</div>
+            <p className="text-[9.5px] text-neutral-500 mt-0.5 font-mono">Tempo médio de conclusão</p>
           </div>
-          <div className="mt-2 text-[10px] flex items-center gap-1.5">
+          <div className="mt-2 text-[9.5px] flex items-center gap-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
             <span className="text-neutral-400 font-mono">Baseado em {resolvedWithTime.length} chamado(s)</span>
           </div>
         </div>
 
         {/* KPI 5: Volume de Projetos */}
-        <div className="bg-[#050505] border border-neutral-900 hover:border-emerald-500/20 rounded-2xl p-4 flex flex-col justify-between min-h-[120px] transition-all">
+        <div className="bg-[#050505] border border-neutral-900 hover:border-emerald-500/30 rounded-xl p-3 flex flex-col justify-between transition-all">
           <div className="flex items-center justify-between text-neutral-400 mb-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-[10px]">Volume de Projetos</span>
-            <Layers className="h-4 w-4 text-emerald-400" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Volume de Projetos</span>
+            <Layers className="h-3.5 w-3.5 text-emerald-400" />
           </div>
           <div>
-            <div className="text-3xl font-black font-display text-white">{projectsCount}</div>
-            <p className="text-[10px] text-neutral-500 mt-1 font-mono">{activeProjectsCount} ativos // {resolvedProjectsCount} ok</p>
+            <div className="text-xl sm:text-2xl font-black font-display text-white">{projectsCount}</div>
+            <p className="text-[9.5px] text-neutral-500 mt-0.5 font-mono">{activeProjectsCount} ativos // {resolvedProjectsCount} ok</p>
           </div>
           {/* Completion rate bar */}
           <div className="w-full bg-neutral-950 h-1 rounded-full mt-2 overflow-hidden">
