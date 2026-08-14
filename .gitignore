@@ -10,6 +10,7 @@ coverage/
 # Local Database and Cache files
 *-local.json
 active-users.json
+sessions.json
 users-db.json
 tickets-db.json
 

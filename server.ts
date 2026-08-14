@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 
 // Load .env.local, .env.development, then .env with override so that local files have higher priority
 const envFiles = [".env.local", ".env.development", ".env"];
@@ -161,6 +162,96 @@ function isUserOnline(email?: string, name?: string, now?: number): boolean {
   }
 
   return false;
+}
+
+// --- Session/auth tokens ---
+// Opaque bearer tokens issued at login, persisted to disk (same pattern as
+// active-users.json) so they survive process restarts on a normal host.
+// Every sensitive route below requires one instead of trusting whatever
+// identity the client claims in the request body/headers.
+const SESSIONS_FILE = isServerless ? path.join(os.tmpdir(), "sessions.json") : path.join(process.cwd(), "sessions.json");
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+interface AuthedUser {
+  id: string;
+  name: string;
+  email: string;
+  role: "colaborador" | "tecnico";
+}
+
+interface SessionRecord extends AuthedUser {
+  expiresAt: number;
+}
+
+function loadSessions(): Record<string, SessionRecord> {
+  try {
+    if (fs.existsSync(SESSIONS_FILE)) {
+      const content = fs.readFileSync(SESSIONS_FILE, "utf-8").trim();
+      if (content) return JSON.parse(content);
+    }
+  } catch (err) {
+    // Fail silently — a corrupt/missing session store just means everyone re-logs in.
+  }
+  return {};
+}
+
+function saveSessions(sessions: Record<string, SessionRecord>) {
+  try {
+    const now = Date.now();
+    const pruned: Record<string, SessionRecord> = {};
+    for (const [token, record] of Object.entries(sessions)) {
+      if (record.expiresAt > now) pruned[token] = record;
+    }
+    fs.writeFileSync(SESSIONS_FILE, JSON.stringify(pruned, null, 2), "utf-8");
+  } catch (err) {
+    // Fail silently
+  }
+}
+
+function createSession(user: AuthedUser): string {
+  const token = crypto.randomBytes(32).toString("hex");
+  const sessions = loadSessions();
+  sessions[token] = { ...user, expiresAt: Date.now() + SESSION_TTL_MS };
+  saveSessions(sessions);
+  return token;
+}
+
+function destroySession(token: string) {
+  const sessions = loadSessions();
+  delete sessions[token];
+  saveSessions(sessions);
+}
+
+function getSessionFromRequest(req: express.Request): SessionRecord | null {
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith("Bearer ")) return null;
+  const token = header.slice("Bearer ".length).trim();
+  if (!token) return null;
+  const sessions = loadSessions();
+  const record = sessions[token];
+  if (!record || record.expiresAt <= Date.now()) return null;
+  return record;
+}
+
+// Requires a valid, non-expired session token. Attaches the verified
+// identity to req.authUser so downstream handlers never need to trust
+// anything the client claims about who it is.
+function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({ error: "Sessão inválida ou expirada. Faça login novamente." });
+  }
+  (req as any).authUser = session;
+  next();
+}
+
+// Requires requireAuth to have already run. Restricts to technician accounts.
+function requireTech(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const authUser: SessionRecord | undefined = (req as any).authUser;
+  if (!authUser || authUser.role !== "tecnico") {
+    return res.status(403).json({ error: "Apenas técnicos da equipe de TI podem realizar esta ação." });
+  }
+  next();
 }
 
 app.use(express.json({ limit: "50mb" }));
@@ -869,52 +960,8 @@ app.get("/config.js", (req, res) => {
   res.send("// Dynamic configuration not found");
 });
 
-// Secure bulk ticket saving / upserting endpoint
-app.post("/api/tickets/save", async (req, res) => {
-  try {
-    const ticket = req.body;
-    if (!ticket || !ticket.id) {
-      return res.status(400).json({ error: "Dados do chamado inválidos." });
-    }
-    const tickets = await loadTickets();
-    const idx = tickets.findIndex(t => t.id === ticket.id);
-    if (idx >= 0) {
-      tickets[idx] = ticket;
-    } else {
-      tickets.push(ticket);
-    }
-    await saveTickets(tickets, ticket);
-    res.json({ success: true, ticket });
-  } catch (error) {
-    console.error("Erro ao salvar chamado via API:", error);
-    res.status(500).json({ error: "Erro interno ao salvar chamado." });
-  }
-});
-
-// Secure bulk user saving / upserting endpoint
-app.post("/api/users/save", async (req, res) => {
-  try {
-    const user = req.body;
-    if (!user || !user.id) {
-      return res.status(400).json({ error: "Dados do colaborador inválidos." });
-    }
-    const users = await loadUsers();
-    const idx = users.findIndex(u => u.id === user.id);
-    if (idx >= 0) {
-      users[idx] = user;
-    } else {
-      users.push(user);
-    }
-    await saveUsers(users, user);
-    res.json({ success: true, user });
-  } catch (error) {
-    console.error("Erro ao salvar colaborador via API:", error);
-    res.status(500).json({ error: "Erro interno ao salvar colaborador." });
-  }
-});
-
 // Secure client-side Gemini Triage API proxy
-app.post("/api/triage", async (req, res) => {
+app.post("/api/triage", requireAuth, async (req, res) => {
   try {
     const { title, description, screenshot } = req.body;
     if (!title || !description) {
@@ -946,12 +993,12 @@ app.get("/api/supabase/status", async (req, res) => {
   }
 });
 
-app.get("/api/supabase/sql", (req, res) => {
+app.get("/api/supabase/sql", requireAuth, requireTech, (req, res) => {
   res.setHeader("Content-Type", "text/plain");
   res.send(SUPABASE_SQL_SCHEMA);
 });
 
-app.post("/api/supabase/sync", async (req, res) => {
+app.post("/api/supabase/sync", requireAuth, requireTech, async (req, res) => {
   try {
     if (!isSupabaseConfigured()) {
       return res.status(400).json({ error: "Supabase não está configurado. Por favor, adicione as credenciais SUPABASE_URL e SUPABASE_KEY no painel de Secrets." });
@@ -977,7 +1024,7 @@ app.post("/api/supabase/sync", async (req, res) => {
   }
 });
 
-app.post("/api/supabase/pull", async (req, res) => {
+app.post("/api/supabase/pull", requireAuth, requireTech, async (req, res) => {
   try {
     if (!isSupabaseConfigured()) {
       return res.status(400).json({ error: "Supabase não está configurado. Por favor, adicione as credenciais SUPABASE_URL e SUPABASE_KEY no painel de Secrets." });
@@ -1039,12 +1086,29 @@ app.post("/api/heartbeat", (req, res) => {
 // Called via navigator.sendBeacon on logout/tab-close so presence clears
 // immediately instead of waiting for the heartbeat to time out.
 app.post("/api/offline", (req, res) => {
-  const { email, name } = req.body || {};
+  const { email, name, token } = req.body || {};
   if (email && typeof email === "string") {
     markUserOffline(email);
   }
   if (name && typeof name === "string") {
     markUserOffline(name);
+  }
+
+  // Also invalidate the session token, if the beacon carried one, so a
+  // stolen/copied token from this device stops working right away too.
+  // (navigator.sendBeacon can't set custom headers, so it's sent in the body.)
+  if (token && typeof token === "string") {
+    destroySession(token);
+  }
+
+  res.json({ status: "ok" });
+});
+
+// Explicit logout: invalidates the session token server-side.
+app.post("/api/logout", requireAuth, (req, res) => {
+  const header = req.headers.authorization;
+  if (header && header.startsWith("Bearer ")) {
+    destroySession(header.slice("Bearer ".length).trim());
   }
   res.json({ status: "ok" });
 });
@@ -1139,13 +1203,16 @@ app.post("/api/login", async (req, res) => {
             markUserActive(emailLower);
             if (loggedUser.name) markUserActive(loggedUser.name);
 
+            const token = createSession({ id: loggedUser.id, name: loggedUser.name, email: loggedUser.email, role: loggedUser.role });
+
             return res.json({
               id: loggedUser.id,
               name: loggedUser.name,
               email: loggedUser.email,
               department: loggedUser.department,
               role: loggedUser.role,
-              mustChangePassword: mustChange
+              mustChangePassword: mustChange,
+              token
             });
           } else {
             return res.status(401).json({ error: "Senha de acesso incorreta." });
@@ -1169,6 +1236,8 @@ app.post("/api/login", async (req, res) => {
 
     const mustChange = user.mustChangePassword !== false;
 
+    const token = createSession({ id: user.id, name: user.name, email: user.email, role: user.role });
+
     // Retorna o usuário de forma segura
     const safeUser = {
       id: user.id,
@@ -1176,7 +1245,8 @@ app.post("/api/login", async (req, res) => {
       email: user.email,
       department: user.department,
       role: user.role,
-      mustChangePassword: mustChange
+      mustChangePassword: mustChange,
+      token
     };
 
     // Mark active immediately
@@ -1191,12 +1261,19 @@ app.post("/api/login", async (req, res) => {
 });
 
 // Change Password endpoint
-app.post("/api/change-password", async (req, res) => {
+app.post("/api/change-password", requireAuth, async (req, res) => {
   try {
     const { email, oldPassword, newPassword } = req.body;
+    const authUser: SessionRecord = (req as any).authUser;
 
     if (!email || !newPassword) {
       return res.status(400).json({ error: "E-mail e nova senha são obrigatórios." });
+    }
+
+    // A valid session only proves who's logged in, not that they're allowed
+    // to change *this* account's password.
+    if (authUser.email.toLowerCase() !== String(email).toLowerCase()) {
+      return res.status(403).json({ error: "Você só pode alterar a senha da sua própria conta." });
     }
 
     const users = await loadUsers();
@@ -1208,9 +1285,14 @@ app.post("/api/change-password", async (req, res) => {
 
     const user = users[index];
 
-    // If they provided oldPassword, check it to ensure security
-    if (oldPassword && user.password) {
-      if (!verifyPassword(oldPassword, user.password)) {
+    // The forced first-login flow (mustChangePassword) already proved identity
+    // via the temporary password at login, so oldPassword isn't required there.
+    // Any later, voluntary password change must re-prove the current password.
+    if (user.mustChangePassword === false) {
+      if (!oldPassword) {
+        return res.status(400).json({ error: "Informe sua senha atual para definir uma nova." });
+      }
+      if (!user.password || !verifyPassword(oldPassword, user.password)) {
         return res.status(400).json({ error: "A senha atual informada está incorreta." });
       }
     }
@@ -1254,7 +1336,7 @@ app.post("/api/change-password", async (req, res) => {
 });
 
 // List all users (collaborators)
-app.get("/api/users", async (req, res) => {
+app.get("/api/users", requireAuth, async (req, res) => {
   try {
     const users = await loadUsers();
     const now = Date.now();
@@ -1278,7 +1360,7 @@ app.get("/api/users", async (req, res) => {
 });
 
 // Create a new user (collaborator)
-app.post("/api/users", async (req, res) => {
+app.post("/api/users", requireAuth, requireTech, async (req, res) => {
   try {
     const { name, email, password, department, role } = req.body;
 
@@ -1330,7 +1412,7 @@ app.post("/api/users", async (req, res) => {
 });
 
 // Update a user (collaborator)
-app.put("/api/users/:id", async (req, res) => {
+app.put("/api/users/:id", requireAuth, requireTech, async (req, res) => {
   try {
     const { id } = req.params;
     const { name, email, password, department, role } = req.body;
@@ -1378,7 +1460,7 @@ app.put("/api/users/:id", async (req, res) => {
 });
 
 // Delete a user (collaborator)
-app.delete("/api/users/:id", async (req, res) => {
+app.delete("/api/users/:id", requireAuth, requireTech, async (req, res) => {
   try {
     const { id } = req.params;
     const users = await loadUsers();
@@ -1411,7 +1493,7 @@ app.delete("/api/users/:id", async (req, res) => {
 });
 
 // List all tickets
-app.get("/api/tickets", async (req, res) => {
+app.get("/api/tickets", requireAuth, async (req, res) => {
   try {
     const tickets = await loadTickets();
     // Sort by createdAt descending
@@ -1424,7 +1506,7 @@ app.get("/api/tickets", async (req, res) => {
 });
 
 // Create a new ticket
-app.post("/api/tickets", async (req, res) => {
+app.post("/api/tickets", requireAuth, async (req, res) => {
   try {
     const { title, description, requesterName, requesterDepartment, screenshot, projectDeadline, attachments } = req.body;
 
@@ -1585,10 +1667,12 @@ function formatDuration(ms: number): string {
 }
 
 // Update ticket (Priority, Status, Category, AssignedTo)
-app.patch("/api/tickets/:id", async (req, res) => {
+app.patch("/api/tickets/:id", requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, priority, category, assignedTo, projectDeadline, requesterUser, requesterName, requesterDepartment } = req.body;
+    const { status, priority, category, assignedTo, projectDeadline, requesterName, requesterDepartment } = req.body;
+    // Server-verified identity — not something the client can spoof via the body anymore.
+    const requesterUser: string = (req as any).authUser.name;
 
     const tickets = await loadTickets();
     const index = tickets.findIndex(t => t.id === id);
@@ -1748,13 +1832,17 @@ app.patch("/api/tickets/:id", async (req, res) => {
 });
 
 // Add comment to ticket
-app.post("/api/tickets/:id/comments", async (req, res) => {
+app.post("/api/tickets/:id/comments", requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const { authorName, authorRole, content, attachmentUrl, attachmentName } = req.body;
+    const { content, attachmentUrl, attachmentName } = req.body;
+    // Author is the verified session, not whatever the client claims.
+    const authUser: SessionRecord = (req as any).authUser;
+    const authorName = authUser.name;
+    const authorRole = authUser.role;
 
-    if (!authorName || !authorRole || !content) {
-      return res.status(400).json({ error: "Autor, papel (role) e conteúdo da mensagem são obrigatórios." });
+    if (!content) {
+      return res.status(400).json({ error: "Conteúdo da mensagem é obrigatório." });
     }
 
     const tickets = await loadTickets();
@@ -1789,15 +1877,10 @@ app.post("/api/tickets/:id/comments", async (req, res) => {
 });
 
 // Delete a ticket (IT Team / Técnico only)
-app.delete("/api/tickets/:id", async (req, res) => {
+app.delete("/api/tickets/:id", requireAuth, requireTech, async (req, res) => {
   try {
     const { id } = req.params;
-    const userRole = req.headers["x-user-role"];
-    const userName = req.headers["x-user-name"];
-
-    if (userRole !== "tecnico") {
-      return res.status(403).json({ error: "Apenas colaboradores da equipe de TI podem apagar chamados." });
-    }
+    const userName = (req as any).authUser.name;
 
     const tickets = await loadTickets();
     const index = tickets.findIndex(t => t.id === id);
@@ -1808,7 +1891,7 @@ app.delete("/api/tickets/:id", async (req, res) => {
 
     const ticket = tickets[index];
     const assignedTechs = ticket.assignedTo ? ticket.assignedTo.split(",").map(s => s.trim()).filter(Boolean) : [];
-    if (!userName || !assignedTechs.includes(userName as string)) {
+    if (!assignedTechs.includes(userName)) {
       return res.status(403).json({ error: "Apenas um dos técnicos responsáveis por este chamado pode excluí-lo." });
     }
 
@@ -1827,7 +1910,7 @@ app.delete("/api/tickets/:id", async (req, res) => {
 });
 
 // Reset Database Endpoint (useful for demo testing)
-app.post("/api/reset", async (req, res) => {
+app.post("/api/reset", requireAuth, requireTech, async (req, res) => {
   try {
     // Delete from Supabase explicitly if configured
     if (isSupabaseConfigured()) {

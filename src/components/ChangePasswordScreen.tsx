@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { UserSession } from "../types";
-import { getApiUrl } from "../lib/api";
+import { apiFetch } from "../lib/api";
 import { 
   Lock, 
   CheckCircle2, 
@@ -54,7 +54,7 @@ export default function ChangePasswordScreen({ session, onPasswordChanged, onLog
     setLoading(true);
 
     try {
-      const response = await fetch(getApiUrl("/api/change-password"), {
+      const response = await apiFetch("/api/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

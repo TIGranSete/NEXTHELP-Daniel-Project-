@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Ticket, Comment, UserSession, UserRole, User, Attachment } from "./types";
-import { getApiUrl } from "./lib/api";
+import { getApiUrl, apiFetch } from "./lib/api";
 import { 
   fetchTicketsFromSupabase, 
   saveTicketToSupabase, 
@@ -533,7 +533,7 @@ export default function App() {
     let loadedTickets: Ticket[] | null = null;
 
     try {
-      const response = await fetch(getApiUrl("/api/tickets"));
+      const response = await apiFetch("/api/tickets");
       if (response.ok) {
         const contentType = response.headers.get("content-type");
         if (contentType && contentType.includes("application/json")) {
@@ -581,7 +581,7 @@ export default function App() {
     let loadedUsers: User[] | null = null;
 
     try {
-      const response = await fetch(getApiUrl("/api/users"));
+      const response = await apiFetch("/api/users");
       if (response.ok) {
         const contentType = response.headers.get("content-type");
         if (contentType && contentType.includes("application/json")) {
@@ -627,7 +627,7 @@ export default function App() {
   const fetchDbStatus = async () => {
     setDbChecking(true);
     try {
-      const response = await fetch(getApiUrl("/api/supabase/status"));
+      const response = await apiFetch("/api/supabase/status");
       if (response.ok) {
         const data = await response.json();
         setDbStatus(data);
@@ -642,7 +642,7 @@ export default function App() {
   // Fetch database SQL Schema instructions
   const fetchDbSchema = async () => {
     try {
-      const response = await fetch(getApiUrl("/api/supabase/sql"));
+      const response = await apiFetch("/api/supabase/sql");
       if (response.ok) {
         const data = await response.text();
         setDbSqlSchema(data);
@@ -657,7 +657,7 @@ export default function App() {
     setSyncingDb("push");
     setSyncDbError(null);
     try {
-      const response = await fetch(getApiUrl("/api/supabase/sync"), { method: "POST" });
+      const response = await apiFetch("/api/supabase/sync", { method: "POST" });
       if (response.ok) {
         setSyncingDb("success");
         await fetchTickets();
@@ -680,7 +680,7 @@ export default function App() {
     setSyncingDb("pull");
     setSyncDbError(null);
     try {
-      const response = await fetch(getApiUrl("/api/supabase/pull"), { method: "POST" });
+      const response = await apiFetch("/api/supabase/pull", { method: "POST" });
       if (response.ok) {
         const data = await response.json();
         setSyncingDb("success");
@@ -725,7 +725,7 @@ export default function App() {
     // Send a heartbeat ping to the server to register online presence
     const sendHeartbeat = () => {
       if (currentSession?.email || currentSession?.name) {
-        fetch(getApiUrl("/api/heartbeat"), {
+        apiFetch("/api/heartbeat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -753,11 +753,14 @@ export default function App() {
   // Tell the server presence should clear right away instead of waiting for
   // the heartbeat to time out, whenever the tab is actually closing.
   // sendBeacon (not fetch) is used because it's guaranteed to fire during unload.
-  const sendOfflineBeacon = (session?: { email?: string; name?: string } | null) => {
+  const sendOfflineBeacon = (session?: { email?: string; name?: string; token?: string } | null) => {
     const s = session || currentSessionRef.current;
     if (!s || (!s.email && !s.name)) return;
     try {
-      const blob = new Blob([JSON.stringify({ email: s.email, name: s.name })], { type: "application/json" });
+      // sendBeacon can't set an Authorization header, so the token (if any)
+      // rides in the body instead — the server uses it to invalidate the
+      // session right away instead of leaving it valid until it expires.
+      const blob = new Blob([JSON.stringify({ email: s.email, name: s.name, token: s.token })], { type: "application/json" });
       navigator.sendBeacon(getApiUrl("/api/offline"), blob);
     } catch (e) {}
   };
@@ -819,8 +822,10 @@ export default function App() {
           shouldPlaySound = true;
         }
 
-        // Visual notifications (on-screen pop-ups) only appear for the IT team (technicians)
-        if (currentSession?.role === "tecnico") {
+        // Visual notifications (on-screen pop-ups): technicians see every new
+        // ticket; collaborators only see ones they opened themselves (e.g.
+        // when a technician opens it on their behalf).
+        if (currentSession?.role === "tecnico" || t.requesterName === currentSession?.name) {
           hasNewNotification = true;
           showDesktopNotification(
             `🔔 Novo Chamado #${t.id} • ${t.title}`,
@@ -938,7 +943,7 @@ export default function App() {
   const handleResetData = async () => {
     if (confirm("Deseja realmente redefinir o banco de dados para os dados padrão?")) {
       try {
-        const response = await fetch(getApiUrl("/api/reset"), { method: "POST" });
+        const response = await apiFetch("/api/reset", { method: "POST" });
         if (response.ok) {
           await fetchTickets();
           await fetchUsers();
@@ -960,25 +965,26 @@ export default function App() {
       return;
     }
 
-    // Remove from local state & cache immediately
+    // Confirm with the server before touching local state/Supabase — it's
+    // the only place that verifies the deletion is actually authorized.
+    try {
+      const response = await apiFetch(`/api/tickets/${ticketId}`, { method: "DELETE" });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        alert(errData?.error || "Não foi possível excluir o chamado.");
+        return;
+      }
+    } catch (error) {
+      console.warn("Erro ao enviar exclusão para API server:", error);
+      alert("Sem conexão com o servidor. Não foi possível excluir o chamado.");
+      return;
+    }
+
     setTickets(prev => prev.filter(t => t.id !== ticketId));
     setIsConfirmingDeleteTicket(null);
     setSelectedTicketId(null);
 
-    // Delete directly from Supabase in browser
     deleteTicketFromSupabase(ticketId).catch(e => console.warn("Erro ao excluir no Supabase pelo navegador:", e));
-    
-    try {
-      await fetch(getApiUrl(`/api/tickets/${ticketId}`), {
-        method: "DELETE",
-        headers: {
-          "x-user-role": currentSession.role,
-          "x-user-name": currentSession.name
-        }
-      });
-    } catch (error) {
-      console.warn("Erro ao enviar exclusão para API server:", error);
-    }
   };
 
   const handleAddFiles = (files: FileList | File[]) => {
@@ -1040,7 +1046,7 @@ export default function App() {
     let createdTicket: Ticket | null = null;
 
     try {
-      const response = await fetch(getApiUrl("/api/tickets"), {
+      const response = await apiFetch("/api/tickets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1149,7 +1155,7 @@ export default function App() {
       const url = editingUserId ? `/api/users/${editingUserId}` : "/api/users";
       const method = editingUserId ? "PUT" : "POST";
 
-      const response = await fetch(getApiUrl(url), {
+      const response = await apiFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newUserForm)
@@ -1215,19 +1221,21 @@ export default function App() {
     const emailDeleted = deletingUser.email;
     setDeletingUser(null);
 
-    // Update local state immediately
-    setUsers(prev => prev.filter(u => u.id !== deletedId));
-
-    // Direct Supabase deletion
-    deleteUserFromSupabase(deletedId).catch(e => console.warn("Erro ao excluir usuário no Supabase pelo navegador:", e));
-
     try {
-      await fetch(getApiUrl(`/api/users/${deletedId}`), {
-        method: "DELETE"
-      });
+      const response = await apiFetch(`/api/users/${deletedId}`, { method: "DELETE" });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        alert(errData?.error || "Não foi possível remover o colaborador.");
+        return;
+      }
     } catch (error) {
       console.warn("Erro ao enviar deleção para API:", error);
+      alert("Sem conexão com o servidor. Não foi possível remover o colaborador.");
+      return;
     }
+
+    setUsers(prev => prev.filter(u => u.id !== deletedId));
+    deleteUserFromSupabase(deletedId).catch(e => console.warn("Erro ao excluir usuário no Supabase pelo navegador:", e));
 
     if (currentSession?.email === emailDeleted) {
       handleLogout();
@@ -1248,7 +1256,7 @@ export default function App() {
         ...fields,
         requesterUser: currentSession?.name || null
       };
-      const response = await fetch(getApiUrl(`/api/tickets/${ticketId}`), {
+      const response = await apiFetch(`/api/tickets/${ticketId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -1304,7 +1312,7 @@ export default function App() {
     saveTicketToSupabase(updatedTicket).catch(e => console.warn("Erro ao salvar comentário no Supabase pelo navegador:", e));
 
     try {
-      await fetch(getApiUrl(`/api/tickets/${selectedTicketId}/comments`), {
+      await apiFetch(`/api/tickets/${selectedTicketId}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1506,7 +1514,7 @@ export default function App() {
             setCurrentSession(session);
             localStorage.setItem("gran7_session", JSON.stringify(session));
             if (session.email || session.name) {
-              fetch(getApiUrl("/api/heartbeat"), {
+              apiFetch("/api/heartbeat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ email: session.email, name: session.name })

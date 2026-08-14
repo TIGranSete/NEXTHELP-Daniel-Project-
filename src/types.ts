@@ -57,4 +57,5 @@ export interface UserSession {
   role: UserRole;
   email?: string;
   mustChangePassword?: boolean;
+  token?: string;
 }

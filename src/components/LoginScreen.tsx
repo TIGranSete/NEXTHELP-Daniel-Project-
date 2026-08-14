@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { UserSession } from "../types";
-import { getApiUrl } from "../lib/api";
+import { apiFetch } from "../lib/api";
 import { 
   Lock, 
   Mail, 
@@ -36,7 +36,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     setError("");
 
     try {
-      const response = await fetch(getApiUrl("/api/login"), {
+      const response = await apiFetch("/api/login", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -55,7 +55,8 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           department: user.department,
           role: user.role,
           email: user.email,
-          mustChangePassword: user.mustChangePassword
+          mustChangePassword: user.mustChangePassword,
+          token: user.token
         });
         return;
       }
