@@ -230,17 +230,18 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    let currentProgress = 0;
+    // Eases toward 99% and self-clears once it gets there, instead of hard-stopping
+    // at a fixed number and sitting dead while the real data is still loading.
     const interval = setInterval(() => {
-      if (currentProgress < 70) {
-        currentProgress += Math.floor(Math.random() * 20) + 15; // Fast initial jump
-      } else if (currentProgress < 95) {
-        currentProgress += Math.floor(Math.random() * 10) + 5; // Rapid progress to 95%
-      } else {
-        clearInterval(interval);
-      }
-      setPreloaderProgress(Math.min(currentProgress, 95));
-    }, 20); // Fast 20ms tick rate
+      setPreloaderProgress((prev) => {
+        if (prev >= 99) {
+          clearInterval(interval);
+          return prev;
+        }
+        const step = prev < 70 ? Math.random() * 14 + 10 : Math.max(0.5, (99 - prev) * 0.15);
+        return Math.min(99, prev + step);
+      });
+    }, 50);
 
     return () => {
       clearInterval(interval);
@@ -528,7 +529,24 @@ export default function App() {
 
   // Fetch tickets helper with multi-tier fallback (API Express -> Direct Supabase Browser -> Local Cache)
   const fetchTickets = async (showQuietly = false) => {
-    if (!showQuietly) setLoading(true);
+    if (!showQuietly) {
+      // Hydrate instantly from the local cache on first load so the preloader
+      // isn't blocked on the network round-trip; the fetch below still runs
+      // to refresh with live data once it lands.
+      let hydratedFromCache = false;
+      if (tickets.length === 0) {
+        try {
+          const cached = localStorage.getItem("gran7_tickets_cache");
+          const cachedTickets = cached ? JSON.parse(cached) : null;
+          if (Array.isArray(cachedTickets) && cachedTickets.length > 0) {
+            setTickets(cachedTickets);
+            setLoading(false);
+            hydratedFromCache = true;
+          }
+        } catch (e) {}
+      }
+      if (!hydratedFromCache) setLoading(true);
+    }
     setIsPolling(true);
     let loadedTickets: Ticket[] | null = null;
 
@@ -1381,11 +1399,13 @@ export default function App() {
             <span className="uppercase text-[10px] tracking-wider text-secondary truncate">
               {statusText}
             </span>
-            <span className="text-emerald-400 font-mono font-bold">{preloaderProgress}%</span>
+            <span className="text-emerald-400 font-mono font-bold">{Math.round(preloaderProgress)}%</span>
           </div>
           <div className="w-full h-1.5 bg-surface rounded-full border border-default/80 overflow-hidden">
-            <div 
-              className="h-full bg-emerald-600 rounded-full transition-all duration-150 ease-out"
+            <div
+              className={`h-full bg-emerald-600 rounded-full transition-all duration-150 ease-out ${
+                preloaderProgress >= 99 && preloaderProgress < 100 ? "animate-pulse" : ""
+              }`}
               style={{ width: `${preloaderProgress}%` }}
             />
           </div>
