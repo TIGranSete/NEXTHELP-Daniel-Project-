@@ -188,30 +188,30 @@ export default function NotificationCustomizerModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-2xl bg-[#0f172a] border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-app/80 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="relative w-full max-w-2xl bg-surface-2 border border-default rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         
         {/* Header */}
-        <div className="p-5 md:p-6 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between gap-4">
+        <div className="p-5 md:p-6 border-b border-default bg-surface/60 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl">
               <Sliders className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="font-display font-bold text-lg text-white tracking-tight flex items-center gap-2">
+              <h3 className="font-display font-bold text-lg text-primary tracking-tight flex items-center gap-2">
                 Personalizador de Notificações
                 <span className="bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 text-[9px] px-2 py-0.5 rounded-full uppercase tracking-wider font-mono">
                   GRAN7 HELP
                 </span>
               </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="text-xs text-secondary mt-0.5">
                 Configure os sons, alertas visuais e teste instantaneamente no navegador e no SO.
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-white bg-slate-800/40 hover:bg-slate-800 rounded-xl transition border border-slate-700/50 cursor-pointer"
+            className="p-2 text-secondary hover:text-primary bg-surface-2/40 hover:bg-surface-2 rounded-xl transition border border-default/50 cursor-pointer"
             title="Fechar"
           >
             <X className="h-5 w-5" />
@@ -228,7 +228,7 @@ export default function NotificationCustomizerModal({
                 <Volume2 className="h-4 w-4" /> Tom do Som da Notificação
               </label>
               <div className="flex items-center gap-2">
-                <span className="text-[11px] font-mono text-slate-400">Volume: {Math.round(soundVolume * 100)}%</span>
+                <span className="text-[11px] font-mono text-secondary">Volume: {Math.round(soundVolume * 100)}%</span>
                 <input
                   type="range"
                   min="0"
@@ -256,8 +256,8 @@ export default function NotificationCustomizerModal({
                     onClick={() => saveSound(item.id as SoundTone)}
                     className={`p-3 rounded-xl border transition-all text-left flex flex-col justify-between cursor-pointer ${
                       isActive
-                        ? "bg-emerald-600/20 border-emerald-500 text-white"
-                        : "bg-slate-900/60 border-slate-800 text-slate-300 hover:border-slate-700 hover:bg-slate-800/50"
+                        ? "bg-emerald-600/20 border-emerald-500 text-primary"
+                        : "bg-surface/60 border-default text-secondary hover:border-default hover:bg-surface-2/50"
                     }`}
                   >
                     <div className="flex items-center justify-between w-full">
@@ -265,12 +265,12 @@ export default function NotificationCustomizerModal({
                       {isActive ? (
                         <div className="h-2 w-2 rounded-full bg-emerald-500" />
                       ) : (
-                        <Play className="h-3 w-3 text-slate-500 opacity-0 group-hover:opacity-100 transition" />
+                        <Play className="h-3 w-3 text-muted opacity-0 group-hover:opacity-100 transition" />
                       )}
                     </div>
                     <div className="mt-2">
                       <div className="text-xs font-bold leading-tight">{item.label}</div>
-                      <div className="text-[9.5px] text-slate-400 mt-0.5">{item.desc}</div>
+                      <div className="text-[9.5px] text-secondary mt-0.5">{item.desc}</div>
                     </div>
                   </button>
                 );
@@ -279,13 +279,13 @@ export default function NotificationCustomizerModal({
           </div>
 
           {/* Section 2: Visual Toast Style */}
-          <div className="space-y-3 pt-2 border-t border-slate-800/80">
+          <div className="space-y-3 pt-2 border-t border-default/80">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold uppercase tracking-wider text-cyan-400 flex items-center gap-2 font-mono">
                 <Layout className="h-4 w-4" /> Estilo do Card Flutuante (In-App)
               </label>
               <div className="flex items-center gap-1.5 text-xs">
-                <span className="text-slate-400 text-[11px]">Duração:</span>
+                <span className="text-secondary text-[11px]">Duração:</span>
                 {[3, 8, 15].map((d) => (
                   <button
                     key={d}
@@ -293,7 +293,7 @@ export default function NotificationCustomizerModal({
                     className={`px-2 py-0.5 rounded text-[10px] font-bold transition font-mono ${
                       toastDuration === d
                         ? "bg-cyan-500 text-black shadow-cyan-500/30 shadow-md"
-                        : "bg-slate-800 text-slate-400 hover:text-white"
+                        : "bg-surface-2 text-secondary hover:text-primary"
                     }`}
                   >
                     {d}s
@@ -304,9 +304,9 @@ export default function NotificationCustomizerModal({
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {[
-                { id: "emerald", title: "Cyber Emerald", tag: "NEON GREEN", border: "border-emerald-500/80 bg-[#05090e]", text: "Glow verde com badge interativo" },
-                { id: "glass", title: "Glassmorphism Dark", tag: "TRANSLÚCIDO", border: "border-cyan-500/80 bg-slate-950/90", text: "Acabamento escuro sofisticado" },
-                { id: "compact", title: "Compact Pill", tag: "MINIMALISTA", border: "border-amber-500/80 bg-neutral-950", text: "Design fino e direto ao ponto" }
+                { id: "emerald", title: "Cyber Emerald", tag: "NEON GREEN", border: "border-emerald-500/80 bg-surface", text: "Glow verde com badge interativo" },
+                { id: "glass", title: "Glassmorphism Dark", tag: "TRANSLÚCIDO", border: "border-cyan-500/80 bg-app/90", text: "Acabamento escuro sofisticado" },
+                { id: "compact", title: "Compact Pill", tag: "MINIMALISTA", border: "border-amber-500/80 bg-app", text: "Design fino e direto ao ponto" }
               ].map((style) => {
                 const isActive = toastStyle === style.id;
                 return (
@@ -316,16 +316,16 @@ export default function NotificationCustomizerModal({
                     className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
                       isActive
                         ? "border-cyan-400 bg-cyan-500/10 shadow-[0_0_20px_rgba(6,182,212,0.15)]"
-                        : "border-slate-800 bg-slate-900/40 hover:border-slate-700"
+                        : "border-default bg-surface/40 hover:border-default"
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-extrabold text-white">{style.title}</span>
-                      <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 font-bold">
+                      <span className="text-xs font-extrabold text-primary">{style.title}</span>
+                      <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-surface-2 text-cyan-300 font-bold">
                         {style.tag}
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-1.5 leading-tight">{style.text}</p>
+                    <p className="text-[11px] text-secondary mt-1.5 leading-tight">{style.text}</p>
                   </button>
                 );
               })}
@@ -333,12 +333,12 @@ export default function NotificationCustomizerModal({
           </div>
 
           {/* Section 3: OS Native Desktop Permission Banner */}
-          <div className="space-y-3 pt-2 border-t border-slate-800/80">
+          <div className="space-y-3 pt-2 border-t border-default/80">
             <label className="text-xs font-bold uppercase tracking-wider text-purple-400 flex items-center gap-2 font-mono">
               <Monitor className="h-4 w-4" /> Notificações Nativas do Sistema Operacional (Windows / Mac)
             </label>
 
-            <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="p-3.5 rounded-2xl bg-surface/80 border border-default flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div className={`p-2.5 rounded-xl ${
                   desktopPermission === "granted"
@@ -348,12 +348,12 @@ export default function NotificationCustomizerModal({
                   <Laptop className="h-5 w-5" />
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-white flex items-center gap-2">
+                  <div className="text-xs font-bold text-primary flex items-center gap-2">
                     {desktopPermission === "granted"
                       ? "Google Chrome Permite Pop-ups de Área de Trabalho"
                       : "Notificação de Sistema Pendente ou Bloqueada"}
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
+                  <p className="text-[11px] text-secondary mt-0.5">
                     {desktopPermission === "granted"
                       ? "Ícone oficial GRAN7 habilitado com atalho para abrir o chat diretamente."
                       : "Clique no botão para ativar os alertas nativos na barra do Windows."}
@@ -374,36 +374,36 @@ export default function NotificationCustomizerModal({
           </div>
 
           {/* Section 4: Instant Interactive Simulator */}
-          <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
+          <div className="p-4 rounded-xl bg-surface border border-default space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-300 font-sans flex items-center gap-1.5">
+              <span className="text-xs font-bold uppercase tracking-wider text-secondary font-sans flex items-center gap-1.5">
                 <Sparkles className="h-4 w-4 text-emerald-400" /> Simulador de Teste Personalizado
               </span>
-              <span className="text-[10px] text-slate-400 font-mono">Dispara Áudio + Toast + SO</span>
+              <span className="text-[10px] text-secondary font-mono">Dispara Áudio + Toast + SO</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1">
+                <label className="text-[10px] text-secondary font-bold uppercase tracking-wider block mb-1">
                   Título Personalizado
                 </label>
                 <input
                   type="text"
                   value={testTitle}
                   onChange={(e) => setTestTitle(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-app border border-default rounded-xl px-3 py-2 text-xs text-primary focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
               <div>
-                <label className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1">
+                <label className="text-[10px] text-secondary font-bold uppercase tracking-wider block mb-1">
                   Mensagem Personalizada
                 </label>
                 <input
                   type="text"
                   value={testMessage}
                   onChange={(e) => setTestMessage(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-app border border-default rounded-xl px-3 py-2 text-xs text-primary focus:outline-none focus:border-emerald-500"
                 />
               </div>
             </div>
@@ -422,13 +422,13 @@ export default function NotificationCustomizerModal({
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-slate-800/80 bg-slate-950/80 flex items-center justify-between text-xs">
-          <span className="text-slate-400 font-mono text-[11px]">
+        <div className="p-4 border-t border-default/80 bg-app/80 flex items-center justify-between text-xs">
+          <span className="text-secondary font-mono text-[11px]">
             Preferências salvas automaticamente no seu navegador.
           </span>
           <button
             onClick={onClose}
-            className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition cursor-pointer"
+            className="px-5 py-2 bg-surface-2 hover:bg-surface-3 text-primary font-bold rounded-xl transition cursor-pointer"
           >
             Concluir
           </button>

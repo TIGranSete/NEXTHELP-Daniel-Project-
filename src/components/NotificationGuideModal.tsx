@@ -19,8 +19,8 @@ export default function NotificationGuideModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-      <div className="bg-[#080808] border border-emerald-500/30 rounded-2xl w-full max-w-lg p-6 space-y-5 shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 bg-app/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+      <div className="bg-app border border-emerald-500/30 rounded-2xl w-full max-w-lg p-6 space-y-5 shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-emerald-500/20 pb-4">
           <div className="flex items-center gap-3">
@@ -28,17 +28,17 @@ export default function NotificationGuideModal({
               <Laptop className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <h3 className="text-sm font-bold text-primary uppercase tracking-wider flex items-center gap-2">
                 Notificações no Sistema Operacional
               </h3>
-              <p className="text-[11px] text-slate-400">
+              <p className="text-[11px] text-secondary">
                 Alerta nativo no Windows / Mac / Linux para o Chat do HelpDesk
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+            className="p-1 text-secondary hover:text-primary rounded-lg hover:bg-white/10 transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
@@ -72,29 +72,29 @@ export default function NotificationGuideModal({
 
         {/* Steps guide if blocked */}
         {currentPermission === "denied" ? (
-          <div className="space-y-3 bg-black/60 p-4 rounded-xl border border-neutral-900 text-xs">
-            <p className="font-bold text-slate-200 flex items-center gap-1.5 text-xs">
+          <div className="space-y-3 bg-app/60 p-4 rounded-xl border border-default text-xs">
+            <p className="font-bold text-primary flex items-center gap-1.5 text-xs">
               <ShieldAlert className="h-4 w-4 text-amber-400" />
               Como desbloquear as Notificações no seu navegador:
             </p>
 
-            <ol className="space-y-2.5 text-slate-300 text-[11px] list-decimal list-inside pl-1">
+            <ol className="space-y-2.5 text-secondary text-[11px] list-decimal list-inside pl-1">
               <li className="leading-relaxed">
-                Clique no ícone de <strong className="text-white">cadeado (🔒) ou ajuste de site</strong> ao lado esquerdo da URL (endereço da página).
+                Clique no ícone de <strong className="text-primary">cadeado (🔒) ou ajuste de site</strong> ao lado esquerdo da URL (endereço da página).
               </li>
               <li className="leading-relaxed">
-                Localize a opção <strong className="text-white">Notificações (Notifications)</strong>.
+                Localize a opção <strong className="text-primary">Notificações (Notifications)</strong>.
               </li>
               <li className="leading-relaxed">
                 Altere de <strong className="text-rose-400">Bloquear</strong> para <strong className="text-emerald-400">Permitir</strong>.
               </li>
               <li className="leading-relaxed">
-                Clique no botão de recarregar ou pressione <kbd className="px-1.5 py-0.5 bg-neutral-800 rounded font-mono text-[10px] text-slate-300">F5</kbd>.
+                Clique no botão de recarregar ou pressione <kbd className="px-1.5 py-0.5 bg-surface-2 rounded font-mono text-[10px] text-secondary">F5</kbd>.
               </li>
             </ol>
           </div>
         ) : (
-          <div className="space-y-2 text-xs text-slate-300 leading-relaxed bg-black/40 p-3.5 rounded-xl border border-neutral-900">
+          <div className="space-y-2 text-xs text-secondary leading-relaxed bg-app/40 p-3.5 rounded-xl border border-default">
             <p className="font-bold text-emerald-400">
               Por que usar Notificações Locais no Sistema Operacional?
             </p>
@@ -109,7 +109,7 @@ export default function NotificationGuideModal({
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 bg-neutral-900 hover:bg-neutral-800 text-slate-300 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+            className="px-4 py-2 bg-surface hover:bg-surface-2 text-secondary rounded-xl text-xs font-semibold transition-colors cursor-pointer"
           >
             Fechar
           </button>

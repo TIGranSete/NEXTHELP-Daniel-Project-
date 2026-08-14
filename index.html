@@ -7,6 +7,17 @@
     <link rel="icon" type="image/png" href="/icon.png" />
     <link rel="manifest" href="/manifest.json" />
     <script>
+      // Applies the saved/system theme before first paint, so there's no
+      // flash of the wrong theme while React boots.
+      (function () {
+        try {
+          var pref = localStorage.getItem('gran7_theme');
+          var dark = pref === 'dark' || (pref !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) document.documentElement.classList.add('dark');
+        } catch (e) {}
+      })();
+    </script>
+    <script>
       // Suppress benign Vite WebSocket connection errors from popping up in dev overlay
       // We do this by creating a robust dummy WebSocket mock specifically for Vite's HMR connections
       (function() {

@@ -21,7 +21,10 @@ import Gran7Brand from "./components/Gran7Brand";
 import NotificationGuideModal from "./components/NotificationGuideModal";
 import NotificationCustomizerModal, { playCustomNotificationSound, SoundTone, ToastStyle } from "./components/NotificationCustomizerModal";
 import WindowsDatePicker from "./components/WindowsDatePicker";
+import ThemeToggle from "./components/ThemeToggle";
 import logoImg from "./assets/images/logo.png";
+import logoBlack from "./assets/images/logo-black.png";
+import { useTheme } from "./hooks/useTheme";
 import logoMin from "./assets/images/7.png";
 import { 
   Shield, 
@@ -163,6 +166,8 @@ interface AppNotification {
 }
 
 export default function App() {
+  const { resolvedTheme } = useTheme();
+
   // Session management
   const [currentSession, setCurrentSession] = useState<UserSession | null>(() => {
     const saved = localStorage.getItem("gran7_session");
@@ -1323,14 +1328,14 @@ export default function App() {
 
   const preloaderJSX = showPreloader ? (
     <div
-      className={`fixed inset-0 z-[9999] bg-[#09090b] flex flex-col items-center justify-center font-sans overflow-hidden transition-all duration-200 ease-in-out ${
+      className={`fixed inset-0 z-[9999] bg-app flex flex-col items-center justify-center font-sans overflow-hidden transition-all duration-200 ease-in-out ${
         preloaderFadeOut ? "opacity-0 scale-95 pointer-events-none" : "opacity-100 scale-100"
       }`}
     >
       {/* Clean Corporate Card */}
-      <div className="relative z-10 max-w-[340px] w-full mx-4 border border-zinc-800 bg-[#121215] rounded-2xl p-6 sm:p-8 shadow-2xl text-center flex flex-col items-center gap-6">
+      <div className="relative z-10 max-w-[340px] w-full mx-4 border border-default bg-surface rounded-2xl p-6 sm:p-8 shadow-2xl text-center flex flex-col items-center gap-6">
         {/* Top Status Badge */}
-        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-[10px] font-bold tracking-wider text-zinc-400 uppercase">
+        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface border border-default text-[10px] font-bold tracking-wider text-secondary uppercase">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
           <span>PORTAL DE ATENDIMENTO CORPORATIVO</span>
         </div>
@@ -1351,13 +1356,13 @@ export default function App() {
 
         {/* Progress Section */}
         <div className="w-full space-y-2 mt-2">
-          <div className="flex justify-between items-center text-[10px] font-bold text-zinc-400 px-0.5">
-            <span className="uppercase text-[10px] tracking-wider text-zinc-400 truncate">
+          <div className="flex justify-between items-center text-[10px] font-bold text-secondary px-0.5">
+            <span className="uppercase text-[10px] tracking-wider text-secondary truncate">
               {statusText}
             </span>
             <span className="text-emerald-400 font-mono font-bold">{preloaderProgress}%</span>
           </div>
-          <div className="w-full h-1.5 bg-zinc-900 rounded-full border border-zinc-800/80 overflow-hidden">
+          <div className="w-full h-1.5 bg-surface rounded-full border border-default/80 overflow-hidden">
             <div 
               className="h-full bg-emerald-600 rounded-full transition-all duration-150 ease-out"
               style={{ width: `${preloaderProgress}%` }}
@@ -1365,9 +1370,9 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex items-center justify-between w-full border-t border-zinc-800/60 pt-3 text-[9px] text-zinc-500 font-medium">
+        <div className="flex items-center justify-between w-full border-t border-default/60 pt-3 text-[9px] text-muted font-medium">
           <span>GRAN7 NUTRITION &amp; BIOTECHNOLOGY</span>
-          <span className="text-zinc-400 font-mono">v2.4</span>
+          <span className="text-secondary font-mono">v2.4</span>
         </div>
       </div>
     </div>
@@ -1521,29 +1526,29 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#09090b] text-zinc-100 flex flex-col font-sans relative">
+    <div className="min-h-screen bg-app text-primary flex flex-col font-sans relative">
       {/* Gran7 Top Horizontal Navbar (Full-width top bar matching screenshot) */}
-      <header className="w-full bg-[#000000] border-b border-zinc-800/80 sticky top-0 z-40 px-4 sm:px-6 lg:px-8 py-3.5 flex items-center justify-between gap-4 backdrop-blur-md">
+      <header className="w-full bg-app border-b border-default/80 sticky top-0 z-40 px-4 sm:px-6 lg:px-8 py-3.5 grid grid-cols-[1fr_auto_1fr] items-center gap-4 backdrop-blur-md">
         {/* Left: Brand Logo */}
-        <div className="flex items-center shrink-0">
+        <div className="flex items-center shrink-0 justify-self-start">
           <button 
             onClick={handleGoToHome}
             className="flex items-center gap-3 hover:opacity-90 transition cursor-pointer shrink-0"
             title="Ir para o início"
           >
-            <img src={logoImg} alt="GRAN7" className="h-8 sm:h-9 w-auto object-contain" />
+            <img src={resolvedTheme === "light" ? logoBlack : logoImg} alt="GRAN7" className="h-8 sm:h-9 w-auto object-contain" />
           </button>
         </div>
 
         {/* Center: Desktop Top Nav Tabs (Gran7 Pill Bar) */}
-        <div className="hidden lg:flex items-center justify-center flex-1">
-          <div className="flex items-center gap-1.5 bg-zinc-900/90 p-1.5 rounded-full border border-zinc-800">
+        <div className="hidden nav:flex items-center justify-self-center">
+          <div className="flex items-center gap-1.5 bg-surface/90 p-1.5 rounded-full border border-default">
             <button
               onClick={() => setActiveTab("painel")}
               className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
                 activeTab === "painel" 
                   ? "bg-emerald-600 text-white shadow-lg" 
-                  : "text-zinc-400 hover:text-white hover:bg-zinc-800/60"
+                  : "text-secondary hover:text-primary hover:bg-surface-2/60"
               }`}
             >
               Fila de Chamados
@@ -1556,7 +1561,7 @@ export default function App() {
                   className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
                     activeTab === "projetos" 
                       ? "bg-emerald-600 text-white shadow-lg" 
-                      : "text-zinc-400 hover:text-white hover:bg-zinc-800/60"
+                      : "text-secondary hover:text-primary hover:bg-surface-2/60"
                   }`}
                 >
                   Projetos em Andamento
@@ -1567,7 +1572,7 @@ export default function App() {
                   className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
                     activeTab === "sla" 
                       ? "bg-emerald-600 text-white shadow-lg" 
-                      : "text-zinc-400 hover:text-white hover:bg-zinc-800/60"
+                      : "text-secondary hover:text-primary hover:bg-surface-2/60"
                   }`}
                 >
                   Análise de SLA
@@ -1578,7 +1583,7 @@ export default function App() {
                   className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
                     activeTab === "colaboradores" 
                       ? "bg-emerald-600 text-white shadow-lg" 
-                      : "text-zinc-400 hover:text-white hover:bg-zinc-800/60"
+                      : "text-secondary hover:text-primary hover:bg-surface-2/60"
                   }`}
                 >
                   Gestão de Colaboradores
@@ -1589,11 +1594,11 @@ export default function App() {
         </div>
 
         {/* Right: User Role Pill, Profile Avatar & Create Ticket CTA */}
-        <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
+        <div className="flex items-center gap-2.5 sm:gap-3 shrink-0 justify-self-end">
           {/* User Session Role Badge */}
-          <div className="hidden sm:flex items-center gap-2 bg-zinc-900 px-3 py-1.5 rounded-full border border-zinc-800 text-xs">
+          <div className="hidden sm:flex items-center gap-2 bg-surface px-3 py-1.5 rounded-full border border-default text-xs">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span className="font-black text-[10px] tracking-wider text-zinc-300 uppercase">
+            <span className="font-black text-[10px] tracking-wider text-secondary uppercase">
               {isTechUser ? "ADMINISTRATIVO / TI GRAN7" : "COLABORADOR"}
             </span>
           </div>
@@ -1614,16 +1619,19 @@ export default function App() {
               setProfileTicketsFilter("all");
               setIsTechProfileModalOpen(true);
             }}
-            className="w-9 h-9 rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center text-xs font-black text-emerald-400 hover:bg-zinc-800 hover:border-emerald-500 transition cursor-pointer shadow-md ring-2 ring-emerald-500/20"
+            className="w-9 h-9 rounded-full bg-surface border border-default flex items-center justify-center text-xs font-black text-emerald-400 hover:bg-surface-2 hover:border-emerald-500 transition cursor-pointer shadow-md ring-2 ring-emerald-500/20"
             title={`Ver perfil completo: ${currentSession.name}`}
           >
             {currentSession.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
           </button>
 
+          {/* Theme Toggle */}
+          <ThemeToggle />
+
           {/* Logout Button */}
           <button
             onClick={handleLogout}
-            className="p-2 bg-zinc-900 hover:bg-rose-950/40 border border-zinc-800 hover:border-rose-500/30 text-zinc-400 hover:text-rose-400 rounded-full transition cursor-pointer"
+            className="p-2 bg-surface hover:bg-rose-950/40 border border-default hover:border-rose-500/30 text-secondary hover:text-rose-400 rounded-full transition cursor-pointer"
             title="Sair da Conta"
           >
             <LogOut className="h-4 w-4" />
@@ -1633,7 +1641,7 @@ export default function App() {
           {/* Mobile Menu Toggle Button */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="lg:hidden p-2 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white"
+            className="nav:hidden p-2 rounded-full bg-surface border border-default text-secondary hover:text-primary"
           >
             <Menu className="h-5 w-5" />
           </button>
@@ -1641,11 +1649,11 @@ export default function App() {
       </header>
 
       {/* Mobile Horizontal Sub-Navigation Bar */}
-      <div className="lg:hidden bg-zinc-950 border-b border-zinc-800/80 px-4 py-2.5 overflow-x-auto flex items-center gap-2 no-scrollbar">
+      <div className="nav:hidden bg-app border-b border-default/80 px-4 py-2.5 overflow-x-auto flex items-center gap-2 no-scrollbar">
         <button
           onClick={() => setActiveTab("painel")}
           className={`px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
-            activeTab === "painel" ? "bg-emerald-600 text-white" : "bg-zinc-900 text-zinc-400 border border-zinc-800"
+            activeTab === "painel" ? "bg-emerald-600 text-white" : "bg-surface text-secondary border border-default"
           }`}
         >
           Fila de Chamados
@@ -1655,7 +1663,7 @@ export default function App() {
             <button
               onClick={() => setActiveTab("projetos")}
               className={`px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
-                activeTab === "projetos" ? "bg-emerald-600 text-white" : "bg-zinc-900 text-zinc-400 border border-zinc-800"
+                activeTab === "projetos" ? "bg-emerald-600 text-white" : "bg-surface text-secondary border border-default"
               }`}
             >
               Projetos em Andamento
@@ -1663,7 +1671,7 @@ export default function App() {
             <button
               onClick={() => setActiveTab("sla")}
               className={`px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
-                activeTab === "sla" ? "bg-emerald-600 text-white" : "bg-zinc-900 text-zinc-400 border border-zinc-800"
+                activeTab === "sla" ? "bg-emerald-600 text-white" : "bg-surface text-secondary border border-default"
               }`}
             >
               Análise de SLA
@@ -1671,7 +1679,7 @@ export default function App() {
             <button
               onClick={() => setActiveTab("colaboradores")}
               className={`px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
-                activeTab === "colaboradores" ? "bg-emerald-600 text-white" : "bg-zinc-900 text-zinc-400 border border-zinc-800"
+                activeTab === "colaboradores" ? "bg-emerald-600 text-white" : "bg-surface text-secondary border border-default"
               }`}
             >
               Gestão de Colaboradores
@@ -1689,33 +1697,33 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setMobileMenuOpen(false)}
-              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 lg:hidden"
+              className="fixed inset-0 bg-app/80 backdrop-blur-sm z-50 nav:hidden"
             />
             <motion.div
               initial={{ x: "-100%" }}
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="fixed inset-y-0 left-0 w-4/5 max-w-[320px] bg-zinc-950 border-r border-zinc-800 z-50 flex flex-col lg:hidden overflow-hidden shadow-2xl"
+              className="fixed inset-y-0 left-0 w-4/5 max-w-[320px] bg-app border-r border-default z-50 flex flex-col nav:hidden overflow-hidden shadow-2xl"
             >
-              <div className="p-4 flex items-center justify-between border-b border-zinc-800 bg-zinc-900">
-                <img src={logoImg} alt="GRAN7" className="h-8 w-auto object-contain" />
+              <div className="p-4 flex items-center justify-between border-b border-default bg-surface">
+                <img src={resolvedTheme === "light" ? logoBlack : logoImg} alt="GRAN7" className="h-8 w-auto object-contain" />
                 <button
                   onClick={() => setMobileMenuOpen(false)}
-                  className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-white"
+                  className="p-1.5 rounded-lg bg-surface-2 text-secondary hover:text-primary"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                <div className="p-3.5 bg-zinc-900/90 rounded-2xl border border-zinc-800">
-                  <p className="text-xs font-bold text-white">{currentSession.name}</p>
-                  <p className="text-[10px] text-zinc-400">{currentSession.department}</p>
+                <div className="p-3.5 bg-surface/90 rounded-2xl border border-default">
+                  <p className="text-xs font-bold text-primary">{currentSession.name}</p>
+                  <p className="text-[10px] text-secondary">{currentSession.department}</p>
                 </div>
                 <div className="space-y-1">
                   <button
                     onClick={() => { setActiveTab("painel"); setMobileMenuOpen(false); }}
-                    className="w-full text-left px-4 py-2.5 rounded-xl text-xs font-bold text-zinc-200 hover:bg-zinc-900 flex items-center gap-2"
+                    className="w-full text-left px-4 py-2.5 rounded-xl text-xs font-bold text-primary hover:bg-surface flex items-center gap-2"
                   >
                     <Layers className="h-4 w-4 text-emerald-400" />
                     Fila de Chamados
@@ -1724,21 +1732,21 @@ export default function App() {
                     <>
                       <button
                         onClick={() => { setActiveTab("projetos"); setMobileMenuOpen(false); }}
-                        className="w-full text-left px-4 py-2.5 rounded-xl text-xs font-bold text-zinc-200 hover:bg-zinc-900 flex items-center gap-2"
+                        className="w-full text-left px-4 py-2.5 rounded-xl text-xs font-bold text-primary hover:bg-surface flex items-center gap-2"
                       >
                         <FolderKanban className="h-4 w-4 text-emerald-400" />
                         Projetos em Andamento
                       </button>
                       <button
                         onClick={() => { setActiveTab("sla"); setMobileMenuOpen(false); }}
-                        className="w-full text-left px-4 py-2.5 rounded-xl text-xs font-bold text-zinc-200 hover:bg-zinc-900 flex items-center gap-2"
+                        className="w-full text-left px-4 py-2.5 rounded-xl text-xs font-bold text-primary hover:bg-surface flex items-center gap-2"
                       >
                         <Clock className="h-4 w-4 text-emerald-400" />
                         Análise de SLA
                       </button>
                       <button
                         onClick={() => { setActiveTab("colaboradores"); setMobileMenuOpen(false); }}
-                        className="w-full text-left px-4 py-2.5 rounded-xl text-xs font-bold text-zinc-200 hover:bg-zinc-900 flex items-center gap-2"
+                        className="w-full text-left px-4 py-2.5 rounded-xl text-xs font-bold text-primary hover:bg-surface flex items-center gap-2"
                       >
                         <Users className="h-4 w-4 text-emerald-400" />
                         Gestão de Colaboradores
@@ -1756,13 +1764,13 @@ export default function App() {
       <main className="flex-1 w-full max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-8 flex flex-col gap-6 overflow-x-hidden">
         
         {/* Top Header Controls / Page Subheader */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-zinc-800/80 pb-5">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-default/80 pb-5">
           <div>
-            <h2 className="text-2xl sm:text-3xl font-display font-black text-white tracking-tight">
+            <h2 className="text-2xl sm:text-3xl font-display font-black text-primary tracking-tight">
               Chamados em Aberto
             </h2>
-            <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-400 mt-1 font-medium">
-              <div className="flex items-center gap-1.5 text-zinc-300">
+            <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-secondary mt-1 font-medium">
+              <div className="flex items-center gap-1.5 text-secondary">
                 <RefreshCw className={`h-3.5 w-3.5 ${isPolling ? "animate-spin text-emerald-400" : ""}`} />
                 <span>Atualizado: {lastUpdated ? lastUpdated.toLocaleTimeString("pt-BR") : "--:--:--"}</span>
               </div>
@@ -1771,10 +1779,10 @@ export default function App() {
 
           <div className="flex flex-wrap items-center gap-3">
             {/* Minimalist Top Active IT Team Status Bar */}
-            <div className="flex items-center justify-between gap-2 bg-[#121215] border border-zinc-800/80 rounded-lg px-3 py-1.5 shadow-sm my-1">
+            <div className="flex items-center justify-between gap-2 bg-surface border border-default/80 rounded-lg px-3 py-1.5 shadow-sm my-1">
               <div className="flex items-center gap-1.5 shrink-0">
                 <Users className="h-3 w-3 text-emerald-400" />
-                <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider">TI ATIVA:</span>
+                <span className="text-[10px] font-bold text-secondary uppercase tracking-wider">TI ATIVA:</span>
                 <span className="text-[9px] font-extrabold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full">
                   {users.filter(u => u.role === "tecnico" && (u.isOnline || (currentSession && (u.email === currentSession.email || u.name === currentSession.name)))).length} / {users.filter(u => u.role === "tecnico").length}
                 </span>
@@ -1796,17 +1804,17 @@ export default function App() {
                       key={user.id || idx}
                       className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[10px] shrink-0 transition ${
                         user.isOnline
-                          ? "bg-emerald-500/10 border-emerald-500/30 text-white"
-                          : "bg-zinc-900/60 border-zinc-800/60 text-zinc-400"
+                          ? "bg-emerald-500/10 border-emerald-500/30 text-primary"
+                          : "bg-surface/60 border-default/60 text-secondary"
                       }`}
                       title={`${user.name} - ${user.isOnline ? "Online / Ativo" : "Ausente"}`}
                     >
                       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                        user.isOnline ? "bg-emerald-400 animate-pulse" : "bg-zinc-600"
+                        user.isOnline ? "bg-emerald-400 animate-pulse" : "bg-surface-3"
                       }`} />
                       <span className="font-bold truncate max-w-[90px]">{user.name}</span>
                       <span className={`text-[8px] font-black uppercase tracking-wider px-1 py-0.2 rounded ${
-                        user.isOnline ? "bg-emerald-500/20 text-emerald-400" : "bg-zinc-800/80 text-zinc-500"
+                        user.isOnline ? "bg-emerald-500/20 text-emerald-400" : "bg-surface-2/80 text-muted"
                       }`}>
                         {user.isOnline ? "ON" : "OFF"}
                       </span>
@@ -1860,19 +1868,19 @@ export default function App() {
             
             {/* Top Stat row taking full width - Minimalist */}
             <div className="xl:col-span-12 grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="bg-[#121215] border border-zinc-800/80 rounded-xl p-4 flex items-center justify-between shadow-sm">
+              <div className="bg-surface border border-default/80 rounded-xl p-4 flex items-center justify-between shadow-sm">
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Total de Contas</p>
-                  <p className="text-2xl font-bold text-zinc-100 mt-1">{(users.length > 0 ? users : USER_PROFILES).length}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-secondary">Total de Contas</p>
+                  <p className="text-2xl font-bold text-primary mt-1">{(users.length > 0 ? users : USER_PROFILES).length}</p>
                 </div>
-                <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-800/80 flex items-center justify-center text-zinc-400">
+                <div className="w-8 h-8 rounded-lg bg-surface border border-default/80 flex items-center justify-center text-secondary">
                   <Users className="w-4 h-4" />
                 </div>
               </div>
 
-              <div className="bg-[#121215] border border-zinc-800/80 rounded-xl p-4 flex items-center justify-between shadow-sm">
+              <div className="bg-surface border border-default/80 rounded-xl p-4 flex items-center justify-between shadow-sm">
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Equipe de TI</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-secondary">Equipe de TI</p>
                   <p className="text-2xl font-bold text-emerald-400 mt-1">
                     {(users.length > 0 ? users : USER_PROFILES).filter(u => u.role === "tecnico").length}
                   </p>
@@ -1882,14 +1890,14 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="bg-[#121215] border border-zinc-800/80 rounded-xl p-4 flex items-center justify-between shadow-sm">
+              <div className="bg-surface border border-default/80 rounded-xl p-4 flex items-center justify-between shadow-sm">
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Colaboradores</p>
-                  <p className="text-2xl font-bold text-zinc-100 mt-1">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-secondary">Colaboradores</p>
+                  <p className="text-2xl font-bold text-primary mt-1">
                     {(users.length > 0 ? users : USER_PROFILES).filter(u => u.role === "colaborador").length}
                   </p>
                 </div>
-                <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-800/80 flex items-center justify-center text-zinc-400">
+                <div className="w-8 h-8 rounded-lg bg-surface border border-default/80 flex items-center justify-center text-secondary">
                   <UserIcon className="w-4 h-4" />
                 </div>
               </div>
@@ -1898,7 +1906,7 @@ export default function App() {
             {/* Left Panel: List (Full Width) */}
             <div className="xl:col-span-12 space-y-6">
               {/* Collaborators List Card */}
-              <div className="bg-[#121215] border border-zinc-800/80 rounded-2xl overflow-hidden shadow-lg">
+              <div className="bg-surface border border-default/80 rounded-2xl overflow-hidden shadow-lg">
                 {(() => {
                   const allColabs = users.length > 0 ? users : USER_PROFILES;
                   const colabDepartments = Array.from(new Set(
@@ -1984,37 +1992,37 @@ export default function App() {
                   return (
                     <>
                       {/* Search & Advanced Filters Bar */}
-                      <div className="p-5 border-b border-neutral-900 bg-black/50 space-y-4">
+                      <div className="p-5 border-b border-default bg-app/50 space-y-4">
                         {/* Top Row: Title & Search */}
                         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                           <div>
-                            <h3 className="font-display font-extrabold text-white text-sm flex items-center gap-2">
+                            <h3 className="font-display font-extrabold text-primary text-sm flex items-center gap-2">
                               <Users className="h-4 w-4 text-emerald-400" />
                               Diretório de Colaboradores
                             </h3>
-                            <p className="text-[10px] text-slate-400">Visualização em tempo real das contas ativas e métricas de chamados</p>
+                            <p className="text-[10px] text-secondary">Visualização em tempo real das contas ativas e métricas de chamados</p>
                           </div>
                           <div className="relative w-full md:w-80">
-                            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-500" />
+                            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted" />
                             <input
                               type="text"
                               placeholder="Buscar por nome, email ou setor..."
                               value={colabSearchTerm}
                               onChange={(e) => setColabSearchTerm(e.target.value)}
-                              className="w-full bg-black border border-neutral-900 rounded-xl py-1.5 pl-9 pr-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
+                              className="w-full bg-app border border-default rounded-xl py-1.5 pl-9 pr-3 text-xs text-primary placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
                             />
                           </div>
                         </div>
 
                         {/* Bottom Row: Quick filters dropdowns */}
-                        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 pt-3 border-t border-neutral-900/40">
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 pt-3 border-t border-default/40">
                           {/* Sector Filter */}
                           <div className="flex flex-col gap-1">
-                            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Setor / Departamento</label>
+                            <label className="text-[9px] font-bold text-muted uppercase tracking-wider">Setor / Departamento</label>
                             <select
                               value={colabSectorFilter}
                               onChange={(e) => setColabSectorFilter(e.target.value)}
-                              className="bg-black border border-neutral-900 rounded-lg p-1.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
+                              className="bg-app border border-default rounded-lg p-1.5 text-xs text-secondary focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
                             >
                               <option value="All">Todos os Setores</option>
                               {colabDepartments.map(dept => (
@@ -2025,11 +2033,11 @@ export default function App() {
 
                           {/* Role Filter */}
                           <div className="flex flex-col gap-1">
-                            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Nível de Acesso</label>
+                            <label className="text-[9px] font-bold text-muted uppercase tracking-wider">Nível de Acesso</label>
                             <select
                               value={colabRoleFilter}
                               onChange={(e) => setColabRoleFilter(e.target.value)}
-                              className="bg-black border border-neutral-900 rounded-lg p-1.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
+                              className="bg-app border border-default rounded-lg p-1.5 text-xs text-secondary focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
                             >
                               <option value="All">Todos os Acessos</option>
                               <option value="tecnico">Técnicos (TI)</option>
@@ -2039,11 +2047,11 @@ export default function App() {
 
                           {/* Connection Status Filter */}
                           <div className="flex flex-col gap-1">
-                            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Status</label>
+                            <label className="text-[9px] font-bold text-muted uppercase tracking-wider">Status</label>
                             <select
                               value={colabStatusFilter}
                               onChange={(e) => setColabStatusFilter(e.target.value)}
-                              className="bg-black border border-neutral-900 rounded-lg p-1.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
+                              className="bg-app border border-default rounded-lg p-1.5 text-xs text-secondary focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
                             >
                               <option value="All">Todos os Status</option>
                               <option value="online">Online</option>
@@ -2053,11 +2061,11 @@ export default function App() {
 
                           {/* Sorting */}
                           <div className="flex flex-col gap-1">
-                            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Ordenar por</label>
+                            <label className="text-[9px] font-bold text-muted uppercase tracking-wider">Ordenar por</label>
                             <select
                               value={colabSortBy}
                               onChange={(e) => setColabSortBy(e.target.value)}
-                              className="bg-black border border-neutral-900 rounded-lg p-1.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
+                              className="bg-app border border-default rounded-lg p-1.5 text-xs text-secondary focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
                             >
                               <option value="name">Nome (A-Z)</option>
                               <option value="tickets_created">Mais Chamados Criados</option>
@@ -2093,7 +2101,7 @@ export default function App() {
 
                       <div className="divide-y divide-neutral-900 max-h-[500px] xl:max-h-[calc(100vh-270px)] overflow-y-auto">
                         {filteredAndSortedUsers.length === 0 ? (
-                          <div className="p-8 text-center text-slate-500 text-xs">
+                          <div className="p-8 text-center text-muted text-xs">
                             Nenhum colaborador ou técnico atende aos filtros aplicados.
                           </div>
                         ) : (
@@ -2116,7 +2124,7 @@ export default function App() {
                                   setSelectedTechProfile(user);
                                   setIsTechProfileModalOpen(true);
                                 }}
-                                className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#080808]/50 transition cursor-pointer group/tech"
+                                className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-app/50 transition cursor-pointer group/tech"
                               >
                                 <div className="flex items-center gap-3">
                                   <div className="relative shrink-0">
@@ -2126,12 +2134,12 @@ export default function App() {
                                     {isOnline ? (
                                       <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-black animate-pulse" title="Ativo / Online"></span>
                                     ) : (
-                                      <span className="absolute bottom-0 right-0 w-3 h-3 bg-neutral-700 rounded-full border-2 border-black" title="Inativo"></span>
+                                      <span className="absolute bottom-0 right-0 w-3 h-3 bg-surface-3 rounded-full border-2 border-black" title="Inativo"></span>
                                     )}
                                   </div>
                                   <div>
                                     <div className="flex items-center gap-2 flex-wrap">
-                                      <span className="text-xs font-bold text-white group-hover/tech:text-emerald-400 transition-colors">{user.name}</span>
+                                      <span className="text-xs font-bold text-primary group-hover/tech:text-emerald-400 transition-colors">{user.name}</span>
                                       <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold bg-emerald-950/40 text-emerald-300 border border-emerald-500/20`}>
                                         {isTech ? "TI" : "User"}
                                       </span>
@@ -2142,20 +2150,20 @@ export default function App() {
                                       )}
                                     </div>
                                     <div className="flex flex-col sm:flex-row sm:items-center gap-x-3 gap-y-1.5 mt-1">
-                                      <p className="text-[10px] text-slate-400">{user.email}</p>
+                                      <p className="text-[10px] text-secondary">{user.email}</p>
                                     </div>
                                   </div>
                                 </div>
 
                                 <div className="flex items-center gap-4 text-right justify-between sm:justify-end w-full sm:w-auto">
                                   <div className="text-left sm:text-right">
-                                    <span className="text-[10px] text-slate-500 block">Departamento</span>
-                                    <span className="text-[11px] font-semibold text-slate-300">{user.department}</span>
+                                    <span className="text-[10px] text-muted block">Departamento</span>
+                                    <span className="text-[11px] font-semibold text-secondary">{user.department}</span>
                                   </div>
                                   <div className="flex items-center gap-2">
-                                    <div className="bg-black border border-emerald-950/20 px-2.5 py-1 rounded-lg text-[11px] font-mono flex items-center gap-1.5 text-emerald-300">
-                                      <span className="text-slate-500">Acesso:</span>
-                                      <span className="text-white font-bold">{isTech ? "Técnico de TI" : "Colaborador"}</span>
+                                    <div className="bg-app border border-emerald-950/20 px-2.5 py-1 rounded-lg text-[11px] font-mono flex items-center gap-1.5 text-emerald-300">
+                                      <span className="text-muted">Acesso:</span>
+                                      <span className="text-primary font-bold">{isTech ? "Técnico de TI" : "Colaborador"}</span>
                                     </div>
                                     <span className="text-[9px] font-bold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 px-2 py-1 rounded-lg transition-all">
                                       Ver Perfil
@@ -2184,16 +2192,16 @@ export default function App() {
           >
             
             {/* Header / Intro banner */}
-            <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-6 shadow-lg relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="bg-app border border-default rounded-2xl p-6 shadow-lg relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6">
               <div className="space-y-2 max-w-2xl">
                 <div className="flex items-center gap-2">
                   <span className="p-1.5 bg-emerald-500/10 text-emerald-400 rounded-lg border border-emerald-500/20">
                     <Database className="h-5 w-5" />
                   </span>
-                  <h3 className="text-base font-bold text-white uppercase tracking-wider">Central de Sincronização do Banco de Dados</h3>
+                  <h3 className="text-base font-bold text-primary uppercase tracking-wider">Central de Sincronização do Banco de Dados</h3>
                 </div>
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  Gerencie o fluxo de dados em nuvem via <strong className="text-white">Supabase</strong> com fallback automático para <strong className="text-white">Armazenamento Local Autônomo</strong>. Nosso sistema de redundância garante que o suporte nunca pare, mesmo que a nuvem esteja indisponível.
+                <p className="text-xs text-secondary leading-relaxed">
+                  Gerencie o fluxo de dados em nuvem via <strong className="text-primary">Supabase</strong> com fallback automático para <strong className="text-primary">Armazenamento Local Autônomo</strong>. Nosso sistema de redundância garante que o suporte nunca pare, mesmo que a nuvem esteja indisponível.
                 </p>
               </div>
               <div className="shrink-0 flex items-center gap-2.5">
@@ -2204,7 +2212,7 @@ export default function App() {
                     fetchUsers();
                   }}
                   disabled={dbChecking}
-                  className="px-4 py-2 bg-[#151515] hover:bg-[#202020] text-slate-300 hover:text-white font-bold rounded-xl text-xs border border-neutral-900 transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  className="px-4 py-2 bg-surface hover:bg-surface-2 text-secondary hover:text-primary font-bold rounded-xl text-xs border border-default transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
                 >
                   <RefreshCw className={`h-3.5 w-3.5 ${dbChecking ? "animate-spin" : ""}`} />
                   Recarregar Tudo
@@ -2216,10 +2224,10 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               
               {/* Card 1: Connection Status */}
-              <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-5 flex flex-col justify-between min-h-[160px] shadow-lg">
+              <div className="bg-app border border-default rounded-2xl p-5 flex flex-col justify-between min-h-[160px] shadow-lg">
                 <div>
                   <div className="flex items-center justify-between">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Status da Conexão</p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-secondary">Status da Conexão</p>
                     {dbStatus?.connected ? (
                       <span className="flex h-2 w-2 relative">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -2238,7 +2246,7 @@ export default function App() {
                          <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded uppercase tracking-wider">
                           Nuvem Online
                          </span>
-                         <p className="text-[11px] text-slate-300 mt-2.5 leading-relaxed">
+                         <p className="text-[11px] text-secondary mt-2.5 leading-relaxed">
                           Conectado com sucesso ao banco de dados Supabase. Leituras e escritas estão ativas e sendo persistidas em nuvem em tempo real.
                          </p>
                        </div>
@@ -2247,7 +2255,7 @@ export default function App() {
                          <span className="text-xs font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded uppercase tracking-wider">
                            Modo Redundante / Local
                          </span>
-                         <p className="text-[11px] text-slate-400 mt-2.5 leading-relaxed">
+                         <p className="text-[11px] text-secondary mt-2.5 leading-relaxed">
                            {dbStatus?.configured 
                             ? "Não foi possível conectar ao Supabase. Operando em modo de redundância local segura." 
                             : "Credenciais do Supabase ausentes no painel Secrets do AI Studio. Usando banco local."}
@@ -2257,8 +2265,8 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-neutral-900/50 mt-4 flex items-center justify-between">
-                  <span className="text-[9px] font-mono text-slate-500">
+                <div className="pt-4 border-t border-default/50 mt-4 flex items-center justify-between">
+                  <span className="text-[9px] font-mono text-muted">
                     Host: {dbStatus?.connected ? "supabase.co" : "cache local"}
                   </span>
                   <button
@@ -2272,23 +2280,23 @@ export default function App() {
               </div>
 
               {/* Card 2: Cache Inventory */}
-              <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-5 flex flex-col justify-between min-h-[160px] shadow-lg">
+              <div className="bg-app border border-default rounded-2xl p-5 flex flex-col justify-between min-h-[160px] shadow-lg">
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Inventário de Registros Locais</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-secondary">Inventário de Registros Locais</p>
                   
                   <div className="grid grid-cols-2 gap-4 mt-4">
-                    <div className="bg-black/40 border border-neutral-900 p-3 rounded-xl">
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 block">Chamados</span>
-                      <span className="text-xl font-black text-white font-mono mt-0.5 block">{tickets.length}</span>
+                    <div className="bg-app/40 border border-default p-3 rounded-xl">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-muted block">Chamados</span>
+                      <span className="text-xl font-black text-primary font-mono mt-0.5 block">{tickets.length}</span>
                     </div>
-                    <div className="bg-black/40 border border-neutral-900 p-3 rounded-xl">
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 block">Colaboradores</span>
-                      <span className="text-xl font-black text-white font-mono mt-0.5 block">{users.length}</span>
+                    <div className="bg-app/40 border border-default p-3 rounded-xl">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-muted block">Colaboradores</span>
+                      <span className="text-xl font-black text-primary font-mono mt-0.5 block">{users.length}</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-neutral-900/50 mt-4 text-[10px] text-slate-400 leading-tight">
+                <div className="pt-4 border-t border-default/50 mt-4 text-[10px] text-secondary leading-tight">
                   Os arquivos <code className="text-emerald-400 font-mono">tickets-db.json</code> e <code className="text-emerald-400 font-mono">users-db.json</code> mantêm seus dados seguros no servidor.
                 </div>
               </div>
@@ -2296,10 +2304,10 @@ export default function App() {
             </div>
 
             {/* Sync Control Center */}
-            <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-6 shadow-lg space-y-6">
+            <div className="bg-app border border-default rounded-2xl p-6 shadow-lg space-y-6">
               <div className="space-y-1">
-                <h4 className="text-sm font-bold text-white uppercase tracking-wider">Painel de Sincronização Bidirecional</h4>
-                <p className="text-[11px] text-slate-400">Escolha o fluxo de sincronização para reconciliar dados entre a nuvem e o cache do servidor local.</p>
+                <h4 className="text-sm font-bold text-primary uppercase tracking-wider">Painel de Sincronização Bidirecional</h4>
+                <p className="text-[11px] text-secondary">Escolha o fluxo de sincronização para reconciliar dados entre a nuvem e o cache do servidor local.</p>
               </div>
 
               {syncingDb === "success" && (
@@ -2324,14 +2332,14 @@ export default function App() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 
                 {/* Push Sync Card */}
-                <div className="bg-black/50 border border-neutral-900 rounded-2xl p-5 hover:border-emerald-500/20 transition duration-350 flex flex-col justify-between">
+                <div className="bg-app/50 border border-default rounded-2xl p-5 hover:border-emerald-500/20 transition duration-350 flex flex-col justify-between">
                   <div className="space-y-3">
                     <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
                       <Upload className="h-5 w-5" />
                     </div>
                     <div>
-                      <h5 className="text-xs font-bold text-white uppercase tracking-wider">Exportar Local → Supabase (Push)</h5>
-                      <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
+                      <h5 className="text-xs font-bold text-primary uppercase tracking-wider">Exportar Local → Supabase (Push)</h5>
+                      <p className="text-[11px] text-secondary mt-1.5 leading-relaxed">
                         Envia todos os chamados e colaboradores salvos localmente para o banco de dados do Supabase. Use após configurar um novo banco ou resolver quedas de conexão.
                       </p>
                     </div>
@@ -2364,14 +2372,14 @@ export default function App() {
                 </div>
 
                 {/* Pull Sync Card */}
-                <div className="bg-black/50 border border-neutral-900 rounded-2xl p-5 hover:border-emerald-500/20 transition duration-350 flex flex-col justify-between">
+                <div className="bg-app/50 border border-default rounded-2xl p-5 hover:border-emerald-500/20 transition duration-350 flex flex-col justify-between">
                   <div className="space-y-3">
                     <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
                       <FileText className="h-5 w-5" />
                     </div>
                     <div>
-                      <h5 className="text-xs font-bold text-white uppercase tracking-wider">Importar Supabase → Local (Pull)</h5>
-                      <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
+                      <h5 className="text-xs font-bold text-primary uppercase tracking-wider">Importar Supabase → Local (Pull)</h5>
+                      <p className="text-[11px] text-secondary mt-1.5 leading-relaxed">
                         Puxa todos os chamados e colaboradores persistidos no Supabase e substitui o cache local do servidor. Ideal para inicializar novos ambientes ou baixar dados inseridos remotamente.
                       </p>
                     </div>
@@ -2385,7 +2393,7 @@ export default function App() {
                         }
                       }}
                       disabled={syncingDb === "push" || syncingDb === "pull" || !dbStatus?.configured}
-                      className="w-full py-2 bg-[#151515] hover:bg-[#202020] text-slate-300 hover:text-white border border-neutral-900 font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
+                      className="w-full py-2 bg-surface hover:bg-surface-2 text-secondary hover:text-primary border border-default font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
                     >
                       {syncingDb === "pull" ? (
                         <>
@@ -2394,7 +2402,7 @@ export default function App() {
                         </>
                       ) : (
                         <>
-                          <Database className="h-3.5 w-3.5 text-slate-400" />
+                          <Database className="h-3.5 w-3.5 text-secondary" />
                           Importar Dados do Supabase
                         </>
                       )}
@@ -2411,14 +2419,14 @@ export default function App() {
             </div>
 
             {/* SQL Script Instruction Card */}
-            <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-6 shadow-lg space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-900/80 pb-4">
+            <div className="bg-app border border-default rounded-2xl p-6 shadow-lg space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-default/80 pb-4">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <Terminal className="h-4.5 w-4.5 text-emerald-400" />
-                    <h4 className="text-xs font-bold text-white uppercase tracking-wider">Estrutura de Tabelas SQL do Supabase</h4>
+                    <h4 className="text-xs font-bold text-primary uppercase tracking-wider">Estrutura de Tabelas SQL do Supabase</h4>
                   </div>
-                  <p className="text-[11px] text-slate-400">Instruções e código SQL para criar a arquitetura de tabelas no banco de dados PostgreSQL do Supabase.</p>
+                  <p className="text-[11px] text-secondary">Instruções e código SQL para criar a arquitetura de tabelas no banco de dados PostgreSQL do Supabase.</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -2427,7 +2435,7 @@ export default function App() {
                       setCopySuccess(true);
                       setTimeout(() => setCopySuccess(false), 2000);
                     }}
-                    className="px-3 py-1.5 bg-[#151515] hover:bg-[#202020] text-slate-300 hover:text-white font-bold rounded-xl text-[10px] uppercase tracking-wider border border-neutral-900 transition flex items-center gap-1.5 cursor-pointer"
+                    className="px-3 py-1.5 bg-surface hover:bg-surface-2 text-secondary hover:text-primary font-bold rounded-xl text-[10px] uppercase tracking-wider border border-default transition flex items-center gap-1.5 cursor-pointer"
                   >
                     {copySuccess ? (
                       <>
@@ -2436,7 +2444,7 @@ export default function App() {
                       </>
                     ) : (
                       <>
-                        <Copy className="h-3.5 w-3.5 text-slate-400" />
+                        <Copy className="h-3.5 w-3.5 text-secondary" />
                         Copiar Código SQL
                       </>
                     )}
@@ -2453,15 +2461,15 @@ export default function App() {
               </div>
 
               <div className="space-y-3">
-                <p className="text-[11px] text-slate-300 leading-relaxed">
-                  Para criar as tabelas manualmente, acesse o painel do seu projeto no <strong className="text-white">Supabase</strong>, vá em <strong className="text-white">SQL Editor</strong>, clique em <strong className="text-white">New Query</strong>, cole o código abaixo e clique em <strong className="text-white">Run</strong>.
+                <p className="text-[11px] text-secondary leading-relaxed">
+                  Para criar as tabelas manualmente, acesse o painel do seu projeto no <strong className="text-primary">Supabase</strong>, vá em <strong className="text-primary">SQL Editor</strong>, clique em <strong className="text-primary">New Query</strong>, cole o código abaixo e clique em <strong className="text-primary">Run</strong>.
                 </p>
 
-                <div className="relative rounded-xl overflow-hidden border border-neutral-900 bg-black/90">
-                  <div className="absolute top-3 right-3 bg-neutral-900 px-2 py-0.5 rounded text-[8px] font-mono font-bold text-slate-500 uppercase tracking-widest select-none border border-neutral-850">
+                <div className="relative rounded-xl overflow-hidden border border-default bg-app/90">
+                  <div className="absolute top-3 right-3 bg-surface px-2 py-0.5 rounded text-[8px] font-mono font-bold text-muted uppercase tracking-widest select-none border border-default">
                     PostgreSQL
                   </div>
-                  <pre className="p-4 text-[10px] font-mono text-slate-300 overflow-x-auto max-h-72 leading-relaxed whitespace-pre select-all">
+                  <pre className="p-4 text-[10px] font-mono text-secondary overflow-x-auto max-h-72 leading-relaxed whitespace-pre select-all">
                     {dbSqlSchema || "Carregando estrutura SQL..."}
                   </pre>
                 </div>
@@ -2484,15 +2492,15 @@ export default function App() {
             
             {/* Bento Grid Analytics Widget Row - Unified Single Block (Tech/TI Only) */}
             {isTechUser && (
-              <div className="bg-[#121215] border border-zinc-800/80 rounded-xl shadow-sm overflow-hidden">
+              <div className="bg-surface border border-default/80 rounded-xl shadow-sm overflow-hidden">
                 <div className="grid grid-cols-3 divide-x divide-zinc-800/80">
                   {activeTab === "projetos" ? (
                     <>
                       {/* Item 1: Total de Projetos */}
                       <div className="p-2.5 sm:p-3 flex flex-col justify-between">
-                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-400">Total de Projetos</p>
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-secondary">Total de Projetos</p>
                         <div className="flex items-center justify-between mt-1 gap-2 w-full">
-                          <span className="text-lg sm:text-xl font-black text-white leading-none">
+                          <span className="text-lg sm:text-xl font-black text-primary leading-none">
                             {userVisibleTickets.filter(t => !!t.projectDeadline).length}
                           </span>
                           <span className="text-emerald-400 text-[9px] font-bold bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20 whitespace-nowrap">
@@ -2503,7 +2511,7 @@ export default function App() {
 
                       {/* Item 2: Projetos em Dia */}
                       <div className="p-2.5 sm:p-3 flex flex-col justify-between">
-                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-400">Projetos em Dia</p>
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-secondary">Projetos em Dia</p>
                         <div className="flex items-center justify-between mt-1 gap-2 w-full">
                           <span className="text-lg sm:text-xl font-black text-emerald-400 leading-none">
                             {(() => {
@@ -2512,7 +2520,7 @@ export default function App() {
                               return activeProjs.length - overdueProjs.length;
                             })()}
                           </span>
-                          <span className="text-zinc-400 text-[9px] font-bold bg-zinc-900 px-2 py-0.5 rounded-md border border-zinc-800 whitespace-nowrap">
+                          <span className="text-secondary text-[9px] font-bold bg-surface px-2 py-0.5 rounded-md border border-default whitespace-nowrap">
                             SLA Monitorado
                           </span>
                         </div>
@@ -2526,17 +2534,17 @@ export default function App() {
                           setSelectedCategory("All");
                           setSearchTerm("");
                         }}
-                        className="p-2.5 sm:p-3 flex flex-col justify-between text-left transition hover:bg-zinc-800/40 cursor-pointer group"
+                        className="p-2.5 sm:p-3 flex flex-col justify-between text-left transition hover:bg-surface-2/40 cursor-pointer group"
                       >
-                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-400 group-hover:text-rose-400 transition-colors">Atrasados / Críticos</p>
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-secondary group-hover:text-rose-400 transition-colors">Atrasados / Críticos</p>
                         <div className="flex items-center justify-between mt-1 gap-2 w-full">
                           <span className={`text-lg sm:text-xl font-black leading-none ${
-                            userVisibleTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado" && isTicketOverdue(t)).length > 0 ? "text-rose-500" : "text-white"
+                            userVisibleTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado" && isTicketOverdue(t)).length > 0 ? "text-rose-500" : "text-primary"
                           }`}>
                             {userVisibleTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado" && isTicketOverdue(t)).length}
                           </span>
                           <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md border whitespace-nowrap ${
-                            userVisibleTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado" && isTicketOverdue(t)).length > 0 ? "bg-rose-500/10 text-rose-400 border-rose-500/20" : "bg-zinc-900 text-zinc-400 border-zinc-800"
+                            userVisibleTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado" && isTicketOverdue(t)).length > 0 ? "bg-rose-500/10 text-rose-400 border-rose-500/20" : "bg-surface text-secondary border-default"
                           }`}>
                             {userVisibleTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado" && isTicketOverdue(t)).length > 0 ? "Ação Requerida" : "Cronograma OK"}
                           </span>
@@ -2554,11 +2562,11 @@ export default function App() {
                           setSelectedCategory("All");
                           setSearchTerm("");
                         }}
-                        className="p-2.5 sm:p-3 flex flex-col justify-between text-left transition hover:bg-zinc-800/40 cursor-pointer group"
+                        className="p-2.5 sm:p-3 flex flex-col justify-between text-left transition hover:bg-surface-2/40 cursor-pointer group"
                       >
-                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-400 group-hover:text-emerald-400 transition-colors">Chamados Ativos</p>
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-secondary group-hover:text-emerald-400 transition-colors">Chamados Ativos</p>
                         <div className="flex items-center justify-between mt-1 gap-2 w-full">
-                          <span className="text-lg sm:text-xl font-black text-white leading-none">{activeTickets.length}</span>
+                          <span className="text-lg sm:text-xl font-black text-primary leading-none">{activeTickets.length}</span>
                           <span className="text-amber-400 text-[9px] font-bold bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20 whitespace-nowrap">
                             Aguardando TI
                           </span>
@@ -2570,9 +2578,9 @@ export default function App() {
                         onClick={() => {
                           setActiveTab("sla");
                         }}
-                        className="p-2.5 sm:p-3 flex flex-col justify-between text-left transition hover:bg-zinc-800/40 cursor-pointer group"
+                        className="p-2.5 sm:p-3 flex flex-col justify-between text-left transition hover:bg-surface-2/40 cursor-pointer group"
                       >
-                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-400 group-hover:text-emerald-400 transition-colors">Eficiência (SLA)</p>
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-secondary group-hover:text-emerald-400 transition-colors">Eficiência (SLA)</p>
                         <div className="flex items-center justify-between mt-1 gap-2 w-full">
                           <span className="text-lg sm:text-xl font-black text-emerald-400 leading-none">{slaCompliance}%</span>
                           <span className="text-emerald-400 text-[9px] font-bold bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20 whitespace-nowrap">
@@ -2591,14 +2599,14 @@ export default function App() {
                           setSelectedCategory("All");
                           setSearchTerm("");
                         }}
-                        className="p-2.5 sm:p-3 flex flex-col justify-between text-left transition hover:bg-zinc-800/40 cursor-pointer group"
+                        className="p-2.5 sm:p-3 flex flex-col justify-between text-left transition hover:bg-surface-2/40 cursor-pointer group"
                       >
-                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-400 group-hover:text-rose-400 transition-colors">Casos Críticos</p>
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-secondary group-hover:text-rose-400 transition-colors">Casos Críticos</p>
                         <div className="flex items-center justify-between mt-1 gap-2 w-full">
-                          <span className={`text-lg sm:text-xl font-black leading-none ${criticalTickets.length > 0 ? "text-rose-500" : "text-white"}`}>
+                          <span className={`text-lg sm:text-xl font-black leading-none ${criticalTickets.length > 0 ? "text-rose-500" : "text-primary"}`}>
                             {criticalTickets.length}
                           </span>
-                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md border whitespace-nowrap ${criticalTickets.length > 0 ? "bg-rose-500/10 text-rose-400 border-rose-500/20" : "bg-zinc-900 text-zinc-400 border-zinc-800"}`}>
+                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md border whitespace-nowrap ${criticalTickets.length > 0 ? "bg-rose-500/10 text-rose-400 border-rose-500/20" : "bg-surface text-secondary border-default"}`}>
                             {criticalTickets.length > 0 ? "Ação Urgente" : "Fila Limpa"}
                           </span>
                         </div>
@@ -2614,22 +2622,22 @@ export default function App() {
               <div className="space-y-6">
                 
                 {/* Dashboard Control Bar */}
-                <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg">
+                <div className="bg-app border border-default rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg">
                   <div className="flex items-center gap-2.5">
                     <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
                       <Briefcase className="h-5 w-5" />
                     </div>
                     <div>
-                      <h4 className="text-sm font-bold text-white uppercase tracking-wider">Painel de Projetos</h4>
-                      <p className="text-[10px] text-slate-400">Gerenciamento ágil de projetos corporativos</p>
+                      <h4 className="text-sm font-bold text-primary uppercase tracking-wider">Painel de Projetos</h4>
+                      <p className="text-[10px] text-secondary">Gerenciamento ágil de projetos corporativos</p>
                     </div>
                   </div>
                 </div>
 
                 {/* Subtitle / Search & Filters for projects */}
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-4 shadow-lg">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-app border border-default rounded-2xl p-4 shadow-lg">
                   <div className="sm:col-span-2 relative">
-                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-500">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-muted">
                       <Search className="h-4 w-4" />
                     </span>
                     <input
@@ -2637,14 +2645,14 @@ export default function App() {
                       placeholder="Buscar projetos..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full bg-black border border-neutral-900 rounded-xl py-2 pl-9 pr-4 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
+                      className="w-full bg-app border border-default rounded-xl py-2 pl-9 pr-4 text-xs text-primary placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
                     />
                   </div>
                   
                   <select
                     value={selectedCategory}
                     onChange={(e) => setSelectedCategory(e.target.value)}
-                    className="bg-black border border-neutral-900 text-slate-300 text-xs rounded-xl py-2 px-3 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all cursor-pointer"
+                    className="bg-app border border-default text-secondary text-xs rounded-xl py-2 px-3 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all cursor-pointer"
                   >
                     <option value="All">Categoria (Todas)</option>
                     <option value="Hardware">Hardware</option>
@@ -2658,7 +2666,7 @@ export default function App() {
                   <select
                     value={selectedStatus}
                     onChange={(e) => setSelectedStatus(e.target.value)}
-                    className="bg-black border border-neutral-900 text-slate-300 text-xs rounded-xl py-2 px-3 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all cursor-pointer"
+                    className="bg-app border border-default text-secondary text-xs rounded-xl py-2 px-3 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all cursor-pointer"
                   >
                     <option value="Active">Ativos (Todos)</option>
                     <option value="All">Status (Todos)</option>
@@ -2672,14 +2680,14 @@ export default function App() {
                 {/* Sub-Views Content Container */}
                 <div className="min-h-[300px]">
                   {loading ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-3">
+                    <div className="flex flex-col items-center justify-center py-12 text-secondary gap-3">
                       <RefreshCw className="h-8 w-8 animate-spin text-emerald-400" />
                       <p className="text-xs">Carregando projetos corporativos...</p>
                     </div>
                   ) : filteredTickets.length === 0 ? (
-                    <div className="text-center py-16 bg-[#0a0a0a] border border-neutral-900 rounded-2xl text-neutral-500 font-mono shadow-lg">
+                    <div className="text-center py-16 bg-app border border-default rounded-2xl text-muted font-mono shadow-lg">
                       <p className="text-xs font-bold text-emerald-400 uppercase tracking-widest">Nenhum projeto encontrado</p>
-                      <p className="text-[10px] text-neutral-600 mt-2">Ajuste os filtros ou crie um novo chamado definindo uma Data Limite.</p>
+                      <p className="text-[10px] text-muted mt-2">Ajuste os filtros ou crie um novo chamado definindo uma Data Limite.</p>
                     </div>
                   ) : (
                     /* KANBAN BOARD VIEW */
@@ -2705,7 +2713,7 @@ export default function App() {
                           const isDraggedOver = draggedOverColumn === col.status;
                           
                           // Dynamic style for column when dragged over
-                          let highlightClass = "border-neutral-900 bg-[#050505]";
+                          let highlightClass = "border-default bg-app";
                           if (isDraggedOver) {
                             if (col.status === "Aberto") {
                               highlightClass = "border-amber-500/50 bg-amber-500/5 scale-[1.01]";
@@ -2741,15 +2749,15 @@ export default function App() {
                             >
                               
                               {/* Column Header */}
-                              <div className="flex items-center justify-between border-b border-neutral-900 pb-3 mb-3">
+                              <div className="flex items-center justify-between border-b border-default pb-3 mb-3">
                                 <div className="flex items-center gap-2">
                                   <span className={`h-1.5 w-1.5 rounded-full ${col.dot} shadow-sm animate-pulse`} />
-                                  <span className="text-[10px] font-black uppercase text-white tracking-wider flex items-center gap-1.5">
+                                  <span className="text-[10px] font-black uppercase text-primary tracking-wider flex items-center gap-1.5">
                                     {col.title}
                                     {col.status === "Resolvido" && <Check className="h-3 w-3 text-emerald-400" />}
                                   </span>
                                 </div>
-                                <span className="text-[10px] font-bold bg-neutral-900 px-2 py-0.5 rounded text-slate-400 font-mono border border-neutral-850">
+                                <span className="text-[10px] font-bold bg-surface px-2 py-0.5 rounded text-secondary font-mono border border-default">
                                   {colProjects.length}
                                 </span>
                               </div>
@@ -2757,7 +2765,7 @@ export default function App() {
                               {/* Column Cards Container */}
                               <div className="space-y-3 flex-1 overflow-y-auto max-h-[500px] pr-1 scrollbar-thin">
                                 {colProjects.length === 0 ? (
-                                  <div className="text-center py-12 border border-dashed border-neutral-900/40 rounded-xl text-neutral-600 text-[10px] font-mono">
+                                  <div className="text-center py-12 border border-dashed border-default/40 rounded-xl text-muted text-[10px] font-mono">
                                     Nenhum projeto nesta etapa
                                   </div>
                                 ) : (
@@ -2778,7 +2786,7 @@ export default function App() {
                                     }
 
                                     // Priority custom pills
-                                    const priorityText = project.priority === "Urgente" ? "text-rose-400 bg-rose-500/10" : project.priority === "Alta" ? "text-amber-400 bg-amber-500/10" : "text-slate-400 bg-neutral-900";
+                                    const priorityText = project.priority === "Urgente" ? "text-rose-400 bg-rose-500/10" : project.priority === "Alta" ? "text-amber-400 bg-amber-500/10" : "text-secondary bg-surface";
 
                                     return (
                                       <div
@@ -2794,14 +2802,14 @@ export default function App() {
                                           setDraggedOverColumn(null);
                                         }}
                                         onClick={() => setSelectedTicketId(project.id)}
-                                        className={`p-3 bg-neutral-950 hover:bg-[#070707] border transition-all duration-200 cursor-pointer rounded-xl flex flex-col justify-between gap-3 relative group overflow-hidden ${
+                                        className={`p-3 bg-app hover:bg-app border transition-all duration-200 cursor-pointer rounded-xl flex flex-col justify-between gap-3 relative group overflow-hidden ${
                                           isSelected 
-                                            ? "border-emerald-500 ring-1 ring-emerald-500/35 bg-black" 
-                                            : "border-neutral-900 hover:border-neutral-850"
+                                            ? "border-emerald-500 ring-1 ring-emerald-500/35 bg-app" 
+                                            : "border-default hover:border-default"
                                         }`}
                                       >
                                         <div className="space-y-1.5">
-                                          <div className="flex items-center justify-between text-[8px] text-slate-500 font-bold uppercase font-mono">
+                                          <div className="flex items-center justify-between text-[8px] text-muted font-bold uppercase font-mono">
                                             <span>#{project.id}</span>
                                             <span className={`px-1.5 py-0.5 rounded text-[7px] font-black tracking-wider uppercase ${priorityText}`}>
                                               {project.priority}
@@ -2811,7 +2819,7 @@ export default function App() {
                                           {/* Custom Tag Indicator similar to user's screenshot */}
                                           <div className="flex flex-wrap gap-1">
                                             {project.status === "Aberto" && (
-                                              <span className="text-[7px] font-black bg-neutral-900 text-zinc-400 border border-neutral-850 rounded px-1 uppercase tracking-wider">
+                                              <span className="text-[7px] font-black bg-surface text-secondary border border-default rounded px-1 uppercase tracking-wider">
                                                 IDEIA
                                               </span>
                                             )}
@@ -2842,18 +2850,18 @@ export default function App() {
                                             )}
                                           </div>
 
-                                          <h6 className="text-[11px] font-extrabold text-white group-hover:text-emerald-400 transition-colors line-clamp-1 leading-tight">{project.title}</h6>
-                                          <p className="text-[10px] text-slate-400 line-clamp-2 leading-relaxed">{project.description}</p>
+                                          <h6 className="text-[11px] font-extrabold text-primary group-hover:text-emerald-400 transition-colors line-clamp-1 leading-tight">{project.title}</h6>
+                                          <p className="text-[10px] text-secondary line-clamp-2 leading-relaxed">{project.description}</p>
                                         </div>
 
                                         {/* Progress line */}
-                                        <div className="h-1 bg-black/60 rounded-full overflow-hidden">
+                                        <div className="h-1 bg-app/60 rounded-full overflow-hidden">
                                           <div className="h-full bg-emerald-400 transition-all duration-300 shadow-[0_0_6px_rgba(52,211,153,0.3)]" style={{ width: `${progressVal}%` }} />
                                         </div>
 
                                         {/* Quick status moves / assignees */}
-                                        <div className="flex items-center justify-between border-t border-neutral-900/40 pt-2 text-[9px] text-slate-500 font-bold">
-                                          <div className="flex items-center gap-1 text-[8px] bg-neutral-900 px-1.5 py-0.5 rounded text-emerald-400 border border-neutral-850">
+                                        <div className="flex items-center justify-between border-t border-default/40 pt-2 text-[9px] text-muted font-bold">
+                                          <div className="flex items-center gap-1 text-[8px] bg-surface px-1.5 py-0.5 rounded text-emerald-400 border border-default">
                                             <Calendar className="h-2.5 w-2.5" />
                                             <span>
                                               {(() => {
@@ -2913,20 +2921,20 @@ export default function App() {
 
               </div>
             ) : (
-              <div className="bg-[#09090b] border border-zinc-800/80 rounded-3xl p-4 sm:p-6 shadow-2xl">
+              <div className="bg-app border border-default/80 rounded-3xl p-4 sm:p-6 shadow-2xl">
                 
                 {/* Gran7 Screenshot-style Header Section */}
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6 border-b border-zinc-800/60 pb-5">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6 border-b border-default/60 pb-5">
                   <div>
                     <div className="flex items-center gap-3">
-                      <h3 className="text-2xl sm:text-3xl font-display font-black text-white tracking-tight">
+                      <h3 className="text-2xl sm:text-3xl font-display font-black text-primary tracking-tight">
                         Fila de Chamados
                       </h3>
-                      <span className="bg-zinc-900 text-emerald-400 font-black text-xs px-3 py-1 rounded-full border border-zinc-800 flex items-center gap-1">
+                      <span className="bg-surface text-emerald-400 font-black text-xs px-3 py-1 rounded-full border border-default flex items-center gap-1">
                         {filteredTickets.length}
                       </span>
                     </div>
-                    <p className="text-xs sm:text-sm text-zinc-400 font-medium mt-1">
+                    <p className="text-xs sm:text-sm text-secondary font-medium mt-1">
                       Gerencie e acompanhe a projeção de atendimentos e chamados semanais.
                     </p>
                   </div>
@@ -2935,7 +2943,7 @@ export default function App() {
                   <div className="flex flex-wrap items-center gap-2">
                     {/* Search query input pill */}
                     <div className="relative min-w-[200px] sm:min-w-[240px] flex-1 sm:flex-initial">
-                      <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-zinc-500">
+                      <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-muted">
                         <Search className="h-4 w-4" />
                       </span>
                       <input
@@ -2943,7 +2951,7 @@ export default function App() {
                         placeholder="Pesquisar chamado..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full bg-zinc-900 border border-zinc-800 rounded-full py-2 pl-9 pr-4 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500/60 transition-all shadow-inner"
+                        className="w-full bg-surface border border-default rounded-full py-2 pl-9 pr-4 text-xs text-primary placeholder-zinc-500 focus:outline-none focus:border-emerald-500/60 transition-all shadow-inner"
                       />
                     </div>
 
@@ -2951,7 +2959,7 @@ export default function App() {
                     <select
                       value={selectedCategory}
                       onChange={(e) => setSelectedCategory(e.target.value)}
-                      className="bg-zinc-900 border border-zinc-800 text-zinc-200 font-bold text-xs rounded-full py-2 px-3.5 focus:outline-none focus:border-emerald-500/60 transition-all cursor-pointer uppercase tracking-wider"
+                      className="bg-surface border border-default text-primary font-bold text-xs rounded-full py-2 px-3.5 focus:outline-none focus:border-emerald-500/60 transition-all cursor-pointer uppercase tracking-wider"
                     >
                       <option value="All">CATEGORIA (TODAS)</option>
                       <option value="Hardware">HARDWARE</option>
@@ -2965,7 +2973,7 @@ export default function App() {
                     <select
                       value={selectedPriority}
                       onChange={(e) => setSelectedPriority(e.target.value)}
-                      className="bg-zinc-900 border border-zinc-800 text-zinc-200 font-bold text-xs rounded-full py-2 px-3.5 focus:outline-none focus:border-emerald-500/60 transition-all cursor-pointer uppercase tracking-wider"
+                      className="bg-surface border border-default text-primary font-bold text-xs rounded-full py-2 px-3.5 focus:outline-none focus:border-emerald-500/60 transition-all cursor-pointer uppercase tracking-wider"
                     >
                       <option value="All">PRIORIDADE (TODAS)</option>
                       <option value="Baixa">BAIXA</option>
@@ -2978,7 +2986,7 @@ export default function App() {
                     <select
                       value={selectedStatus}
                       onChange={(e) => setSelectedStatus(e.target.value)}
-                      className="bg-zinc-900 border border-zinc-800 text-zinc-200 font-bold text-xs rounded-full py-2 px-3.5 focus:outline-none focus:border-emerald-500/60 transition-all cursor-pointer uppercase tracking-wider"
+                      className="bg-surface border border-default text-primary font-bold text-xs rounded-full py-2 px-3.5 focus:outline-none focus:border-emerald-500/60 transition-all cursor-pointer uppercase tracking-wider"
                     >
                       <option value="Active">ATIVOS</option>
                       <option value="All">TODOS OS STATUS</option>
@@ -3010,14 +3018,14 @@ export default function App() {
                 {/* Main Interactive Gran7 Card Grid */}
                 <div className={`grid grid-cols-1 md:grid-cols-2 ${rightSidebarCollapsed ? "lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4" : "lg:grid-cols-2 xl:grid-cols-3"} gap-3.5 max-h-[660px] xl:max-h-[calc(100vh-220px)] overflow-y-auto pr-1`}>
                   {loading ? (
-                    <div className="col-span-full flex flex-col items-center justify-center py-12 text-zinc-400 gap-3">
+                    <div className="col-span-full flex flex-col items-center justify-center py-12 text-secondary gap-3">
                       <RefreshCw className="h-7 w-7 animate-spin text-emerald-400" />
                       <p className="text-xs font-semibold">Sincronizando banco de dados corporativo...</p>
                     </div>
                   ) : filteredTickets.length === 0 ? (
-                    <div className="col-span-full text-center py-12 border border-dashed border-zinc-800 rounded-2xl text-zinc-500 font-mono">
+                    <div className="col-span-full text-center py-12 border border-dashed border-default rounded-2xl text-muted font-mono">
                       <p className="text-xs font-bold text-emerald-400 uppercase tracking-widest">Nenhum chamado encontrado</p>
-                      <p className="text-[11px] text-zinc-500 mt-1">Ajuste os filtros de busca ou crie um novo chamado.</p>
+                      <p className="text-[11px] text-muted mt-1">Ajuste os filtros de busca ou crie um novo chamado.</p>
                     </div>
                   ) : (
                     filteredTickets.map((ticket) => {
@@ -3047,8 +3055,8 @@ export default function App() {
                           id={`ticket-card-${ticket.id}`}
                           key={ticket.id}
                           onClick={() => setSelectedTicketId(ticket.id)}
-                          className={`bg-[#121215] hover:bg-[#16161a] border border-zinc-800/80 hover:border-zinc-700 rounded-2xl p-3.5 sm:p-4 shadow-lg transition-all duration-200 flex flex-col justify-between group cursor-pointer ${
-                            isSelected ? "ring-2 ring-emerald-500/50 bg-[#16161a] border-emerald-500/40" : ""
+                          className={`bg-surface hover:bg-surface-2 border border-default/80 hover:border-default rounded-2xl p-3.5 sm:p-4 shadow-lg transition-all duration-200 flex flex-col justify-between group cursor-pointer ${
+                            isSelected ? "ring-2 ring-emerald-500/50 bg-surface-2 border-emerald-500/40" : ""
                           }`}
                         >
                           <div>
@@ -3060,7 +3068,7 @@ export default function App() {
                                   ticket.status === "Aberto" ? "bg-amber-500/10 text-amber-400 border border-amber-500/30" :
                                   ticket.status === "Em Atendimento" ? "bg-sky-500/10 text-sky-400 border border-sky-500/30" :
                                   ticket.status === "Resolvido" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30" :
-                                  "bg-zinc-800/80 text-zinc-300 border border-zinc-700"
+                                  "bg-surface-2/80 text-secondary border border-default"
                                 }`}>
                                   <Clock className="h-2.5 w-2.5" />
                                   {ticket.status === "Aberto" ? "PENDENTE" : ticket.status.toUpperCase()}
@@ -3070,7 +3078,7 @@ export default function App() {
                                 <span className={`text-[9px] sm:text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full flex items-center gap-1 ${
                                   ticket.priority === "Urgente" ? "bg-rose-500/10 text-rose-400 border border-rose-500/30" :
                                   ticket.priority === "Alta" ? "bg-amber-500/10 text-amber-400 border border-amber-500/30" :
-                                  "bg-zinc-800/80 text-zinc-300 border border-zinc-700"
+                                  "bg-surface-2/80 text-secondary border border-default"
                                 }`}>
                                   <AlertCircle className="h-2.5 w-2.5" />
                                   {ticket.priority.toUpperCase()}
@@ -3079,62 +3087,62 @@ export default function App() {
 
                               {/* Ticket Order Number */}
                               <div className="text-right shrink-0">
-                                <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest block leading-none">CHAMADO</span>
-                                <span className="text-xs sm:text-sm font-extrabold text-white font-mono tracking-tight leading-tight block mt-0.5">#{ticket.id}</span>
+                                <span className="text-[8px] font-black text-muted uppercase tracking-widest block leading-none">CHAMADO</span>
+                                <span className="text-xs sm:text-sm font-extrabold text-primary font-mono tracking-tight leading-tight block mt-0.5">#{ticket.id}</span>
                               </div>
                             </div>
 
                             {/* Requester & Dept Sublabel */}
-                            <span className="text-[8px] font-extrabold uppercase tracking-widest text-zinc-500 block mb-0.5">
+                            <span className="text-[8px] font-extrabold uppercase tracking-widest text-muted block mb-0.5">
                               SOLICITANTE & DEPARTAMENTO
                             </span>
 
                             {/* Main Title */}
-                            <h4 className="text-xs sm:text-sm font-extrabold text-white tracking-tight leading-snug line-clamp-1 group-hover:text-emerald-400 transition-colors" title={ticket.title}>
+                            <h4 className="text-xs sm:text-sm font-extrabold text-primary tracking-tight leading-snug line-clamp-1 group-hover:text-emerald-400 transition-colors" title={ticket.title}>
                               {ticket.title}
                             </h4>
 
                             {/* Location / Subtext Tag */}
-                            <div className="flex items-center gap-1 text-[11px] font-medium text-zinc-400 mt-1">
+                            <div className="flex items-center gap-1 text-[11px] font-medium text-secondary mt-1">
                               <Users className="h-3 w-3 text-emerald-400 shrink-0" />
                               <span className="truncate">{ticket.requesterName}</span>
-                              <span className="text-zinc-600">•</span>
-                              <span className="text-zinc-400 truncate">{ticket.requesterDepartment}</span>
+                              <span className="text-muted">•</span>
+                              <span className="text-secondary truncate">{ticket.requesterDepartment}</span>
                             </div>
 
                             {/* Inner Details Content Box */}
-                            <div className="bg-zinc-950/80 border border-zinc-800/60 rounded-xl p-2.5 mt-2 space-y-1">
-                              <div className="flex items-center justify-between text-[8px] font-bold text-zinc-500 uppercase tracking-wider">
+                            <div className="bg-app/80 border border-default/60 rounded-xl p-2.5 mt-2 space-y-1">
+                              <div className="flex items-center justify-between text-[8px] font-bold text-muted uppercase tracking-wider">
                                 <span className="flex items-center gap-1">
                                   <FileText className="h-2.5 w-2.5 text-emerald-400" />
                                   DETALHES DO ATENDIMENTO
                                 </span>
-                                <span className="bg-zinc-900 px-1.5 py-0.5 rounded text-[8px] text-zinc-300 font-bold">
+                                <span className="bg-surface px-1.5 py-0.5 rounded text-[8px] text-secondary font-bold">
                                   {ticket.category}
                                 </span>
                               </div>
-                              <p className="text-[11px] text-zinc-300 line-clamp-2 leading-tight">
+                              <p className="text-[11px] text-secondary line-clamp-2 leading-tight">
                                 {ticket.description || "Nenhuma descrição detalhada fornecida para este chamado."}
                               </p>
                             </div>
 
                             {/* Bottom Mini Stats Grid (3 boxes like screenshot) */}
                             <div className="grid grid-cols-3 gap-1.5 mt-2">
-                              <div className="bg-zinc-950/90 border border-zinc-800/80 rounded-lg p-1.5 sm:p-2 text-left">
-                                <span className="text-[8px] font-extrabold text-zinc-500 uppercase tracking-wider block">STATUS SLA</span>
+                              <div className="bg-app/90 border border-default/80 rounded-lg p-1.5 sm:p-2 text-left">
+                                <span className="text-[8px] font-extrabold text-muted uppercase tracking-wider block">STATUS SLA</span>
                                 <span className="text-[10px] sm:text-[11px] font-black text-emerald-400 block mt-0.5 truncate">
                                   {ticket.status === "Resolvido" ? "CONCLUÍDO" : "DENTRO PRAZO"}
                                 </span>
                               </div>
-                              <div className="bg-zinc-950/90 border border-zinc-800/80 rounded-lg p-1.5 sm:p-2 text-left">
-                                <span className="text-[8px] font-extrabold text-zinc-500 uppercase tracking-wider block">DATA INICIAL</span>
-                                <span className="text-[10px] sm:text-[11px] font-bold text-zinc-200 block mt-0.5 truncate">
+                              <div className="bg-app/90 border border-default/80 rounded-lg p-1.5 sm:p-2 text-left">
+                                <span className="text-[8px] font-extrabold text-muted uppercase tracking-wider block">DATA INICIAL</span>
+                                <span className="text-[10px] sm:text-[11px] font-bold text-primary block mt-0.5 truncate">
                                   {createdDateFormatted}
                                 </span>
                               </div>
-                              <div className="bg-zinc-950/90 border border-zinc-800/80 rounded-lg p-1.5 sm:p-2 text-left">
-                                <span className="text-[8px] font-extrabold text-zinc-500 uppercase tracking-wider block">LIM. ENTREGA</span>
-                                <span className="text-[10px] sm:text-[11px] font-bold text-zinc-200 block mt-0.5 truncate">
+                              <div className="bg-app/90 border border-default/80 rounded-lg p-1.5 sm:p-2 text-left">
+                                <span className="text-[8px] font-extrabold text-muted uppercase tracking-wider block">LIM. ENTREGA</span>
+                                <span className="text-[10px] sm:text-[11px] font-bold text-primary block mt-0.5 truncate">
                                   {deadlineFormatted}
                                 </span>
                               </div>
@@ -3142,15 +3150,15 @@ export default function App() {
                           </div>
 
                           {/* Bottom Row: Assignee + Action Buttons */}
-                          <div className="flex items-center justify-between border-t border-zinc-800/80 pt-2.5 mt-2.5">
+                          <div className="flex items-center justify-between border-t border-default/80 pt-2.5 mt-2.5">
                             {/* Tech Assignee & Time */}
-                            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-zinc-400">
+                            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-secondary">
                               <div className="w-5 h-5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center font-bold text-[9px]">
                                 <UserIcon className="h-2.5 w-2.5" />
                               </div>
-                              <span className="text-zinc-300 font-bold truncate max-w-[80px] sm:max-w-[110px]">{mainTech}</span>
-                              <span className="text-zinc-600">•</span>
-                              <span className="text-zinc-500 text-[10px] font-mono">{createdTimeFormatted}</span>
+                              <span className="text-secondary font-bold truncate max-w-[80px] sm:max-w-[110px]">{mainTech}</span>
+                              <span className="text-muted">•</span>
+                              <span className="text-muted text-[10px] font-mono">{createdTimeFormatted}</span>
                             </div>
 
                             {/* Right Action Button */}
@@ -3187,21 +3195,21 @@ export default function App() {
 
             {/* Selected Ticket Deep-Dive & Action Console */}
             {selectedTicket ? (
-              <div className="bg-[#0a0a0a] border border-emerald-500/10 rounded-2xl overflow-hidden shadow-2xl">
+              <div className="bg-app border border-emerald-500/10 rounded-2xl overflow-hidden shadow-2xl">
                 
                 {/* Detail Header */}
-                <div className="p-4 md:p-5 bg-[#0e0e0e] border-b border-neutral-900/60 flex items-center justify-between flex-wrap gap-3">
+                <div className="p-4 md:p-5 bg-surface border-b border-default/60 flex items-center justify-between flex-wrap gap-3">
                   <div className="flex items-center gap-3">
                     <button
                       onClick={() => setSelectedTicketId(null)}
-                      className="xl:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-850 border border-neutral-800 text-xs font-bold text-emerald-400 transition cursor-pointer active:scale-95 shrink-0"
+                      className="xl:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface hover:bg-surface border border-default text-xs font-bold text-emerald-400 transition cursor-pointer active:scale-95 shrink-0"
                     >
                       <ArrowLeft className="h-4 w-4" />
                       <span>Voltar</span>
                     </button>
                     <div>
                       <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest block mb-0.5">Diagnóstico Completo</span>
-                      <h3 className="text-sm font-bold text-white">Chamado #{selectedTicket.id}</h3>
+                      <h3 className="text-sm font-bold text-primary">Chamado #{selectedTicket.id}</h3>
                     </div>
                   </div>
 
@@ -3212,25 +3220,25 @@ export default function App() {
                         value={selectedTicket.status}
                         onChange={(e) => handleUpdateTicketMeta(selectedTicket.id, { status: e.target.value as Ticket["status"] })}
                         disabled={isAssignedToOther}
-                        className={`bg-black border border-neutral-800 text-xs font-bold rounded-lg px-2 py-1 focus:outline-none transition ${
+                        className={`bg-app border border-default text-xs font-bold rounded-lg px-2 py-1 focus:outline-none transition ${
                           selectedTicket.status === "Aberto" ? "text-amber-400 focus:border-amber-500" :
                           selectedTicket.status === "Em Atendimento" ? "text-sky-400 focus:border-sky-500" :
                           selectedTicket.status === "Resolvido" ? "text-emerald-400 focus:border-emerald-500" :
-                          "text-zinc-400 focus:border-zinc-500"
-                        } ${isAssignedToOther ? "opacity-50 cursor-not-allowed text-slate-500" : ""}`}
+                          "text-secondary focus:border-default"
+                        } ${isAssignedToOther ? "opacity-50 cursor-not-allowed text-muted" : ""}`}
                         title={isAssignedToOther ? `Apenas o técnico responsável (${selectedTicket.assignedTo}) pode alterar o status.` : ""}
                       >
-                        <option value="Aberto" className="text-amber-400 font-bold bg-neutral-950">Aberto</option>
-                        <option value="Em Atendimento" className="text-sky-400 font-bold bg-neutral-950">Em Atendimento</option>
-                        <option value="Resolvido" className="text-emerald-400 font-bold bg-neutral-950">Resolvido</option>
-                        <option value="Fechado" className="text-zinc-400 font-bold bg-neutral-950">Fechado</option>
+                        <option value="Aberto" className="text-amber-400 font-bold bg-app">Aberto</option>
+                        <option value="Em Atendimento" className="text-sky-400 font-bold bg-app">Em Atendimento</option>
+                        <option value="Resolvido" className="text-emerald-400 font-bold bg-app">Resolvido</option>
+                        <option value="Fechado" className="text-secondary font-bold bg-app">Fechado</option>
                       </select>
                     ) : (
-                      <span className={`text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded bg-[#0e0e0e] border transition ${
+                      <span className={`text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded bg-surface border transition ${
                         selectedTicket.status === "Aberto" ? "text-amber-400 border-amber-500/20" :
                         selectedTicket.status === "Em Atendimento" ? "text-sky-400 border-sky-500/20 shadow-[0_0_10px_rgba(56,189,248,0.05)]" :
                         selectedTicket.status === "Resolvido" ? "text-emerald-400 border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.05)]" :
-                        "text-zinc-400 border-zinc-700/30"
+                        "text-secondary border-default/30"
                       }`}>
                         {selectedTicket.status}
                       </span>
@@ -3242,24 +3250,24 @@ export default function App() {
                 <div className="p-5 space-y-5 max-h-[550px] xl:max-h-[calc(100vh-220px)] overflow-y-auto">
                   
                   {/* Requester overview */}
-                  <div className="p-3 bg-black/40 rounded-xl border border-emerald-950/20 text-xs space-y-2">
+                  <div className="p-3 bg-app/40 rounded-xl border border-emerald-950/20 text-xs space-y-2">
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-500 font-medium">Solicitado por:</span>
-                      <strong className="text-white">{selectedTicket.requesterName}</strong>
+                      <span className="text-muted font-medium">Solicitado por:</span>
+                      <strong className="text-primary">{selectedTicket.requesterName}</strong>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-500 font-medium">Departamento:</span>
-                      <span className="text-slate-300">{selectedTicket.requesterDepartment}</span>
+                      <span className="text-muted font-medium">Departamento:</span>
+                      <span className="text-secondary">{selectedTicket.requesterDepartment}</span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-500 font-medium">SLA Limite:</span>
+                      <span className="text-muted font-medium">SLA Limite:</span>
                       <span className="text-rose-400 font-semibold">
                         {new Date(selectedTicket.slaLimit).toLocaleDateString("pt-BR")} {new Date(selectedTicket.slaLimit).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                       </span>
                     </div>
                     {selectedTicket.projectDeadline && (
-                      <div className="flex justify-between items-center border-t border-neutral-900/40 pt-1.5">
-                        <span className="text-slate-500 font-medium flex items-center gap-1">
+                      <div className="flex justify-between items-center border-t border-default/40 pt-1.5">
+                        <span className="text-muted font-medium flex items-center gap-1">
                           <Calendar className="h-3 w-3 text-emerald-400" />
                           Limite do Projeto:
                         </span>
@@ -3296,31 +3304,31 @@ export default function App() {
                       </div>
                       
                       <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div className="bg-black/40 p-2 rounded-lg border border-neutral-900">
-                          <span className="text-slate-500 block text-[9px] uppercase tracking-wider">Categoria IA</span>
+                        <div className="bg-app/40 p-2 rounded-lg border border-default">
+                          <span className="text-muted block text-[9px] uppercase tracking-wider">Categoria IA</span>
                           <span className="text-emerald-400 font-bold">{selectedTicket.aiCategory}</span>
                         </div>
-                        <div className="bg-black/40 p-2 rounded-lg border border-neutral-900">
-                          <span className="text-slate-500 block text-[9px] uppercase tracking-wider">Prioridade IA</span>
+                        <div className="bg-app/40 p-2 rounded-lg border border-default">
+                          <span className="text-muted block text-[9px] uppercase tracking-wider">Prioridade IA</span>
                           <span className={`font-bold ${
                             selectedTicket.aiPriority === "Urgente" ? "text-rose-400" :
                             selectedTicket.aiPriority === "Alta" ? "text-amber-400" :
-                            selectedTicket.aiPriority === "Média" ? "text-emerald-400" : "text-slate-400"
+                            selectedTicket.aiPriority === "Média" ? "text-emerald-400" : "text-secondary"
                           }`}>{selectedTicket.aiPriority}</span>
                         </div>
                       </div>
 
                       <div className="space-y-1">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Justificativa Técnica</span>
-                        <p className="text-slate-300 text-xs leading-relaxed whitespace-pre-line italic">
+                        <span className="text-[10px] font-bold text-secondary uppercase tracking-wider block">Justificativa Técnica</span>
+                        <p className="text-secondary text-xs leading-relaxed whitespace-pre-line italic">
                           "{selectedTicket.aiReasoning}"
                         </p>
                       </div>
 
                       {selectedTicket.aiSuggestions && (
                         <div className="space-y-1.5 pt-1 border-t border-emerald-950/25">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Soluções Recomendadas</span>
-                          <div className="text-slate-300 text-xs leading-relaxed space-y-1 bg-black/30 p-2.5 rounded-lg border border-neutral-900/60 font-sans">
+                          <span className="text-[10px] font-bold text-secondary uppercase tracking-wider block">Soluções Recomendadas</span>
+                          <div className="text-secondary text-xs leading-relaxed space-y-1 bg-app/30 p-2.5 rounded-lg border border-default/60 font-sans">
                             {selectedTicket.aiSuggestions.split("\n").map((line, index) => (
                               <div key={index} className="flex gap-2 items-start">
                                 <span className="text-emerald-400 font-bold select-none">•</span>
@@ -3379,7 +3387,7 @@ export default function App() {
                       <div className="p-3 bg-emerald-500/5 rounded-xl border border-emerald-500/10 text-xs space-y-2">
                         <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider block border-b border-emerald-950/25 pb-1 mb-1">Registro de Atendimento</span>
                         <div className="flex justify-between items-center gap-4">
-                          <span className="text-slate-400 font-medium shrink-0">Técnicos Responsáveis:</span>
+                          <span className="text-secondary font-medium shrink-0">Técnicos Responsáveis:</span>
                           {selectedTicket.assignedTo ? (
                             <div className="flex flex-wrap gap-1 justify-end">
                               {getAssignedTechs(selectedTicket.assignedTo).map((t, i) => (
@@ -3395,8 +3403,8 @@ export default function App() {
                         
                         {firstAssumedTime && (
                           <div className="flex justify-between items-center">
-                            <span className="text-slate-400 font-medium">Início do Atendimento:</span>
-                            <span className="text-slate-300">
+                            <span className="text-secondary font-medium">Início do Atendimento:</span>
+                            <span className="text-secondary">
                               {new Date(firstAssumedTime).toLocaleDateString("pt-BR")} {new Date(firstAssumedTime).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                             </span>
                           </div>
@@ -3404,13 +3412,13 @@ export default function App() {
 
                         {durationText && (
                           <div className="flex justify-between items-center">
-                            <span className="text-slate-400 font-medium">Tempo de Resolução:</span>
+                            <span className="text-secondary font-medium">Tempo de Resolução:</span>
                             <span className="text-emerald-400 font-semibold">{durationText}</span>
                           </div>
                         )}
 
                         {isResolved && resolutionComment && (
-                          <div className="flex justify-between items-center border-t border-emerald-500/10 pt-1.5 mt-1 text-[10px] text-slate-400 italic">
+                          <div className="flex justify-between items-center border-t border-emerald-500/10 pt-1.5 mt-1 text-[10px] text-secondary italic">
                             <span>Resolvido em: {new Date(resolutionComment.timestamp).toLocaleDateString("pt-BR")} {new Date(resolutionComment.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
                           </div>
                         )}
@@ -3420,8 +3428,8 @@ export default function App() {
 
                   {/* Original issue description block */}
                   <div className="space-y-1.5">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Descrição do Problema</span>
-                    <div className="bg-black p-4 rounded-xl border border-neutral-900 text-xs text-slate-200 leading-relaxed whitespace-pre-line">
+                    <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Descrição do Problema</span>
+                    <div className="bg-app p-4 rounded-xl border border-default text-xs text-primary leading-relaxed whitespace-pre-line">
                       {selectedTicket.description}
                     </div>
                   </div>
@@ -3429,11 +3437,11 @@ export default function App() {
                   {/* Attached files and screenshots block */}
                   {((selectedTicket.attachments && selectedTicket.attachments.length > 0) || selectedTicket.screenshot) && (
                     <div className="space-y-2">
-                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="text-[10px] font-bold text-muted uppercase tracking-wider flex items-center gap-1.5">
                         <Paperclip className="h-3.5 w-3.5 text-emerald-400" />
                         Prints e Arquivos Anexados
                       </span>
-                      <div className="bg-black/40 p-4 rounded-xl border border-neutral-900/60 space-y-3">
+                      <div className="bg-app/40 p-4 rounded-xl border border-default/60 space-y-3">
                         {/* If we have multiple attachments */}
                         {selectedTicket.attachments && selectedTicket.attachments.length > 0 ? (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -3442,22 +3450,22 @@ export default function App() {
                               const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
                               
                               return (
-                                <div key={idx} className="flex flex-col p-2.5 rounded-xl bg-neutral-900/60 border border-neutral-900 hover:border-neutral-800 transition justify-between gap-2.5">
+                                <div key={idx} className="flex flex-col p-2.5 rounded-xl bg-surface/60 border border-default hover:border-default transition justify-between gap-2.5">
                                   <div className="flex items-center gap-2.5 min-w-0">
                                     {isImage ? (
-                                      <div className="w-10 h-10 rounded-lg overflow-hidden border border-neutral-800 flex-shrink-0 bg-black flex items-center justify-center">
+                                      <div className="w-10 h-10 rounded-lg overflow-hidden border border-default flex-shrink-0 bg-app flex items-center justify-center">
                                         <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
                                       </div>
                                     ) : (
-                                      <div className={`w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center bg-black border border-neutral-800 ${isPdf ? "text-red-400" : "text-emerald-400"}`}>
+                                      <div className={`w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center bg-app border border-default ${isPdf ? "text-red-400" : "text-emerald-400"}`}>
                                         <FileText className="h-5 w-5" />
                                       </div>
                                     )}
                                     <div className="min-w-0 flex-1">
-                                      <p className="text-xs font-semibold text-slate-200 truncate" title={file.name}>
+                                      <p className="text-xs font-semibold text-primary truncate" title={file.name}>
                                         {file.name}
                                       </p>
-                                      <p className="text-[9px] text-slate-500 uppercase font-mono tracking-wider">
+                                      <p className="text-[9px] text-muted uppercase font-mono tracking-wider">
                                         {isPdf ? "Documento PDF" : isImage ? "Imagem" : "Arquivo"}
                                       </p>
                                     </div>
@@ -3467,7 +3475,7 @@ export default function App() {
                                     {isImage ? (
                                       <button
                                         onClick={() => setPreviewImage(file.url)}
-                                        className="flex-1 py-1 px-2.5 bg-neutral-950 hover:bg-neutral-900 border border-neutral-850 rounded-lg text-[10px] font-bold text-slate-300 hover:text-emerald-400 flex items-center justify-center gap-1 transition cursor-pointer"
+                                        className="flex-1 py-1 px-2.5 bg-app hover:bg-surface border border-default rounded-lg text-[10px] font-bold text-secondary hover:text-emerald-400 flex items-center justify-center gap-1 transition cursor-pointer"
                                       >
                                         <Eye className="h-3 w-3" /> Visualizar
                                       </button>
@@ -3477,7 +3485,7 @@ export default function App() {
                                         download={file.name}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="flex-1 py-1 px-2.5 bg-neutral-950 hover:bg-neutral-900 border border-neutral-850 rounded-lg text-[10px] font-bold text-slate-300 hover:text-emerald-400 flex items-center justify-center gap-1 transition text-center"
+                                        className="flex-1 py-1 px-2.5 bg-app hover:bg-surface border border-default rounded-lg text-[10px] font-bold text-secondary hover:text-emerald-400 flex items-center justify-center gap-1 transition text-center"
                                       >
                                         <Upload className="h-3 w-3 rotate-180" /> Abrir / Baixar
                                       </a>
@@ -3492,7 +3500,7 @@ export default function App() {
                           <div className="flex flex-col items-center">
                             <button 
                               onClick={() => setPreviewImage(selectedTicket.screenshot || null)} 
-                              className="relative block rounded-lg overflow-hidden border border-neutral-900 group cursor-zoom-in max-w-full text-left"
+                              className="relative block rounded-lg overflow-hidden border border-default group cursor-zoom-in max-w-full text-left"
                               title="Clique para abrir em tela cheia"
                             >
                               <img 
@@ -3500,8 +3508,8 @@ export default function App() {
                                 alt="Print do chamado" 
                                 className="max-h-64 object-contain rounded-lg group-hover:scale-[1.015] transition-all duration-200" 
                               />
-                              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                <span className="bg-black/95 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-xl border border-neutral-800 shadow-xl flex items-center gap-1">
+                              <div className="absolute inset-0 bg-app/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <span className="bg-app/95 text-primary text-[10px] font-bold px-2.5 py-1.5 rounded-xl border border-default shadow-xl flex items-center gap-1">
                                   <Eye className="h-3.5 w-3.5 text-emerald-400" /> Ver Imagem Completa
                                 </span>
                               </div>
@@ -3514,14 +3522,14 @@ export default function App() {
 
                   {/* Interactive Control Controls (TI Assignment / Priority changer) */}
                   {isTechUser && (
-                    <div className="p-4 bg-black border border-emerald-950/20 rounded-xl space-y-3">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Painel do Técnico (Atendimento)</span>
+                    <div className="p-4 bg-app border border-emerald-950/20 rounded-xl space-y-3">
+                      <span className="text-[10px] font-bold text-secondary uppercase tracking-wider block">Painel do Técnico (Atendimento)</span>
                       
                       <div className="grid grid-cols-2 gap-3 text-xs">
                         
                         {/* Assign to multiple technicians option */}
                         <div className="space-y-1.5 col-span-2 md:col-span-1">
-                          <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">Técnicos Atribuídos</label>
+                          <label className="text-secondary block text-[10px] font-bold uppercase tracking-wider">Técnicos Atribuídos</label>
                           {(() => {
                             const assignedTechs = getAssignedTechs(selectedTicket.assignedTo);
                             const firstTech = getFirstAssignedTech(selectedTicket);
@@ -3544,7 +3552,7 @@ export default function App() {
                             return (
                               <>
                                 <div 
-                                  className="bg-neutral-950/80 p-2 rounded-xl border border-neutral-900/60 max-h-48 overflow-y-auto space-y-1.5 scrollbar-thin scrollbar-thumb-neutral-800 scrollbar-track-transparent"
+                                  className="bg-app/80 p-2 rounded-xl border border-default/60 max-h-48 overflow-y-auto space-y-1.5 scrollbar-thin scrollbar-thumb-neutral-800 scrollbar-track-transparent"
                                   title={!canManageAssignments ? `Apenas o primeiro técnico responsável (${firstTech}) pode alterar as atribuições.` : ""}
                                 >
                                   {users
@@ -3576,7 +3584,7 @@ export default function App() {
                                           className={`group flex items-center justify-between p-2 rounded-lg border transition-all text-left select-none ${
                                             isAssigned
                                               ? "bg-emerald-950/15 border-emerald-500/20 text-emerald-300"
-                                              : "bg-[#060606] border-neutral-900/60 text-slate-400 hover:border-neutral-800/80 hover:text-slate-200"
+                                              : "bg-app border-default/60 text-secondary hover:border-default/80 hover:text-primary"
                                           } ${!canManageAssignments ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
                                         >
                                           <div className="flex items-center gap-2 min-w-0">
@@ -3585,7 +3593,7 @@ export default function App() {
                                               <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold border transition-colors ${
                                                 isAssigned 
                                                   ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/20" 
-                                                  : "bg-neutral-900 text-slate-500 border-neutral-800"
+                                                  : "bg-surface text-muted border-default"
                                               }`}>
                                                 {initials}
                                               </div>
@@ -3595,10 +3603,10 @@ export default function App() {
                                             </div>
                                             
                                             <div className="min-w-0 leading-tight">
-                                              <span className={`text-[11px] font-semibold block truncate ${isAssigned ? 'text-emerald-300' : 'text-slate-300 group-hover:text-slate-100'}`}>
+                                              <span className={`text-[11px] font-semibold block truncate ${isAssigned ? 'text-emerald-300' : 'text-secondary group-hover:text-primary'}`}>
                                                 {tech.name}
                                               </span>
-                                              <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider block">Suporte</span>
+                                              <span className="text-[8px] text-muted font-bold uppercase tracking-wider block">Suporte</span>
                                             </div>
                                           </div>
 
@@ -3615,7 +3623,7 @@ export default function App() {
                                                 <Check className="h-2.5 w-2.5 stroke-[3]" />
                                               </div>
                                             ) : (
-                                              <div className="w-4 h-4 rounded-full border border-neutral-800 bg-black transition-colors group-hover:border-neutral-700" />
+                                              <div className="w-4 h-4 rounded-full border border-default bg-app transition-colors group-hover:border-default" />
                                             )}
                                           </div>
                                         </div>
@@ -3635,16 +3643,16 @@ export default function App() {
  
                         {/* Adjust priority manually */}
                         <div className="space-y-1.5 col-span-2 md:col-span-1">
-                          <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">Prioridade Operacional</label>
+                          <label className="text-secondary block text-[10px] font-bold uppercase tracking-wider">Prioridade Operacional</label>
                           <div className="relative">
                             <select
                               value={selectedTicket.priority}
                               onChange={(e) => handleUpdateTicketMeta(selectedTicket.id, { priority: e.target.value as Ticket["priority"] })}
                               disabled={isAssignedToOther}
-                              className={`w-full bg-[#060606] border border-neutral-900 rounded-xl py-2 px-3 text-xs text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all ${
+                              className={`w-full bg-app border border-default rounded-xl py-2 px-3 text-xs text-primary focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all ${
                                 isAssignedToOther 
-                                  ? "opacity-60 cursor-not-allowed text-slate-500" 
-                                  : "hover:border-neutral-800/80 cursor-pointer"
+                                  ? "opacity-60 cursor-not-allowed text-muted" 
+                                  : "hover:border-default/80 cursor-pointer"
                               }`}
                               title={isAssignedToOther ? `Apenas o técnico responsável (${selectedTicket.assignedTo}) pode alterar a prioridade.` : ""}
                             >
@@ -3660,7 +3668,7 @@ export default function App() {
 
                       {/* Alterar Solicitante (Visible to technicians) */}
                       <div className="pt-2.5 border-t border-emerald-950/10 space-y-1.5">
-                        <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                        <label className="text-secondary block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
                           <UserIcon className="h-3.5 w-3.5 text-emerald-400" />
                           Alterar Solicitante (Colaborador)
                         </label>
@@ -3678,10 +3686,10 @@ export default function App() {
                               }
                             }
                           }}
-                          className={`w-full bg-[#060606] border border-neutral-900 rounded-xl py-2 px-3 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all ${
+                          className={`w-full bg-app border border-default rounded-xl py-2 px-3 text-xs text-secondary focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all ${
                             isAssignedToOther 
-                              ? "opacity-60 cursor-not-allowed text-slate-500" 
-                              : "hover:border-neutral-800/80 cursor-pointer"
+                              ? "opacity-60 cursor-not-allowed text-muted" 
+                              : "hover:border-default/80 cursor-pointer"
                           }`}
                           title={isAssignedToOther ? `Apenas o técnico responsável (${selectedTicket.assignedTo}) pode alterar o solicitante.` : ""}
                         >
@@ -3691,13 +3699,13 @@ export default function App() {
                             </option>
                           ))}
                         </select>
-                        <p className="text-[9px] text-slate-500 font-medium">Altere o colaborador que solicitou este chamado de suporte.</p>
+                        <p className="text-[9px] text-muted font-medium">Altere o colaborador que solicitou este chamado de suporte.</p>
                       </div>
 
                       {/* SLA/Ticket Type Setting (Visible to all technicians) */}
                       {currentSession?.role === "tecnico" && (
                         <div className="pt-2.5 border-t border-emerald-950/10 space-y-1.5">
-                          <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                          <label className="text-secondary block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
                             <FolderKanban className="h-3.5 w-3.5 text-emerald-400" />
                             Tipo de SLA (Chamado ou Projeto)
                           </label>
@@ -3716,12 +3724,12 @@ export default function App() {
                                 handleUpdateTicketMeta(selectedTicket.id, { projectDeadline: dateStr });
                               }
                             }}
-                            className="w-full bg-[#060606] border border-neutral-900 rounded-xl py-2 px-3 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all hover:border-neutral-800/80 cursor-pointer"
+                            className="w-full bg-app border border-default rounded-xl py-2 px-3 text-xs text-secondary focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all hover:border-default/80 cursor-pointer"
                           >
                             <option value="chamado">Chamado Padrão (SLA Baseado em Horas)</option>
                             <option value="projeto">Projeto em Andamento (SLA Baseado em Data Limite)</option>
                           </select>
-                          <p className="text-[9px] text-slate-500 font-medium">
+                          <p className="text-[9px] text-muted font-medium">
                             Selecione se este item deve ser tratado como um chamado padrão com SLA por prioridade ou um projeto de longo prazo com data limite de entrega.
                           </p>
                         </div>
@@ -3730,7 +3738,7 @@ export default function App() {
                       {/* Project Deadline Setting (Visible to all technicians and only if configured as a project) */}
                       {currentSession?.role === "tecnico" && selectedTicket.projectDeadline && (
                         <div className="pt-2.5 border-t border-emerald-950/10 space-y-1.5">
-                          <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                          <label className="text-secondary block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
                             <Calendar className="h-3.5 w-3.5 text-emerald-400" />
                             Definir Data Limite do Projeto
                           </label>
@@ -3738,20 +3746,20 @@ export default function App() {
                             value={selectedTicket.projectDeadline}
                             onChange={(date) => handleUpdateTicketMeta(selectedTicket.id, { projectDeadline: date })}
                           />
-                          <p className="text-[9px] text-slate-500 font-medium">Defina ou altere o prazo limite para a conclusão do projeto associado a este chamado.</p>
+                          <p className="text-[9px] text-muted font-medium">Defina ou altere o prazo limite para a conclusão do projeto associado a este chamado.</p>
                         </div>
                       )}
 
                       {/* Transfer Option (Only visible to the first assigned technician) */}
                       {getFirstAssignedTech(selectedTicket) === currentSession.name && (
                         <div className="pt-2.5 border-t border-emerald-950/10 space-y-1.5">
-                          <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                          <label className="text-secondary block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
                             <RefreshCw className="h-3.5 w-3.5 text-emerald-400" />
                             Transferir chamado para outro técnico:
                           </label>
                           <select
                             defaultValue=""
-                            className="w-full bg-[#060606] border border-neutral-900 rounded-xl py-2 px-3 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all hover:border-neutral-800/80 cursor-pointer"
+                            className="w-full bg-app border border-default rounded-xl py-2 px-3 text-xs text-secondary focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all hover:border-default/80 cursor-pointer"
                             onChange={(e) => {
                               const targetTechName = e.target.value;
                               if (targetTechName) {
@@ -3777,8 +3785,8 @@ export default function App() {
                   )}
 
                   {/* Action Button: Finalizar Chamado */}
-                  <div className="p-4 bg-black border border-emerald-950/20 rounded-xl space-y-2">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Ações Disponíveis</span>
+                  <div className="p-4 bg-app border border-emerald-950/20 rounded-xl space-y-2">
+                    <span className="text-[10px] font-bold text-secondary uppercase tracking-wider block">Ações Disponíveis</span>
                     
                     {isAssignedToOther && (
                       <div className="p-2.5 bg-amber-500/5 border border-amber-500/15 rounded-lg text-[10px] text-amber-400 leading-normal font-medium flex items-center gap-2 mb-2">
@@ -3812,7 +3820,7 @@ export default function App() {
                           handleUpdateTicketMeta(selectedTicket.id, { status: "Aberto" });
                         }}
                         disabled={isAssignedToOther}
-                        className={`w-full py-2.5 bg-black hover:bg-neutral-900 text-slate-200 font-bold rounded-xl text-xs transition flex items-center justify-center gap-2 border border-emerald-950/25 cursor-pointer font-display ${isAssignedToOther ? "opacity-40 cursor-not-allowed" : ""}`}
+                        className={`w-full py-2.5 bg-app hover:bg-surface text-primary font-bold rounded-xl text-xs transition flex items-center justify-center gap-2 border border-emerald-950/25 cursor-pointer font-display ${isAssignedToOther ? "opacity-40 cursor-not-allowed" : ""}`}
                         title={isAssignedToOther ? `Apenas ${selectedTicket.assignedTo} pode reabrir este chamado` : ""}
                       >
                         <RefreshCw className="h-4 w-4 text-emerald-400" />
@@ -3822,15 +3830,15 @@ export default function App() {
 
                     {/* Excluir Chamado (Apenas para os técnicos responsáveis) */}
                     {currentSession.role === "tecnico" && (
-                      <div className="pt-2 border-t border-neutral-900 mt-2">
+                      <div className="pt-2 border-t border-default mt-2">
                         {!getAssignedTechs(selectedTicket.assignedTo).includes(currentSession.name) ? (
                           <button
                             type="button"
                             disabled
-                            className="w-full py-2 bg-neutral-950 text-neutral-600 border border-neutral-900/40 font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-not-allowed"
+                            className="w-full py-2 bg-app text-muted border border-default/40 font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-not-allowed"
                             title={`Apenas os técnicos responsáveis (${selectedTicket.assignedTo || 'Nenhum'}) podem excluir este chamado.`}
                           >
-                            <Trash2 className="h-3.5 w-3.5 text-neutral-700" />
+                            <Trash2 className="h-3.5 w-3.5 text-muted" />
                             Excluir Chamado (Apenas Responsável)
                           </button>
                         ) : isConfirmingDeleteTicket === selectedTicket.id ? (
@@ -3838,7 +3846,7 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() => handleDeleteTicket(selectedTicket.id)}
-                              className="flex-1 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-rose-600/20"
+                              className="flex-1 py-2 bg-rose-600 hover:bg-rose-500 text-primary font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-rose-600/20"
                             >
                               <Trash2 className="h-4 w-4" />
                               Confirmar Exclusão?
@@ -3846,7 +3854,7 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() => setIsConfirmingDeleteTicket(null)}
-                              className="px-3 py-2 bg-[#151515] hover:bg-[#202020] text-slate-300 font-medium rounded-xl text-xs border border-neutral-900 transition cursor-pointer"
+                              className="px-3 py-2 bg-surface hover:bg-surface-2 text-secondary font-medium rounded-xl text-xs border border-default transition cursor-pointer"
                             >
                               Cancelar
                             </button>
@@ -3855,7 +3863,7 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => setIsConfirmingDeleteTicket(selectedTicket.id)}
-                            className="w-full py-2 bg-black hover:bg-rose-950/15 text-rose-400 hover:text-rose-300 border border-emerald-950/20 hover:border-rose-900/30 font-semibold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                            className="w-full py-2 bg-app hover:bg-rose-950/15 text-rose-400 hover:text-rose-300 border border-emerald-950/20 hover:border-rose-900/30 font-semibold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                             Excluir Chamado
@@ -3871,7 +3879,7 @@ export default function App() {
                       ? "bg-emerald-950/20 border-emerald-500/20 text-emerald-300"
                       : desktopNotificationPermission === "denied"
                       ? "bg-rose-950/20 border-rose-500/30 text-rose-300"
-                      : "bg-emerald-500/10 border-emerald-500/30 text-white"
+                      : "bg-emerald-500/10 border-emerald-500/30 text-primary"
                   }`}>
                     <div className="flex items-center gap-2.5 min-w-0">
                       <div className={`p-2 rounded-lg shrink-0 ${
@@ -3893,7 +3901,7 @@ export default function App() {
                               : "Ative as Notificações Nativas do Sistema para este Chat"}
                           </span>
                         </div>
-                        <p className="text-[10px] text-slate-300 leading-tight mt-0.5">
+                        <p className="text-[10px] text-secondary leading-tight mt-0.5">
                           {desktopNotificationPermission === "granted"
                             ? "Sua área de trabalho avisará instantaneamente quando houver novas mensagens neste chamado."
                             : desktopNotificationPermission === "denied"
@@ -3917,7 +3925,7 @@ export default function App() {
                         <button
                           type="button"
                           onClick={() => setIsNotificationGuideOpen(true)}
-                          className="w-full sm:w-auto px-3 py-1.5 bg-rose-500 hover:bg-rose-400 text-white font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
+                          className="w-full sm:w-auto px-3 py-1.5 bg-rose-500 hover:bg-rose-400 text-primary font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
                         >
                           <HelpCircle className="h-3.5 w-3.5" />
                           Como Desbloquear
@@ -3942,7 +3950,7 @@ export default function App() {
 
                   {/* Interaction history and discussion thread */}
                   <div className="space-y-3 pt-2">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Histórico de Discussão & Logs</span>
+                    <span className="text-[10px] font-bold text-muted uppercase tracking-wider block">Histórico de Discussão & Logs</span>
                     
                     <div className="space-y-2">
                       {selectedTicket.comments
@@ -3956,10 +3964,10 @@ export default function App() {
                           <div
                             key={comment.id}
                             className={`p-3 rounded-xl border text-xs leading-relaxed ${
-                              isSystem ? "bg-black/40 text-slate-400 border-neutral-900 text-center py-2 italic font-mono text-[10px]" :
+                              isSystem ? "bg-app/40 text-secondary border-default text-center py-2 italic font-mono text-[10px]" :
                               isAI ? "bg-emerald-950/5 text-emerald-300 border-emerald-500/10" :
-                              isTechnical ? "bg-[#0e0e0e] text-slate-200 border-emerald-950/20" :
-                              "bg-black text-slate-200 border-neutral-900"
+                              isTechnical ? "bg-surface text-primary border-emerald-950/20" :
+                              "bg-app text-primary border-default"
                             }`}
                           >
                             {!isSystem && (
@@ -3967,11 +3975,11 @@ export default function App() {
                                 <span className="font-bold flex items-center gap-1">
                                   {isAI && <Sparkles className="h-3 w-3 text-emerald-400" />}
                                   {comment.authorName}
-                                  <span className="text-[9px] font-normal text-slate-500">
+                                  <span className="text-[9px] font-normal text-muted">
                                     ({comment.authorRole})
                                   </span>
                                 </span>
-                                <span className="text-[10px] text-slate-500">
+                                <span className="text-[10px] text-muted">
                                   {new Date(comment.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                                 </span>
                               </div>
@@ -3980,12 +3988,12 @@ export default function App() {
                             <p className="whitespace-pre-line text-xs">{comment.content}</p>
 
                             {comment.attachmentUrl && (
-                              <div className="mt-2.5 p-2 bg-black/50 rounded-lg border border-neutral-900/60 flex items-center gap-2 max-w-sm" onClick={(e) => e.stopPropagation()}>
+                              <div className="mt-2.5 p-2 bg-app/50 rounded-lg border border-default/60 flex items-center gap-2 max-w-sm" onClick={(e) => e.stopPropagation()}>
                                 {comment.attachmentUrl.startsWith("data:image/") ? (
                                   <button
                                     type="button"
                                     onClick={() => setPreviewImage(comment.attachmentUrl || null)}
-                                    className="relative h-12 w-12 rounded-md overflow-hidden border border-neutral-800 flex-shrink-0 cursor-zoom-in text-left"
+                                    className="relative h-12 w-12 rounded-md overflow-hidden border border-default flex-shrink-0 cursor-zoom-in text-left"
                                     title="Clique para ver imagem cheia"
                                   >
                                     <img 
@@ -3993,17 +4001,17 @@ export default function App() {
                                       alt="Anexo" 
                                       className="h-full w-full object-cover"
                                     />
-                                    <div className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 flex items-center justify-center transition">
-                                      <Eye className="h-3 w-3 text-white" />
+                                    <div className="absolute inset-0 bg-app/40 opacity-0 hover:opacity-100 flex items-center justify-center transition">
+                                      <Eye className="h-3 w-3 text-primary" />
                                     </div>
                                   </button>
                                 ) : (
-                                  <div className="h-10 w-10 rounded-md bg-neutral-900 border border-neutral-800 flex items-center justify-center text-emerald-400 flex-shrink-0">
+                                  <div className="h-10 w-10 rounded-md bg-surface border border-default flex items-center justify-center text-emerald-400 flex-shrink-0">
                                     <FileText className="h-5 w-5" />
                                   </div>
                                 )}
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-[10px] font-bold text-slate-300 truncate">{comment.attachmentName || "Anexo"}</p>
+                                  <p className="text-[10px] font-bold text-secondary truncate">{comment.attachmentName || "Anexo"}</p>
                                   <a
                                     href={comment.attachmentUrl}
                                     download={comment.attachmentName || "anexo.png"}
@@ -4023,25 +4031,25 @@ export default function App() {
                 </div>
 
                 {/* Live Comments Thread Input bar */}
-                <div className="border-t border-neutral-900 bg-black flex flex-col">
+                <div className="border-t border-default bg-app flex flex-col">
                   {/* Attachment Preview Box */}
                   {commentAttachment && (
-                    <div className="px-4 py-2 bg-neutral-950/80 border-b border-neutral-900 flex items-center justify-between gap-3 text-xs animate-in slide-in-from-bottom-2 duration-150">
+                    <div className="px-4 py-2 bg-app/80 border-b border-default flex items-center justify-between gap-3 text-xs animate-in slide-in-from-bottom-2 duration-150">
                       <div className="flex items-center gap-2 min-w-0">
                         {commentAttachment.startsWith("data:image/") ? (
                           <img 
                             src={commentAttachment} 
                             alt="Preview do anexo" 
-                            className="h-8 w-8 rounded object-cover border border-neutral-800"
+                            className="h-8 w-8 rounded object-cover border border-default"
                           />
                         ) : (
-                          <div className="h-8 w-8 rounded bg-neutral-900 border border-neutral-800 flex items-center justify-center text-emerald-400">
+                          <div className="h-8 w-8 rounded bg-surface border border-default flex items-center justify-center text-emerald-400">
                             <FileText className="h-4 w-4" />
                           </div>
                         )}
                         <div className="min-w-0">
-                          <p className="text-[11px] font-bold text-slate-300 truncate">{commentAttachmentName}</p>
-                          <p className="text-[9px] text-slate-500 uppercase font-medium">Pronto para enviar</p>
+                          <p className="text-[11px] font-bold text-secondary truncate">{commentAttachmentName}</p>
+                          <p className="text-[9px] text-muted uppercase font-medium">Pronto para enviar</p>
                         </div>
                       </div>
                       <button
@@ -4050,7 +4058,7 @@ export default function App() {
                           setCommentAttachment(null);
                           setCommentAttachmentName("");
                         }}
-                        className="p-1 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center"
+                        className="p-1 rounded-lg bg-surface hover:bg-surface-2 border border-default text-secondary hover:text-primary transition cursor-pointer flex items-center justify-center"
                         title="Remover anexo"
                       >
                         <X className="h-3.5 w-3.5" />
@@ -4095,7 +4103,7 @@ export default function App() {
                     />
                     <label
                       htmlFor="comment-file-input"
-                      className="p-2.5 bg-[#0e0e0e] hover:bg-neutral-900 border border-neutral-900 text-slate-400 hover:text-slate-200 rounded-xl transition cursor-pointer flex items-center justify-center flex-shrink-0"
+                      className="p-2.5 bg-surface hover:bg-surface border border-default text-secondary hover:text-primary rounded-xl transition cursor-pointer flex items-center justify-center flex-shrink-0"
                       title="Anexar imagem ou documento"
                     >
                       <Paperclip className="h-4 w-4" />
@@ -4137,7 +4145,7 @@ export default function App() {
                         }
                       }}
                       placeholder={commentAttachment ? "Adicione um comentário opcional..." : "Adicionar comentário ao chamado..."}
-                      className="flex-1 bg-[#0e0e0e] border border-neutral-900 text-xs rounded-xl px-3 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
+                      className="flex-1 bg-surface border border-default text-xs rounded-xl px-3 py-2.5 text-primary placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
                     />
                     <button
                       type="submit"
@@ -4164,14 +4172,14 @@ export default function App() {
       {selectedTicket && (
         <div 
           onClick={() => setSelectedTicketId(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-2 sm:p-4 md:p-6 cursor-pointer animate-in fade-in duration-200"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-app/80 backdrop-blur-md p-2 sm:p-4 md:p-6 cursor-pointer animate-in fade-in duration-200"
         >
           <div 
             onClick={(e) => e.stopPropagation()}
-            className="bg-[#0c0c0e] border border-zinc-800/80 w-full max-w-5xl rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[92vh] cursor-default my-auto relative"
+            className="bg-app border border-default/80 w-full max-w-5xl rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[92vh] cursor-default my-auto relative"
           >
             {/* Modal Header */}
-            <div className="p-4 sm:p-5 border-b border-zinc-800/80 flex items-center justify-between bg-[#121215] flex-wrap gap-3">
+            <div className="p-4 sm:p-5 border-b border-default/80 flex items-center justify-between bg-surface flex-wrap gap-3">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="w-9 h-9 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 shrink-0">
                   <MessageSquare className="h-5 w-5 text-emerald-400" />
@@ -4184,15 +4192,15 @@ export default function App() {
                     <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
                       selectedTicket.priority === "Urgente" ? "bg-rose-500/10 text-rose-400 border-rose-500/20" :
                       selectedTicket.priority === "Alta" ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
-                      "bg-zinc-800 text-zinc-300 border-zinc-700"
+                      "bg-surface-2 text-secondary border-default"
                     }`}>
                       Prioridade {selectedTicket.priority}
                     </span>
-                    <span className="text-[10px] font-semibold text-zinc-400 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">
+                    <span className="text-[10px] font-semibold text-secondary bg-surface px-2 py-0.5 rounded border border-default">
                       {selectedTicket.category}
                     </span>
                   </div>
-                  <h3 className="font-display font-black text-white text-base sm:text-lg truncate mt-0.5">
+                  <h3 className="font-display font-black text-primary text-base sm:text-lg truncate mt-0.5">
                     {selectedTicket.title}
                   </h3>
                 </div>
@@ -4205,24 +4213,24 @@ export default function App() {
                     value={selectedTicket.status}
                     onChange={(e) => handleUpdateTicketMeta(selectedTicket.id, { status: e.target.value as Ticket["status"] })}
                     disabled={isAssignedToOther}
-                    className={`bg-zinc-900 border border-zinc-700 text-xs font-bold rounded-xl px-3 py-1.5 focus:outline-none transition cursor-pointer ${
+                    className={`bg-surface border border-default text-xs font-bold rounded-xl px-3 py-1.5 focus:outline-none transition cursor-pointer ${
                       selectedTicket.status === "Aberto" ? "text-amber-400 border-amber-500/30" :
                       selectedTicket.status === "Em Atendimento" ? "text-sky-400 border-sky-500/30" :
                       selectedTicket.status === "Resolvido" ? "text-emerald-400 border-emerald-500/30" :
-                      "text-zinc-400 border-zinc-700"
+                      "text-secondary border-default"
                     } ${isAssignedToOther ? "opacity-50 cursor-not-allowed" : ""}`}
                   >
-                    <option value="Aberto" className="bg-zinc-900 text-amber-400 font-bold">Aberto</option>
-                    <option value="Em Atendimento" className="bg-zinc-900 text-sky-400 font-bold">Em Atendimento</option>
-                    <option value="Resolvido" className="bg-zinc-900 text-emerald-400 font-bold">Resolvido</option>
-                    <option value="Fechado" className="bg-zinc-900 text-zinc-400 font-bold">Fechado</option>
+                    <option value="Aberto" className="bg-surface text-amber-400 font-bold">Aberto</option>
+                    <option value="Em Atendimento" className="bg-surface text-sky-400 font-bold">Em Atendimento</option>
+                    <option value="Resolvido" className="bg-surface text-emerald-400 font-bold">Resolvido</option>
+                    <option value="Fechado" className="bg-surface text-secondary font-bold">Fechado</option>
                   </select>
                 ) : (
                   <span className={`text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-xl border ${
                     selectedTicket.status === "Aberto" ? "text-amber-400 bg-amber-500/10 border-amber-500/20" :
                     selectedTicket.status === "Em Atendimento" ? "text-sky-400 bg-sky-500/10 border-sky-500/20" :
                     selectedTicket.status === "Resolvido" ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" :
-                    "text-zinc-400 bg-zinc-900 border-zinc-800"
+                    "text-secondary bg-surface border-default"
                   }`}>
                     {selectedTicket.status}
                   </span>
@@ -4230,7 +4238,7 @@ export default function App() {
 
                 <button
                   onClick={() => setSelectedTicketId(null)}
-                  className="p-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer border border-zinc-800 flex items-center justify-center"
+                  className="p-1.5 rounded-xl bg-surface hover:bg-surface-2 text-secondary hover:text-primary transition cursor-pointer border border-default flex items-center justify-center"
                   title="Fechar (Esc)"
                 >
                   <X className="h-5 w-5" />
@@ -4244,30 +4252,30 @@ export default function App() {
               {/* LEFT COLUMN (Informações e Atendimento) */}
               <div className="lg:col-span-6 p-4 sm:p-5 lg:overflow-y-auto space-y-4 max-h-[50vh] lg:max-h-none scrollbar-thin scrollbar-thumb-zinc-800">
                 {/* Requester overview */}
-                <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800/80 text-xs space-y-2">
+                <div className="p-3 bg-surface/60 rounded-xl border border-default/80 text-xs space-y-2">
                   <div className="flex justify-between items-center">
-                    <span className="text-zinc-400 font-medium">Solicitado por:</span>
-                    <strong className="text-white font-bold">{selectedTicket.requesterName}</strong>
+                    <span className="text-secondary font-medium">Solicitado por:</span>
+                    <strong className="text-primary font-bold">{selectedTicket.requesterName}</strong>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-zinc-400 font-medium">Departamento:</span>
-                    <span className="text-zinc-300 font-medium">{selectedTicket.requesterDepartment}</span>
+                    <span className="text-secondary font-medium">Departamento:</span>
+                    <span className="text-secondary font-medium">{selectedTicket.requesterDepartment}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-zinc-400 font-medium">Data de Abertura:</span>
-                    <span className="text-zinc-300">
+                    <span className="text-secondary font-medium">Data de Abertura:</span>
+                    <span className="text-secondary">
                       {new Date(selectedTicket.createdAt).toLocaleDateString("pt-BR")} às {new Date(selectedTicket.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-zinc-400 font-medium">SLA Limite:</span>
+                    <span className="text-secondary font-medium">SLA Limite:</span>
                     <span className="text-rose-400 font-bold">
                       {new Date(selectedTicket.slaLimit).toLocaleDateString("pt-BR")} {new Date(selectedTicket.slaLimit).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                     </span>
                   </div>
                   {selectedTicket.projectDeadline && (
-                    <div className="flex justify-between items-center border-t border-zinc-800/60 pt-1.5">
-                      <span className="text-zinc-400 font-medium flex items-center gap-1">
+                    <div className="flex justify-between items-center border-t border-default/60 pt-1.5">
+                      <span className="text-secondary font-medium flex items-center gap-1">
                         <Calendar className="h-3 w-3 text-emerald-400" />
                         Limite do Projeto:
                       </span>
@@ -4302,31 +4310,31 @@ export default function App() {
                     </div>
                     
                     <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="bg-black/50 p-2 rounded-lg border border-zinc-800">
-                        <span className="text-zinc-500 block text-[9px] uppercase tracking-wider">Categoria IA</span>
+                      <div className="bg-app/50 p-2 rounded-lg border border-default">
+                        <span className="text-muted block text-[9px] uppercase tracking-wider">Categoria IA</span>
                         <span className="text-emerald-400 font-bold">{selectedTicket.aiCategory}</span>
                       </div>
-                      <div className="bg-black/50 p-2 rounded-lg border border-zinc-800">
-                        <span className="text-zinc-500 block text-[9px] uppercase tracking-wider">Prioridade IA</span>
+                      <div className="bg-app/50 p-2 rounded-lg border border-default">
+                        <span className="text-muted block text-[9px] uppercase tracking-wider">Prioridade IA</span>
                         <span className={`font-bold ${
                           selectedTicket.aiPriority === "Urgente" ? "text-rose-400" :
                           selectedTicket.aiPriority === "Alta" ? "text-amber-400" :
-                          selectedTicket.aiPriority === "Média" ? "text-emerald-400" : "text-zinc-400"
+                          selectedTicket.aiPriority === "Média" ? "text-emerald-400" : "text-secondary"
                         }`}>{selectedTicket.aiPriority}</span>
                       </div>
                     </div>
 
                     <div className="space-y-1">
-                      <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Diagnóstico</span>
-                      <p className="text-zinc-300 text-xs leading-relaxed whitespace-pre-line italic bg-black/30 p-2 rounded-lg border border-zinc-800/50">
+                      <span className="text-[10px] font-bold text-secondary uppercase tracking-wider block">Diagnóstico</span>
+                      <p className="text-secondary text-xs leading-relaxed whitespace-pre-line italic bg-app/30 p-2 rounded-lg border border-default/50">
                         "{selectedTicket.aiReasoning}"
                       </p>
                     </div>
 
                     {selectedTicket.aiSuggestions && (
                       <div className="space-y-1 pt-1 border-t border-emerald-500/15">
-                        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Soluções Recomendadas</span>
-                        <div className="text-zinc-300 text-xs leading-relaxed space-y-1 bg-black/40 p-2.5 rounded-lg border border-zinc-800">
+                        <span className="text-[10px] font-bold text-secondary uppercase tracking-wider block">Soluções Recomendadas</span>
+                        <div className="text-secondary text-xs leading-relaxed space-y-1 bg-app/40 p-2.5 rounded-lg border border-default">
                           {selectedTicket.aiSuggestions.split("\n").map((line, index) => (
                             <div key={index} className="flex gap-2 items-start">
                               <span className="text-emerald-400 font-bold select-none">•</span>
@@ -4341,8 +4349,8 @@ export default function App() {
 
                 {/* Problem Description */}
                 <div className="space-y-1.5">
-                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Descrição do Problema</span>
-                  <div className="bg-black p-3.5 rounded-xl border border-zinc-800/80 text-xs text-zinc-200 leading-relaxed whitespace-pre-line">
+                  <span className="text-[10px] font-bold text-secondary uppercase tracking-wider block">Descrição do Problema</span>
+                  <div className="bg-app p-3.5 rounded-xl border border-default/80 text-xs text-primary leading-relaxed whitespace-pre-line">
                     {selectedTicket.description}
                   </div>
                 </div>
@@ -4350,11 +4358,11 @@ export default function App() {
                 {/* Attached files and screenshots */}
                 {((selectedTicket.attachments && selectedTicket.attachments.length > 0) || selectedTicket.screenshot) && (
                   <div className="space-y-2">
-                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="text-[10px] font-bold text-secondary uppercase tracking-wider flex items-center gap-1.5">
                       <Paperclip className="h-3.5 w-3.5 text-emerald-400" />
                       Anexos do Chamado
                     </span>
-                    <div className="bg-zinc-900/40 p-3 rounded-xl border border-zinc-800/80 space-y-2">
+                    <div className="bg-surface/40 p-3 rounded-xl border border-default/80 space-y-2">
                       {selectedTicket.attachments && selectedTicket.attachments.length > 0 ? (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                           {selectedTicket.attachments.map((file, idx) => {
@@ -4362,22 +4370,22 @@ export default function App() {
                             const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
                             
                             return (
-                              <div key={idx} className="flex flex-col p-2 rounded-xl bg-black/60 border border-zinc-800 hover:border-zinc-700 transition justify-between gap-2">
+                              <div key={idx} className="flex flex-col p-2 rounded-xl bg-app/60 border border-default hover:border-default transition justify-between gap-2">
                                 <div className="flex items-center gap-2 min-w-0">
                                   {isImage ? (
-                                    <div className="w-10 h-10 rounded-lg overflow-hidden border border-zinc-800 flex-shrink-0 bg-black flex items-center justify-center">
+                                    <div className="w-10 h-10 rounded-lg overflow-hidden border border-default flex-shrink-0 bg-app flex items-center justify-center">
                                       <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
                                     </div>
                                   ) : (
-                                    <div className={`w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center bg-black border border-zinc-800 ${isPdf ? "text-red-400" : "text-emerald-400"}`}>
+                                    <div className={`w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center bg-app border border-default ${isPdf ? "text-red-400" : "text-emerald-400"}`}>
                                       <FileText className="h-5 w-5" />
                                     </div>
                                   )}
                                   <div className="min-w-0 flex-1">
-                                    <p className="text-xs font-semibold text-zinc-200 truncate" title={file.name}>
+                                    <p className="text-xs font-semibold text-primary truncate" title={file.name}>
                                       {file.name}
                                     </p>
-                                    <p className="text-[9px] text-zinc-500 uppercase font-mono tracking-wider">
+                                    <p className="text-[9px] text-muted uppercase font-mono tracking-wider">
                                       {isPdf ? "Documento PDF" : isImage ? "Imagem" : "Arquivo"}
                                     </p>
                                   </div>
@@ -4387,7 +4395,7 @@ export default function App() {
                                   {isImage ? (
                                     <button
                                       onClick={() => setPreviewImage(file.url)}
-                                      className="flex-1 py-1 px-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 rounded-lg text-[10px] font-bold text-zinc-300 hover:text-emerald-400 flex items-center justify-center gap-1 transition cursor-pointer"
+                                      className="flex-1 py-1 px-2 bg-surface hover:bg-surface-2 border border-default/80 rounded-lg text-[10px] font-bold text-secondary hover:text-emerald-400 flex items-center justify-center gap-1 transition cursor-pointer"
                                     >
                                       <Eye className="h-3 w-3" /> Visualizar
                                     </button>
@@ -4397,7 +4405,7 @@ export default function App() {
                                       download={file.name}
                                       target="_blank"
                                       rel="noopener noreferrer"
-                                      className="flex-1 py-1 px-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 rounded-lg text-[10px] font-bold text-zinc-300 hover:text-emerald-400 flex items-center justify-center gap-1 transition text-center"
+                                      className="flex-1 py-1 px-2 bg-surface hover:bg-surface-2 border border-default/80 rounded-lg text-[10px] font-bold text-secondary hover:text-emerald-400 flex items-center justify-center gap-1 transition text-center"
                                     >
                                       <Upload className="h-3 w-3 rotate-180" /> Abrir / Baixar
                                     </a>
@@ -4411,7 +4419,7 @@ export default function App() {
                         <div className="flex flex-col items-center">
                           <button 
                             onClick={() => setPreviewImage(selectedTicket.screenshot || null)} 
-                            className="relative block rounded-lg overflow-hidden border border-zinc-800 group cursor-zoom-in max-w-full text-left"
+                            className="relative block rounded-lg overflow-hidden border border-default group cursor-zoom-in max-w-full text-left"
                             title="Clique para abrir em tela cheia"
                           >
                             <img 
@@ -4419,8 +4427,8 @@ export default function App() {
                               alt="Print do chamado" 
                               className="max-h-52 object-contain rounded-lg group-hover:scale-[1.015] transition-all duration-200" 
                             />
-                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                              <span className="bg-black/95 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-xl border border-zinc-800 shadow-xl flex items-center gap-1">
+                            <div className="absolute inset-0 bg-app/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <span className="bg-app/95 text-primary text-[10px] font-bold px-2.5 py-1.5 rounded-xl border border-default shadow-xl flex items-center gap-1">
                                 <Eye className="h-3.5 w-3.5 text-emerald-400" /> Ver Imagem Completa
                               </span>
                             </div>
@@ -4433,13 +4441,13 @@ export default function App() {
 
                 {/* Technician Controls (When role === tecnico or ti) */}
                 {isTechUser && (
-                  <div className="p-3.5 bg-black rounded-xl border border-zinc-800 space-y-3">
-                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Painel do Técnico (Atendimento)</span>
+                  <div className="p-3.5 bg-app rounded-xl border border-default space-y-3">
+                    <span className="text-[10px] font-bold text-secondary uppercase tracking-wider block">Painel do Técnico (Atendimento)</span>
                     
                     <div className="grid grid-cols-2 gap-2.5 text-xs">
                       {/* Assign tech button / list */}
                       <div className="space-y-1.5 col-span-2 md:col-span-1">
-                        <label className="text-zinc-400 block text-[10px] font-bold uppercase tracking-wider">Técnicos Atribuídos</label>
+                        <label className="text-secondary block text-[10px] font-bold uppercase tracking-wider">Técnicos Atribuídos</label>
                         {(() => {
                           const assignedTechs = getAssignedTechs(selectedTicket.assignedTo);
                           const firstTech = getFirstAssignedTech(selectedTicket);
@@ -4458,7 +4466,7 @@ export default function App() {
                           }
 
                           return (
-                            <div className="bg-zinc-900 p-2 rounded-xl border border-zinc-800 max-h-36 overflow-y-auto space-y-1">
+                            <div className="bg-surface p-2 rounded-xl border border-default max-h-36 overflow-y-auto space-y-1">
                               {users
                                 .filter(u => u.role === "tecnico")
                                 .map(tech => {
@@ -4479,7 +4487,7 @@ export default function App() {
                                         handleUpdateTicketMeta(selectedTicket.id, { assignedTo: assignedStr });
                                       }}
                                       className={`flex items-center justify-between p-1.5 rounded-lg border text-left ${
-                                        isAssigned ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300" : "bg-black border-zinc-800 text-zinc-400"
+                                        isAssigned ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300" : "bg-app border-default text-secondary"
                                       } ${!canManageAssignments ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
                                     >
                                       <span className="text-[11px] font-semibold truncate">{tech.name}</span>
@@ -4494,12 +4502,12 @@ export default function App() {
 
                       {/* Operational priority selector */}
                       <div className="space-y-1.5 col-span-2 md:col-span-1">
-                        <label className="text-zinc-400 block text-[10px] font-bold uppercase tracking-wider">Prioridade</label>
+                        <label className="text-secondary block text-[10px] font-bold uppercase tracking-wider">Prioridade</label>
                         <select
                           value={selectedTicket.priority}
                           onChange={(e) => handleUpdateTicketMeta(selectedTicket.id, { priority: e.target.value as Ticket["priority"] })}
                           disabled={isAssignedToOther}
-                          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2 px-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
+                          className="w-full bg-surface border border-default rounded-xl py-2 px-2.5 text-xs text-primary focus:outline-none focus:border-emerald-500 cursor-pointer"
                         >
                           <option value="Baixa">Baixa</option>
                           <option value="Média">Média</option>
@@ -4510,7 +4518,7 @@ export default function App() {
                     </div>
 
                     {/* Actions: Finish / Reopen */}
-                    <div className="pt-2 border-t border-zinc-800 flex gap-2">
+                    <div className="pt-2 border-t border-default flex gap-2">
                       {selectedTicket.status !== "Resolvido" && selectedTicket.status !== "Fechado" ? (
                         <button
                           onClick={() => {
@@ -4536,7 +4544,7 @@ export default function App() {
                             handleUpdateTicketMeta(selectedTicket.id, { status: "Aberto" });
                           }}
                           disabled={isAssignedToOther}
-                          className="flex-1 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 font-bold rounded-xl text-xs border border-zinc-700 transition flex items-center justify-center gap-1.5 cursor-pointer"
+                          className="flex-1 py-2 bg-surface hover:bg-surface-2 text-primary font-bold rounded-xl text-xs border border-default transition flex items-center justify-center gap-1.5 cursor-pointer"
                         >
                           <RefreshCw className="h-4 w-4 text-emerald-400" />
                           Reabrir Chamado
@@ -4549,7 +4557,7 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => handleDeleteTicket(selectedTicket.id)}
-                            className="px-3 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs transition cursor-pointer"
+                            className="px-3 py-2 bg-rose-600 hover:bg-rose-500 text-primary font-bold rounded-xl text-xs transition cursor-pointer"
                           >
                             Confirmar?
                           </button>
@@ -4557,7 +4565,7 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => setIsConfirmingDeleteTicket(selectedTicket.id)}
-                            className="p-2 bg-zinc-900 hover:bg-rose-950/20 text-rose-400 border border-zinc-800 hover:border-rose-900/30 rounded-xl transition cursor-pointer"
+                            className="p-2 bg-surface hover:bg-rose-950/20 text-rose-400 border border-default hover:border-rose-900/30 rounded-xl transition cursor-pointer"
                             title="Excluir Chamado"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -4570,13 +4578,13 @@ export default function App() {
               </div>
 
               {/* RIGHT COLUMN (Chat e Histórico de Comunicação) */}
-              <div className="lg:col-span-6 flex flex-col h-full bg-[#08080a] p-4 sm:p-5">
+              <div className="lg:col-span-6 flex flex-col h-full bg-app p-4 sm:p-5">
                 
                 {/* Chat Header */}
-                <div className="pb-3 border-b border-zinc-800/80 flex items-center justify-between">
+                <div className="pb-3 border-b border-default/80 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <MessageSquare className="h-4 w-4 text-emerald-400" />
-                    <h4 className="text-xs font-extrabold uppercase tracking-wider text-white">Chat do Chamado & Discussão</h4>
+                    <h4 className="text-xs font-extrabold uppercase tracking-wider text-primary">Chat do Chamado & Discussão</h4>
                     <span className="text-[10px] bg-emerald-500/10 text-emerald-400 font-bold px-2 py-0.5 rounded-full border border-emerald-500/20">
                       {selectedTicket.comments.filter(c => c.authorRole !== "ai").length} msg
                     </span>
@@ -4596,7 +4604,7 @@ export default function App() {
                     className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border flex items-center gap-1 transition cursor-pointer ${
                       desktopNotificationPermission === "granted"
                         ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20 hover:bg-emerald-500/20"
-                        : "bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white"
+                        : "bg-surface text-secondary border-default hover:text-primary"
                     }`}
                     title="Alertas Pop-up do Sistema Operacional"
                   >
@@ -4616,7 +4624,7 @@ export default function App() {
 
                       if (isSystem) {
                         return (
-                          <div key={comment.id} className="p-2 rounded-lg bg-black/40 text-zinc-500 border border-zinc-900 text-center text-[10px] italic font-mono">
+                          <div key={comment.id} className="p-2 rounded-lg bg-app/40 text-muted border border-subtle text-center text-[10px] italic font-mono">
                             {comment.content}
                           </div>
                         );
@@ -4629,19 +4637,19 @@ export default function App() {
                         >
                           <div className={`max-w-[85%] p-3 rounded-2xl border text-xs leading-relaxed shadow-sm ${
                             isCurrentUser
-                              ? "bg-emerald-600/15 border-emerald-500/30 text-white rounded-br-xs"
+                              ? "bg-emerald-600/15 border-emerald-500/30 text-primary rounded-br-xs"
                               : isTechnical
-                              ? "bg-zinc-900 border-zinc-800 text-zinc-200 rounded-bl-xs"
-                              : "bg-black border-zinc-800 text-zinc-200 rounded-bl-xs"
+                              ? "bg-surface border-default text-primary rounded-bl-xs"
+                              : "bg-app border-default text-primary rounded-bl-xs"
                           }`}>
                             <div className="flex items-center justify-between gap-3 mb-1 text-[10px]">
                               <span className="font-bold text-emerald-400 flex items-center gap-1">
                                 {comment.authorName}
-                                <span className="text-[9px] font-normal text-zinc-500">
+                                <span className="text-[9px] font-normal text-muted">
                                   ({comment.authorRole === "tecnico" ? "Suporte" : "Solicitante"})
                                 </span>
                               </span>
-                              <span className="text-zinc-500 text-[9px]">
+                              <span className="text-muted text-[9px]">
                                 {new Date(comment.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                               </span>
                             </div>
@@ -4649,23 +4657,23 @@ export default function App() {
                             <p className="whitespace-pre-line text-xs">{comment.content}</p>
 
                             {comment.attachmentUrl && (
-                              <div className="mt-2 p-2 bg-black/60 rounded-xl border border-zinc-800/80 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                              <div className="mt-2 p-2 bg-app/60 rounded-xl border border-default/80 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                                 {comment.attachmentUrl.startsWith("data:image/") ? (
                                   <button
                                     type="button"
                                     onClick={() => setPreviewImage(comment.attachmentUrl || null)}
-                                    className="relative h-12 w-12 rounded-lg overflow-hidden border border-zinc-800 flex-shrink-0 cursor-zoom-in text-left"
+                                    className="relative h-12 w-12 rounded-lg overflow-hidden border border-default flex-shrink-0 cursor-zoom-in text-left"
                                     title="Clique para ver em tela cheia"
                                   >
                                     <img src={comment.attachmentUrl} alt="Anexo" className="h-full w-full object-cover" />
                                   </button>
                                 ) : (
-                                  <div className="h-10 w-10 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-emerald-400 flex-shrink-0">
+                                  <div className="h-10 w-10 rounded-lg bg-surface border border-default flex items-center justify-center text-emerald-400 flex-shrink-0">
                                     <FileText className="h-5 w-5" />
                                   </div>
                                 )}
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-[10px] font-bold text-zinc-300 truncate">{comment.attachmentName || "Anexo"}</p>
+                                  <p className="text-[10px] font-bold text-secondary truncate">{comment.attachmentName || "Anexo"}</p>
                                   <a
                                     href={comment.attachmentUrl}
                                     download={comment.attachmentName || "anexo.png"}
@@ -4683,16 +4691,16 @@ export default function App() {
                 </div>
 
                 {/* Input form */}
-                <div className="pt-2 border-t border-zinc-800/80 flex flex-col">
+                <div className="pt-2 border-t border-default/80 flex flex-col">
                   {commentAttachment && (
-                    <div className="mb-2 px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-xl flex items-center justify-between gap-2 text-xs">
+                    <div className="mb-2 px-3 py-1.5 bg-surface border border-default rounded-xl flex items-center justify-between gap-2 text-xs">
                       <div className="flex items-center gap-2 min-w-0">
                         {commentAttachment.startsWith("data:image/") ? (
-                          <img src={commentAttachment} alt="Preview" className="h-7 w-7 rounded object-cover border border-zinc-800" />
+                          <img src={commentAttachment} alt="Preview" className="h-7 w-7 rounded object-cover border border-default" />
                         ) : (
                           <FileText className="h-4 w-4 text-emerald-400" />
                         )}
-                        <span className="text-[10px] font-bold text-zinc-300 truncate">{commentAttachmentName}</span>
+                        <span className="text-[10px] font-bold text-secondary truncate">{commentAttachmentName}</span>
                       </div>
                       <button
                         type="button"
@@ -4700,7 +4708,7 @@ export default function App() {
                           setCommentAttachment(null);
                           setCommentAttachmentName("");
                         }}
-                        className="text-zinc-400 hover:text-white p-1"
+                        className="text-secondary hover:text-primary p-1"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -4743,7 +4751,7 @@ export default function App() {
                     />
                     <label
                       htmlFor="comment-file-input-modal"
-                      className="p-2.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white rounded-xl transition cursor-pointer flex items-center justify-center flex-shrink-0"
+                      className="p-2.5 bg-surface hover:bg-surface-2 border border-default text-secondary hover:text-primary rounded-xl transition cursor-pointer flex items-center justify-center flex-shrink-0"
                       title="Anexar imagem ou documento"
                     >
                       <Paperclip className="h-4 w-4" />
@@ -4775,7 +4783,7 @@ export default function App() {
                         }
                       }}
                       placeholder={commentAttachment ? "Comentário opcional..." : "Digite uma mensagem ou cole um print..."}
-                      className="flex-1 bg-zinc-900 border border-zinc-800 text-xs rounded-xl px-3 py-2.5 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 transition-all"
+                      className="flex-1 bg-surface border border-default text-xs rounded-xl px-3 py-2.5 text-primary placeholder-zinc-500 focus:outline-none focus:border-emerald-500 transition-all"
                     />
                     <button
                       type="submit"
@@ -4797,27 +4805,27 @@ export default function App() {
       {isMyTicketsModalOpen && currentSession && (
         <div 
           onClick={() => setIsMyTicketsModalOpen(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 cursor-pointer"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-app/80 backdrop-blur-sm p-4 cursor-pointer"
         >
           <div 
             onClick={(e) => e.stopPropagation()}
-            className="bg-[#0a0a0a] border border-neutral-900 w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[90vh] cursor-default"
+            className="bg-app border border-default w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[90vh] cursor-default"
           >
             
             {/* Modal Header */}
-            <div className="p-5 border-b border-neutral-900 flex items-center justify-between bg-black/50 backdrop-blur-md">
+            <div className="p-5 border-b border-default flex items-center justify-between bg-app/50 backdrop-blur-md">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
                   <Layers className="h-4 w-4 text-emerald-400" />
                 </div>
                 <div>
-                  <h3 className="font-display font-extrabold text-white text-base">Meus Chamados</h3>
-                  <p className="text-[10px] text-slate-400">Gerencie todos os chamados abertos por você</p>
+                  <h3 className="font-display font-extrabold text-primary text-base">Meus Chamados</h3>
+                  <p className="text-[10px] text-secondary">Gerencie todos os chamados abertos por você</p>
                 </div>
               </div>
               <button
                 onClick={() => setIsMyTicketsModalOpen(false)}
-                className="text-slate-400 hover:text-white text-xs font-bold bg-neutral-900 hover:bg-neutral-800 px-3 py-1.5 rounded-xl transition cursor-pointer border border-neutral-800/55"
+                className="text-secondary hover:text-primary text-xs font-bold bg-surface hover:bg-surface-2 px-3 py-1.5 rounded-xl transition cursor-pointer border border-default/55"
               >
                 Fechar
               </button>
@@ -4825,7 +4833,7 @@ export default function App() {
 
             {/* Segmented view controls for technicians */}
             {currentSession.role === "tecnico" && (
-              <div className="px-6 py-2 border-b border-neutral-900 flex gap-2 bg-black/40">
+              <div className="px-6 py-2 border-b border-default flex gap-2 bg-app/40">
                 <button
                   onClick={() => {
                     setMyTicketsViewMode("created");
@@ -4833,8 +4841,8 @@ export default function App() {
                   }}
                   className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition cursor-pointer border ${
                     myTicketsViewMode === "created"
-                      ? "bg-neutral-900 text-white border-neutral-800"
-                      : "bg-transparent text-slate-400 border-transparent hover:text-white"
+                      ? "bg-surface text-primary border-default"
+                      : "bg-transparent text-secondary border-transparent hover:text-primary"
                   }`}
                 >
                   Chamados Criados
@@ -4846,8 +4854,8 @@ export default function App() {
                   }}
                   className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition cursor-pointer border ${
                     myTicketsViewMode === "resolved"
-                      ? "bg-emerald-500 text-slate-950 border-emerald-500 shadow-sm"
-                      : "bg-transparent text-slate-400 border-transparent hover:text-white"
+                      ? "bg-emerald-500 text-muted border-emerald-500 shadow-sm"
+                      : "bg-transparent text-secondary border-transparent hover:text-primary"
                   }`}
                 >
                   Meus Atendimentos Resolvidos
@@ -4856,24 +4864,24 @@ export default function App() {
             )}
 
             {/* Profile context summary */}
-            <div className="px-4 sm:px-6 py-2.5 sm:py-3 bg-black/20 border-b border-neutral-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+            <div className="px-4 sm:px-6 py-2.5 sm:py-3 bg-app/20 border-b border-default/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
               <div className="flex items-center gap-1.5 sm:gap-2">
-                <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-neutral-900 flex items-center justify-center text-[8px] sm:text-[10px] font-bold text-emerald-400 border border-neutral-800 shrink-0">
+                <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-surface flex items-center justify-center text-[8px] sm:text-[10px] font-bold text-emerald-400 border border-default shrink-0">
                   {currentSession.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
                 </div>
                 <div className="flex flex-wrap items-baseline gap-1 sm:gap-1.5">
-                  <span className="text-slate-400 font-semibold text-[11px] sm:text-xs">{currentSession.name}</span>
-                  <span className="text-slate-500 text-[9px] sm:text-[10px] font-medium">({currentSession.department})</span>
+                  <span className="text-secondary font-semibold text-[11px] sm:text-xs">{currentSession.name}</span>
+                  <span className="text-muted text-[9px] sm:text-[10px] font-medium">({currentSession.department})</span>
                 </div>
               </div>
-              <div className="text-[9px] sm:text-[10px] text-slate-500 font-medium">
+              <div className="text-[9px] sm:text-[10px] text-muted font-medium">
                 {myTicketsViewMode === "resolved" ? (
                   <>
                     Total de chamados resolvidos por você: <strong className="text-emerald-400">{tickets.filter(t => getAssignedTechs(t.assignedTo).includes(currentSession.name) && (t.status === "Resolvido" || t.status === "Fechado")).length}</strong>
                   </>
                 ) : (
                   <>
-                    Total de chamados criados: <strong className="text-slate-300">{tickets.filter(t => t.requesterName === currentSession.name).length}</strong>
+                    Total de chamados criados: <strong className="text-secondary">{tickets.filter(t => t.requesterName === currentSession.name).length}</strong>
                   </>
                 )}
               </div>
@@ -4881,18 +4889,18 @@ export default function App() {
 
             {/* Tabs filter */}
             {myTicketsViewMode === "created" ? (
-              <div className="p-3 sm:p-4 border-b border-neutral-900 flex gap-1.5 sm:gap-2 overflow-x-auto scrollbar-none">
+              <div className="p-3 sm:p-4 border-b border-default flex gap-1.5 sm:gap-2 overflow-x-auto scrollbar-none">
                 <button
                   onClick={() => setMyTicketsTab("all")}
                   className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0 ${
                     myTicketsTab === "all"
-                      ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/10"
-                      : "bg-black text-slate-400 hover:text-white border border-neutral-900"
+                      ? "bg-emerald-500 text-muted shadow-lg shadow-emerald-500/10"
+                      : "bg-app text-secondary hover:text-primary border border-default"
                   }`}
                 >
                   <span>Todos</span>
                   <span className={`text-[8px] sm:text-[10px] font-extrabold px-1 sm:px-1.5 py-0.5 rounded-md ${
-                    myTicketsTab === "all" ? "bg-black/20 text-slate-950" : "bg-neutral-900 text-slate-400"
+                    myTicketsTab === "all" ? "bg-app/20 text-muted" : "bg-surface text-secondary"
                   }`}>
                     {tickets.filter(t => t.requesterName === currentSession.name).length}
                   </span>
@@ -4902,13 +4910,13 @@ export default function App() {
                   onClick={() => setMyTicketsTab("unresolved")}
                   className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0 ${
                     myTicketsTab === "unresolved"
-                      ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/10"
-                      : "bg-black text-slate-400 hover:text-white border border-neutral-900"
+                      ? "bg-emerald-500 text-muted shadow-lg shadow-emerald-500/10"
+                      : "bg-app text-secondary hover:text-primary border border-default"
                   }`}
                 >
                   <span>Pendentes</span>
                   <span className={`text-[8px] sm:text-[10px] font-extrabold px-1 sm:px-1.5 py-0.5 rounded-md ${
-                    myTicketsTab === "unresolved" ? "bg-black/20 text-slate-950" : "bg-neutral-900 text-slate-400"
+                    myTicketsTab === "unresolved" ? "bg-app/20 text-muted" : "bg-surface text-secondary"
                   }`}>
                     {tickets.filter(t => t.requesterName === currentSession.name && t.status !== "Resolvido" && t.status !== "Fechado").length}
                   </span>
@@ -4918,21 +4926,21 @@ export default function App() {
                   onClick={() => setMyTicketsTab("resolved")}
                   className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0 ${
                     myTicketsTab === "resolved"
-                      ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/10"
-                      : "bg-black text-slate-400 hover:text-white border border-neutral-900"
+                      ? "bg-emerald-500 text-muted shadow-lg shadow-emerald-500/10"
+                      : "bg-app text-secondary hover:text-primary border border-default"
                   }`}
                 >
                   <span>Resolvidos</span>
                   <span className={`text-[8px] sm:text-[10px] font-extrabold px-1 sm:px-1.5 py-0.5 rounded-md ${
-                    myTicketsTab === "resolved" ? "bg-black/20 text-slate-950" : "bg-neutral-900 text-slate-400"
+                    myTicketsTab === "resolved" ? "bg-app/20 text-muted" : "bg-surface text-secondary"
                   }`}>
                     {tickets.filter(t => t.requesterName === currentSession.name && (t.status === "Resolvido" || t.status === "Fechado")).length}
                   </span>
                 </button>
               </div>
             ) : (
-              <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-neutral-900 bg-black/20 flex items-center justify-between gap-3">
-                <span className="text-[10px] sm:text-xs text-slate-400 font-bold uppercase tracking-wider truncate">Histórico de Atendimentos Concluídos</span>
+              <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-default bg-app/20 flex items-center justify-between gap-3">
+                <span className="text-[10px] sm:text-xs text-secondary font-bold uppercase tracking-wider truncate">Histórico de Atendimentos Concluídos</span>
                 <span className="text-[9px] sm:text-xs bg-emerald-500/10 text-emerald-400 font-semibold px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg sm:rounded-xl border border-emerald-500/20 whitespace-nowrap">
                   {tickets.filter(t => getAssignedTechs(t.assignedTo).includes(currentSession.name) && (t.status === "Resolvido" || t.status === "Fechado")).length} Chamado(s)
                 </span>
@@ -4958,11 +4966,11 @@ export default function App() {
 
                 if (filteredList.length === 0) {
                   return (
-                    <div className="py-12 text-center text-slate-500 space-y-3">
-                      <CheckCircle className="h-8 w-8 text-slate-700 mx-auto" />
+                    <div className="py-12 text-center text-muted space-y-3">
+                      <CheckCircle className="h-8 w-8 text-muted mx-auto" />
                       <div>
-                        <h4 className="text-xs font-bold text-slate-400">Nenhum chamado encontrado</h4>
-                        <p className="text-[10px] text-slate-500 mt-1">Não há registros para esta categoria no momento.</p>
+                        <h4 className="text-xs font-bold text-secondary">Nenhum chamado encontrado</h4>
+                        <p className="text-[10px] text-muted mt-1">Não há registros para esta categoria no momento.</p>
                       </div>
                     </div>
                   );
@@ -4977,7 +4985,7 @@ export default function App() {
                   const priorityTextClass = 
                     ticket.priority === "Urgente" ? "text-rose-400" :
                     ticket.priority === "Alta" ? "text-amber-400" :
-                    ticket.priority === "Média" ? "text-emerald-400" : "text-neutral-400";
+                    ticket.priority === "Média" ? "text-emerald-400" : "text-secondary";
 
                   return (
                     <div
@@ -4986,17 +4994,17 @@ export default function App() {
                         setSelectedTicketId(ticket.id);
                         setIsMyTicketsModalOpen(false);
                       }}
-                      className={`p-3.5 bg-black/50 hover:bg-[#080808]/50 rounded-xl border border-neutral-900 border-l-4 ${priorityBorder} flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition cursor-pointer hover:border-emerald-500/20 group`}
+                      className={`p-3.5 bg-app/50 hover:bg-app/50 rounded-xl border border-default border-l-4 ${priorityBorder} flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition cursor-pointer hover:border-emerald-500/20 group`}
                     >
                       <div className="space-y-1 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-[10px] font-bold text-neutral-500">#{ticket.id}</span>
+                          <span className="text-[10px] font-bold text-muted">#{ticket.id}</span>
                           <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
                             ticket.status === "Aberto" ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" :
                             ticket.status === "Em Atendimento" ? "bg-sky-500/10 text-sky-400 border border-sky-500/20 shadow-[0_0_10px_rgba(56,189,248,0.05)]" :
                             ticket.status === "Resolvido" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.05)]" :
-                            ticket.status === "Fechado" ? "bg-zinc-800/40 text-zinc-400 border border-zinc-700/30" :
-                            "bg-neutral-900 text-neutral-400 border border-neutral-850"
+                            ticket.status === "Fechado" ? "bg-surface-2/40 text-secondary border border-default/30" :
+                            "bg-surface text-secondary border border-default"
                           }`}>
                             {ticket.status}
                           </span>
@@ -5006,13 +5014,13 @@ export default function App() {
                             ticket.category === 'Hardware' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
                             ticket.category === 'Software' ? 'bg-emerald-400/10 text-emerald-400 border border-emerald-400/20' :
                             ticket.category === 'Sistemas' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                            'bg-neutral-900 text-neutral-300'
+                            'bg-surface text-secondary'
                           }`}>
                             {ticket.category}
                           </span>
                         </div>
-                        <h4 className="text-xs font-bold text-neutral-200 group-hover:text-emerald-400 transition-colors line-clamp-1">{ticket.title}</h4>
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-neutral-500">
+                        <h4 className="text-xs font-bold text-primary group-hover:text-emerald-400 transition-colors line-clamp-1">{ticket.title}</h4>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted">
                           <span>
                             Aberto em: {new Date(ticket.createdAt).toLocaleDateString("pt-BR")} às {new Date(ticket.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                           </span>
@@ -5034,7 +5042,7 @@ export default function App() {
 
                       <div className="flex sm:flex-col items-start sm:items-end justify-between sm:justify-center gap-1.5 flex-shrink-0 text-[10px]">
                         <span className={`font-bold uppercase ${priorityTextClass}`}>{ticket.priority}</span>
-                        <span className="text-slate-400 font-medium">
+                        <span className="text-secondary font-medium">
                           {ticket.assignedTo ? `Técnicos: ${ticket.assignedTo}` : "Sem técnico atribuído"}
                         </span>
                         <span className="text-emerald-500 font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
@@ -5047,7 +5055,7 @@ export default function App() {
               })()}
             </div>
 
-            <div className="p-4 border-t border-neutral-900 bg-black/30 text-center text-[10px] text-slate-500">
+            <div className="p-4 border-t border-default bg-app/30 text-center text-[10px] text-muted">
               Dica: Clique em qualquer chamado para abrir os detalhes completos e interagir com o suporte.
             </div>
 
@@ -5115,26 +5123,26 @@ export default function App() {
         return (
           <div 
             onClick={() => setIsTechProfileModalOpen(false)}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-3 sm:p-4 cursor-pointer"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-app/85 backdrop-blur-md p-3 sm:p-4 cursor-pointer"
           >
             <div 
               onClick={(e) => e.stopPropagation()}
-              className="bg-[#0c0c0e] border border-zinc-800/80 w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[92vh] cursor-default"
+              className="bg-app border border-default/80 w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[92vh] cursor-default"
             >
               
               {/* Profile Cover & Header */}
-              <div className="relative p-5 sm:p-6 bg-gradient-to-r from-[#121215] via-[#16161c] to-[#0d1310] border-b border-zinc-800/80">
+              <div className="relative p-5 sm:p-6 bg-gradient-to-r from-[#121215] via-[#16161c] to-[#0d1310] border-b border-default/80">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   
                   <div className="flex items-center gap-4">
                     {/* Glowing Avatar */}
                     <div className="relative shrink-0">
-                      <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-zinc-900 border-2 border-emerald-500/40 flex items-center justify-center text-emerald-400 font-extrabold text-xl sm:text-2xl shadow-xl shadow-emerald-500/10">
+                      <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-surface border-2 border-emerald-500/40 flex items-center justify-center text-emerald-400 font-extrabold text-xl sm:text-2xl shadow-xl shadow-emerald-500/10">
                         {initials}
                       </div>
                       <span 
-                        className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-[#0c0c0e] flex items-center justify-center text-[9px] font-black ${
-                          selectedTechProfile.isOnline !== false ? "bg-emerald-500 text-black" : "bg-zinc-600 text-zinc-300"
+                        className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-subtle flex items-center justify-center text-[9px] font-black ${
+                          selectedTechProfile.isOnline !== false ? "bg-emerald-500 text-black" : "bg-surface-3 text-secondary"
                         }`}
                         title={selectedTechProfile.isOnline !== false ? "Online" : "Offline"}
                       >
@@ -5144,7 +5152,7 @@ export default function App() {
 
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-display font-black text-white text-lg sm:text-2xl tracking-tight">
+                        <h3 className="font-display font-black text-primary text-lg sm:text-2xl tracking-tight">
                           {selectedTechProfile.name}
                         </h3>
                         {userIsTech ? (
@@ -5157,30 +5165,30 @@ export default function App() {
                           </span>
                         )}
                         {isCurrentSessionUser && (
-                          <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">
+                          <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded bg-surface-2 text-secondary border border-default">
                             Sua Conta
                           </span>
                         )}
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-400">
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-secondary">
                         <span className="flex items-center gap-1">
-                          <Mail className="h-3.5 w-3.5 text-zinc-500" />
+                          <Mail className="h-3.5 w-3.5 text-muted" />
                           {selectedTechProfile.email || `${selectedTechProfile.name.toLowerCase().replace(/\s+/g, ".")}@gran7.com.br`}
                         </span>
-                        <span className="text-zinc-600">•</span>
+                        <span className="text-muted">•</span>
                         <span className="flex items-center gap-1">
-                          <Building className="h-3.5 w-3.5 text-zinc-500" />
-                          Setor: <strong className="text-zinc-200 font-semibold">{selectedTechProfile.department || "Geral"}</strong>
+                          <Building className="h-3.5 w-3.5 text-muted" />
+                          Setor: <strong className="text-primary font-semibold">{selectedTechProfile.department || "Geral"}</strong>
                         </span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex sm:flex-col items-end justify-between sm:justify-center gap-2 border-t sm:border-t-0 pt-3 sm:pt-0 border-zinc-800/60">
+                  <div className="flex sm:flex-col items-end justify-between sm:justify-center gap-2 border-t sm:border-t-0 pt-3 sm:pt-0 border-default/60">
                     <button
                       onClick={() => setIsTechProfileModalOpen(false)}
-                      className="text-zinc-400 hover:text-white text-xs font-bold bg-zinc-900 hover:bg-zinc-800 px-4 py-2 rounded-xl transition cursor-pointer border border-zinc-800 shadow-sm"
+                      className="text-secondary hover:text-primary text-xs font-bold bg-surface hover:bg-surface-2 px-4 py-2 rounded-xl transition cursor-pointer border border-default shadow-sm"
                     >
                       Fechar Perfil
                     </button>
@@ -5202,13 +5210,13 @@ export default function App() {
               </div>
 
               {/* Navigation Tabs Bar inside Modal */}
-              <div className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 border-b border-zinc-800/80 bg-[#121215] overflow-x-auto scrollbar-none">
+              <div className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 border-b border-default/80 bg-surface overflow-x-auto scrollbar-none">
                 <button
                   onClick={() => setProfileModalTab("overview")}
                   className={`py-3 px-3 sm:px-4 text-xs font-bold transition flex items-center gap-2 border-b-2 whitespace-nowrap cursor-pointer ${
                     profileModalTab === "overview"
                       ? "border-emerald-400 text-emerald-400 bg-emerald-500/5"
-                      : "border-transparent text-zinc-400 hover:text-white"
+                      : "border-transparent text-secondary hover:text-primary"
                   }`}
                 >
                   <UserIcon className="h-3.5 w-3.5" />
@@ -5220,12 +5228,12 @@ export default function App() {
                   className={`py-3 px-3 sm:px-4 text-xs font-bold transition flex items-center gap-2 border-b-2 whitespace-nowrap cursor-pointer ${
                     profileModalTab === "tickets"
                       ? "border-emerald-400 text-emerald-400 bg-emerald-500/5"
-                      : "border-transparent text-zinc-400 hover:text-white"
+                      : "border-transparent text-secondary hover:text-primary"
                   }`}
                 >
                   <FileText className="h-3.5 w-3.5" />
                   <span>Chamados & Histórico</span>
-                  <span className="text-[10px] bg-zinc-800 text-zinc-300 font-extrabold px-1.5 py-0.2 rounded-full">
+                  <span className="text-[10px] bg-surface-2 text-secondary font-extrabold px-1.5 py-0.2 rounded-full">
                     {totalTicketsCount}
                   </span>
                 </button>
@@ -5235,7 +5243,7 @@ export default function App() {
                   className={`py-3 px-3 sm:px-4 text-xs font-bold transition flex items-center gap-2 border-b-2 whitespace-nowrap cursor-pointer ${
                     profileModalTab === "metrics"
                       ? "border-emerald-400 text-emerald-400 bg-emerald-500/5"
-                      : "border-transparent text-zinc-400 hover:text-white"
+                      : "border-transparent text-secondary hover:text-primary"
                   }`}
                 >
                   <Cpu className="h-3.5 w-3.5" />
@@ -5247,19 +5255,19 @@ export default function App() {
                   className={`py-3 px-3 sm:px-4 text-xs font-bold transition flex items-center gap-2 border-b-2 whitespace-nowrap cursor-pointer ${
                     profileModalTab === "activity"
                       ? "border-emerald-400 text-emerald-400 bg-emerald-500/5"
-                      : "border-transparent text-zinc-400 hover:text-white"
+                      : "border-transparent text-secondary hover:text-primary"
                   }`}
                 >
                   <MessageSquare className="h-3.5 w-3.5" />
                   <span>Atividades Recentes</span>
-                  <span className="text-[10px] bg-zinc-800 text-zinc-300 font-extrabold px-1.5 py-0.2 rounded-full">
+                  <span className="text-[10px] bg-surface-2 text-secondary font-extrabold px-1.5 py-0.2 rounded-full">
                     {userComments.length}
                   </span>
                 </button>
               </div>
 
               {/* Modal Main Body Content */}
-              <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6 min-h-[350px] max-h-[60vh] bg-black/40">
+              <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6 min-h-[350px] max-h-[60vh] bg-app/40">
 
                 {/* TAB 1: VISÃO GERAL */}
                 {profileModalTab === "overview" && (
@@ -5267,58 +5275,58 @@ export default function App() {
                     
                     {/* Consolidated Bento Cards */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-                      <div className="bg-[#121215] border border-zinc-800/80 rounded-xl p-4 space-y-1">
-                        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">Total de Chamados</span>
-                        <div className="text-2xl font-extrabold text-white">{totalTicketsCount}</div>
-                        <span className="text-[10px] text-zinc-500 block">Registrados no sistema</span>
+                      <div className="bg-surface border border-default/80 rounded-xl p-4 space-y-1">
+                        <span className="text-[10px] font-bold text-muted uppercase tracking-wider block">Total de Chamados</span>
+                        <div className="text-2xl font-extrabold text-primary">{totalTicketsCount}</div>
+                        <span className="text-[10px] text-muted block">Registrados no sistema</span>
                       </div>
 
-                      <div className="bg-[#121215] border border-zinc-800/80 rounded-xl p-4 space-y-1">
+                      <div className="bg-surface border border-default/80 rounded-xl p-4 space-y-1">
                         <span className="text-[10px] font-bold text-amber-500 uppercase tracking-wider block">Em Aberto / Ativos</span>
                         <div className="text-2xl font-extrabold text-amber-400">{activeTicketsCount}</div>
-                        <span className="text-[10px] text-zinc-500 block">Aguardando/em fila</span>
+                        <span className="text-[10px] text-muted block">Aguardando/em fila</span>
                       </div>
 
-                      <div className="bg-[#121215] border border-zinc-800/80 rounded-xl p-4 space-y-1">
+                      <div className="bg-surface border border-default/80 rounded-xl p-4 space-y-1">
                         <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-wider block">Resolvidos / Fechados</span>
                         <div className="text-2xl font-extrabold text-emerald-400">{resolvedTicketsCount}</div>
-                        <span className="text-[10px] text-zinc-500 block">Finalizados com sucesso</span>
+                        <span className="text-[10px] text-muted block">Finalizados com sucesso</span>
                       </div>
 
-                      <div className="bg-[#121215] border border-zinc-800/80 rounded-xl p-4 space-y-1">
+                      <div className="bg-surface border border-default/80 rounded-xl p-4 space-y-1">
                         <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider block">
                           {userIsTech ? "SLA Cumprimento" : "Resolutividade"}
                         </span>
                         <div className="text-2xl font-extrabold text-sky-400">
                           {userIsTech ? `${techSlaCompliance}%` : totalTicketsCount > 0 ? `${Math.round((resolvedTicketsCount / totalTicketsCount) * 100)}%` : "100%"}
                         </div>
-                        <span className="text-[10px] text-zinc-500 block">{userIsTech ? "Cumprimento de prazo" : "Taxa de conclusão"}</span>
+                        <span className="text-[10px] text-muted block">{userIsTech ? "Cumprimento de prazo" : "Taxa de conclusão"}</span>
                       </div>
                     </div>
 
                     {/* Personal & Account Details Card */}
-                    <div className="bg-[#121215] border border-zinc-800/80 rounded-2xl p-5 space-y-4">
-                      <div className="flex items-center justify-between border-b border-zinc-800/60 pb-3">
-                        <h4 className="text-xs font-bold text-zinc-200 uppercase tracking-wider flex items-center gap-2">
+                    <div className="bg-surface border border-default/80 rounded-2xl p-5 space-y-4">
+                      <div className="flex items-center justify-between border-b border-default/60 pb-3">
+                        <h4 className="text-xs font-bold text-primary uppercase tracking-wider flex items-center gap-2">
                           <UserIcon className="h-4 w-4 text-emerald-400" />
                           Informações da Conta & Acesso
                         </h4>
-                        <span className="text-[10px] font-mono text-zinc-500">ID: {selectedTechProfile.id || "USR-REGISTRO"}</span>
+                        <span className="text-[10px] font-mono text-muted">ID: {selectedTechProfile.id || "USR-REGISTRO"}</span>
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                         <div className="space-y-1">
-                          <span className="text-[10px] font-bold text-zinc-500 uppercase">Nome Completo</span>
-                          <p className="font-semibold text-zinc-200">{selectedTechProfile.name}</p>
+                          <span className="text-[10px] font-bold text-muted uppercase">Nome Completo</span>
+                          <p className="font-semibold text-primary">{selectedTechProfile.name}</p>
                         </div>
 
                         <div className="space-y-1">
-                          <span className="text-[10px] font-bold text-zinc-500 uppercase">E-mail de Contato</span>
-                          <p className="font-semibold text-zinc-200">{selectedTechProfile.email || `${selectedTechProfile.name.toLowerCase().replace(/\s+/g, ".")}@gran7.com.br`}</p>
+                          <span className="text-[10px] font-bold text-muted uppercase">E-mail de Contato</span>
+                          <p className="font-semibold text-primary">{selectedTechProfile.email || `${selectedTechProfile.name.toLowerCase().replace(/\s+/g, ".")}@gran7.com.br`}</p>
                         </div>
 
                         <div className="space-y-1">
-                          <span className="text-[10px] font-bold text-zinc-500 uppercase">Cargo / Nível de Permissão</span>
+                          <span className="text-[10px] font-bold text-muted uppercase">Cargo / Nível de Permissão</span>
                           <p className="font-semibold text-emerald-400 flex items-center gap-1.5">
                             <Shield className="h-3.5 w-3.5 text-emerald-400" />
                             {userIsTech ? "Administrativo & Técnico de Suporte TI" : "Colaborador Solicitante de Chamados"}
@@ -5326,29 +5334,29 @@ export default function App() {
                         </div>
 
                         <div className="space-y-1">
-                          <span className="text-[10px] font-bold text-zinc-500 uppercase">Setor / Departamento</span>
-                          <p className="font-semibold text-zinc-200">{selectedTechProfile.department || "Tecnologia da Informação"}</p>
+                          <span className="text-[10px] font-bold text-muted uppercase">Setor / Departamento</span>
+                          <p className="font-semibold text-primary">{selectedTechProfile.department || "Tecnologia da Informação"}</p>
                         </div>
 
                         <div className="space-y-1">
-                          <span className="text-[10px] font-bold text-zinc-500 uppercase">Status do Atendimento</span>
+                          <span className="text-[10px] font-bold text-muted uppercase">Status do Atendimento</span>
                           <p className="font-semibold text-emerald-400 flex items-center gap-1.5">
-                            <span className={`w-2 h-2 rounded-full ${selectedTechProfile.isOnline !== false ? "bg-emerald-400 animate-pulse" : "bg-zinc-600"}`} />
+                            <span className={`w-2 h-2 rounded-full ${selectedTechProfile.isOnline !== false ? "bg-emerald-400 animate-pulse" : "bg-surface-3"}`} />
                             {selectedTechProfile.isOnline !== false ? "Online e Disponível" : "Ausente / Indisponível"}
                           </p>
                         </div>
 
                         <div className="space-y-1">
-                          <span className="text-[10px] font-bold text-zinc-500 uppercase">Notificações de Sistema</span>
-                          <p className="font-semibold text-zinc-300">Ativas (Sonoro + Visual Toast)</p>
+                          <span className="text-[10px] font-bold text-muted uppercase">Notificações de Sistema</span>
+                          <p className="font-semibold text-secondary">Ativas (Sonoro + Visual Toast)</p>
                         </div>
                       </div>
                     </div>
 
                     {/* Quick Preview of Recent Tickets */}
-                    <div className="bg-[#121215] border border-zinc-800/80 rounded-2xl p-5 space-y-4">
-                      <div className="flex items-center justify-between border-b border-zinc-800/60 pb-3">
-                        <h4 className="text-xs font-bold text-zinc-200 uppercase tracking-wider flex items-center gap-2">
+                    <div className="bg-surface border border-default/80 rounded-2xl p-5 space-y-4">
+                      <div className="flex items-center justify-between border-b border-default/60 pb-3">
+                        <h4 className="text-xs font-bold text-primary uppercase tracking-wider flex items-center gap-2">
                           <Clock className="h-4 w-4 text-emerald-400" />
                           Últimos Chamados Registrados
                         </h4>
@@ -5361,7 +5369,7 @@ export default function App() {
                       </div>
 
                       {allUserTickets.length === 0 ? (
-                        <div className="text-center py-6 text-zinc-500 text-xs">
+                        <div className="text-center py-6 text-muted text-xs">
                           Nenhum chamado registrado para este perfil até o momento.
                         </div>
                       ) : (
@@ -5373,19 +5381,19 @@ export default function App() {
                                 setSelectedTicketId(ticket.id);
                                 setIsTechProfileModalOpen(false);
                               }}
-                              className="p-3 bg-black/60 border border-zinc-800/80 rounded-xl flex items-center justify-between gap-3 hover:border-emerald-500/30 transition cursor-pointer group"
+                              className="p-3 bg-app/60 border border-default/80 rounded-xl flex items-center justify-between gap-3 hover:border-emerald-500/30 transition cursor-pointer group"
                             >
                               <div className="space-y-0.5 min-w-0">
                                 <div className="flex items-center gap-2">
-                                  <span className="text-[9px] font-mono text-zinc-400">#{ticket.id}</span>
-                                  <span className="text-[9px] font-bold uppercase px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-300">
+                                  <span className="text-[9px] font-mono text-secondary">#{ticket.id}</span>
+                                  <span className="text-[9px] font-bold uppercase px-1.5 py-0.2 rounded bg-surface-2 text-secondary">
                                     {ticket.status}
                                   </span>
                                   <span className="text-[9px] font-bold uppercase px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                                     {ticket.category}
                                   </span>
                                 </div>
-                                <h5 className="text-xs font-bold text-zinc-200 group-hover:text-emerald-400 transition-colors truncate">
+                                <h5 className="text-xs font-bold text-primary group-hover:text-emerald-400 transition-colors truncate">
                                   {ticket.title}
                                 </h5>
                               </div>
@@ -5412,7 +5420,7 @@ export default function App() {
                         className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
                           profileTicketsFilter === "all"
                             ? "bg-emerald-500 text-black shadow-md shadow-emerald-500/10"
-                            : "bg-[#121215] text-zinc-400 hover:text-white border border-zinc-800/80"
+                            : "bg-surface text-secondary hover:text-primary border border-default/80"
                         }`}
                       >
                         Todos ({totalTicketsCount})
@@ -5423,7 +5431,7 @@ export default function App() {
                         className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
                           profileTicketsFilter === "active"
                             ? "bg-amber-500 text-black shadow-md shadow-amber-500/10"
-                            : "bg-[#121215] text-zinc-400 hover:text-white border border-zinc-800/80"
+                            : "bg-surface text-secondary hover:text-primary border border-default/80"
                         }`}
                       >
                         Ativos / Pendentes ({activeTicketsCount})
@@ -5434,7 +5442,7 @@ export default function App() {
                         className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
                           profileTicketsFilter === "resolved"
                             ? "bg-emerald-500 text-black shadow-md shadow-emerald-500/10"
-                            : "bg-[#121215] text-zinc-400 hover:text-white border border-zinc-800/80"
+                            : "bg-surface text-secondary hover:text-primary border border-default/80"
                         }`}
                       >
                         Resolvidos ({resolvedTicketsCount})
@@ -5445,7 +5453,7 @@ export default function App() {
                         className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
                           profileTicketsFilter === "projects"
                             ? "bg-sky-500 text-black shadow-md shadow-sky-500/10"
-                            : "bg-[#121215] text-zinc-400 hover:text-white border border-zinc-800/80"
+                            : "bg-surface text-secondary hover:text-primary border border-default/80"
                         }`}
                       >
                         Com Prazo de Projeto ({projectTicketsCount})
@@ -5455,10 +5463,10 @@ export default function App() {
                     {/* List Area */}
                     <div className="space-y-3">
                       {filteredTickets.length === 0 ? (
-                        <div className="py-12 text-center text-zinc-500 space-y-2 bg-[#121215] border border-zinc-800/80 rounded-2xl">
-                          <CheckCircle className="h-8 w-8 text-zinc-700 mx-auto" />
-                          <h4 className="text-xs font-bold text-zinc-400">Nenhum chamado encontrado</h4>
-                          <p className="text-[10px] text-zinc-500">Não há chamados para o filtro selecionado neste perfil.</p>
+                        <div className="py-12 text-center text-muted space-y-2 bg-surface border border-default/80 rounded-2xl">
+                          <CheckCircle className="h-8 w-8 text-muted mx-auto" />
+                          <h4 className="text-xs font-bold text-secondary">Nenhum chamado encontrado</h4>
+                          <p className="text-[10px] text-muted">Não há chamados para o filtro selecionado neste perfil.</p>
                         </div>
                       ) : (
                         filteredTickets.map((ticket) => {
@@ -5476,11 +5484,11 @@ export default function App() {
                                 setSelectedTicketId(ticket.id);
                                 setIsTechProfileModalOpen(false);
                               }}
-                              className={`p-4 bg-[#121215] border border-zinc-800/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-emerald-500/40 transition cursor-pointer group border-l-4 ${priorityBorder}`}
+                              className={`p-4 bg-surface border border-default/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-emerald-500/40 transition cursor-pointer group border-l-4 ${priorityBorder}`}
                             >
                               <div className="space-y-1 flex-1 min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <span className="text-[10px] bg-zinc-900 text-zinc-400 border border-zinc-800 px-1.5 py-0.2 rounded font-mono">
+                                  <span className="text-[10px] bg-surface text-secondary border border-default px-1.5 py-0.2 rounded font-mono">
                                     #{ticket.id}
                                   </span>
                                   <span className={`border text-[9px] font-bold uppercase px-1.5 py-0.2 rounded ${
@@ -5490,14 +5498,14 @@ export default function App() {
                                   }`}>
                                     {ticket.status}
                                   </span>
-                                  <span className="bg-zinc-900 text-zinc-300 text-[9px] font-bold uppercase px-1.5 py-0.2 rounded">
+                                  <span className="bg-surface text-secondary text-[9px] font-bold uppercase px-1.5 py-0.2 rounded">
                                     {ticket.category}
                                   </span>
                                 </div>
-                                <h4 className="text-xs font-bold text-zinc-100 group-hover:text-emerald-400 transition-colors truncate">
+                                <h4 className="text-xs font-bold text-primary group-hover:text-emerald-400 transition-colors truncate">
                                   {ticket.title}
                                 </h4>
-                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-zinc-500">
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted">
                                   <span>Criado em: {new Date(ticket.createdAt).toLocaleDateString("pt-BR")}</span>
                                   <span>•</span>
                                   <span>Solicitante: {ticket.requesterName}</span>
@@ -5511,7 +5519,7 @@ export default function App() {
                               </div>
 
                               <div className="flex sm:flex-col items-start sm:items-end justify-between sm:justify-center gap-1 shrink-0 text-[10px]">
-                                <span className="font-extrabold text-zinc-400 uppercase">{ticket.priority}</span>
+                                <span className="font-extrabold text-secondary uppercase">{ticket.priority}</span>
                                 <span className="text-emerald-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
                                   Ver Chamado <ArrowRight className="h-3 w-3" />
                                 </span>
@@ -5528,36 +5536,36 @@ export default function App() {
                 {/* TAB 3: MÉTRICAS & DESEMPENHO */}
                 {profileModalTab === "metrics" && (
                   <div className="space-y-5 animate-in fade-in duration-200">
-                    <div className="bg-[#121215] border border-zinc-800/80 rounded-2xl p-5 space-y-4">
-                      <h4 className="text-xs font-bold text-zinc-200 uppercase tracking-wider flex items-center gap-2">
+                    <div className="bg-surface border border-default/80 rounded-2xl p-5 space-y-4">
+                      <h4 className="text-xs font-bold text-primary uppercase tracking-wider flex items-center gap-2">
                         <Cpu className="h-4 w-4 text-emerald-400" />
                         Relatório de Desempenho do Perfil
                       </h4>
 
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
-                        <div className="p-4 bg-black/60 border border-zinc-800/80 rounded-xl space-y-1">
-                          <span className="text-[10px] font-bold text-zinc-500 uppercase block">Total de Atendimentos</span>
-                          <span className="text-2xl font-black text-white">{totalTicketsCount}</span>
-                          <span className="text-[10px] text-zinc-500 block">Registros associados</span>
+                        <div className="p-4 bg-app/60 border border-default/80 rounded-xl space-y-1">
+                          <span className="text-[10px] font-bold text-muted uppercase block">Total de Atendimentos</span>
+                          <span className="text-2xl font-black text-primary">{totalTicketsCount}</span>
+                          <span className="text-[10px] text-muted block">Registros associados</span>
                         </div>
 
-                        <div className="p-4 bg-black/60 border border-zinc-800/80 rounded-xl space-y-1">
+                        <div className="p-4 bg-app/60 border border-default/80 rounded-xl space-y-1">
                           <span className="text-[10px] font-bold text-emerald-400 uppercase block">SLA de Atendimento</span>
                           <span className="text-2xl font-black text-emerald-400">{techSlaCompliance}%</span>
-                          <span className="text-[10px] text-zinc-500 block">Dentro do prazo estabelecido</span>
+                          <span className="text-[10px] text-muted block">Dentro do prazo estabelecido</span>
                         </div>
 
-                        <div className="p-4 bg-black/60 border border-zinc-800/80 rounded-xl space-y-1">
+                        <div className="p-4 bg-app/60 border border-default/80 rounded-xl space-y-1">
                           <span className="text-[10px] font-bold text-sky-400 uppercase block">Tempo Médio (TMA)</span>
                           <span className="text-2xl font-black text-sky-400">{techTmaStr}</span>
-                          <span className="text-[10px] text-zinc-500 block">Tempo até encerramento</span>
+                          <span className="text-[10px] text-muted block">Tempo até encerramento</span>
                         </div>
                       </div>
                     </div>
 
                     {/* Categories distribution */}
-                    <div className="bg-[#121215] border border-zinc-800/80 rounded-2xl p-5 space-y-4">
-                      <h4 className="text-xs font-bold text-zinc-200 uppercase tracking-wider flex items-center gap-2">
+                    <div className="bg-surface border border-default/80 rounded-2xl p-5 space-y-4">
+                      <h4 className="text-xs font-bold text-primary uppercase tracking-wider flex items-center gap-2">
                         <Layers className="h-4 w-4 text-emerald-400" />
                         Distribuição por Categorias de Suporte
                       </h4>
@@ -5568,10 +5576,10 @@ export default function App() {
                         return (
                           <div key={cat} className="space-y-1 text-xs">
                             <div className="flex items-center justify-between font-medium">
-                              <span className="text-zinc-300">{cat}</span>
-                              <span className="text-zinc-500">{count} chamado(s) ({pct}%)</span>
+                              <span className="text-secondary">{cat}</span>
+                              <span className="text-muted">{count} chamado(s) ({pct}%)</span>
                             </div>
-                            <div className="w-full bg-zinc-900 rounded-full h-1.5 overflow-hidden border border-zinc-800">
+                            <div className="w-full bg-surface rounded-full h-1.5 overflow-hidden border border-default">
                               <div className="bg-emerald-500 h-full rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
                             </div>
                           </div>
@@ -5584,14 +5592,14 @@ export default function App() {
                 {/* TAB 4: ATIVIDADES RECENTES */}
                 {profileModalTab === "activity" && (
                   <div className="space-y-4 animate-in fade-in duration-200">
-                    <div className="bg-[#121215] border border-zinc-800/80 rounded-2xl p-5 space-y-4">
-                      <h4 className="text-xs font-bold text-zinc-200 uppercase tracking-wider flex items-center gap-2">
+                    <div className="bg-surface border border-default/80 rounded-2xl p-5 space-y-4">
+                      <h4 className="text-xs font-bold text-primary uppercase tracking-wider flex items-center gap-2">
                         <MessageSquare className="h-4 w-4 text-emerald-400" />
                         Histórico de Respostas & Comentários
                       </h4>
 
                       {userComments.length === 0 ? (
-                        <div className="text-center py-8 text-zinc-500 text-xs">
+                        <div className="text-center py-8 text-muted text-xs">
                           Nenhum comentário ou resposta registrada por este perfil no histórico de chamados.
                         </div>
                       ) : (
@@ -5603,15 +5611,15 @@ export default function App() {
                                 setSelectedTicketId(comment.ticketId);
                                 setIsTechProfileModalOpen(false);
                               }}
-                              className="p-3.5 bg-black/60 border border-zinc-800/80 rounded-xl space-y-2 hover:border-emerald-500/30 transition cursor-pointer group"
+                              className="p-3.5 bg-app/60 border border-default/80 rounded-xl space-y-2 hover:border-emerald-500/30 transition cursor-pointer group"
                             >
-                              <div className="flex items-center justify-between text-[10px] text-zinc-500">
+                              <div className="flex items-center justify-between text-[10px] text-muted">
                                 <span className="font-bold text-emerald-400 group-hover:underline flex items-center gap-1">
                                   #{comment.ticketId} • {comment.ticketTitle}
                                 </span>
                                 <span>{new Date(comment.timestamp).toLocaleDateString("pt-BR")} às {new Date(comment.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
                               </div>
-                              <p className="text-xs text-zinc-300 line-clamp-2 italic">
+                              <p className="text-xs text-secondary line-clamp-2 italic">
                                 "{comment.content}"
                               </p>
                             </div>
@@ -5625,11 +5633,11 @@ export default function App() {
               </div>
 
               {/* Footer */}
-              <div className="p-4 bg-[#121215] border-t border-zinc-800/80 flex items-center justify-between text-[10px] text-zinc-500">
+              <div className="p-4 bg-surface border-t border-default/80 flex items-center justify-between text-[10px] text-muted">
                 <span>Perfil de {selectedTechProfile.name} • Sistema de Suporte TI Gran7</span>
                 <button
                   onClick={() => setIsTechProfileModalOpen(false)}
-                  className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold rounded-xl transition cursor-pointer"
+                  className="px-4 py-1.5 bg-surface-2 hover:bg-surface-3 text-primary font-bold rounded-xl transition cursor-pointer"
                 >
                   Fechar
                 </button>
@@ -5644,22 +5652,22 @@ export default function App() {
       {isNewTicketModalOpen && (
         <div 
           onClick={() => setIsNewTicketModalOpen(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 cursor-pointer"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-app/80 backdrop-blur-sm p-4 cursor-pointer"
         >
           <div 
             onClick={(e) => e.stopPropagation()}
-            className="bg-[#0a0a0a] border border-neutral-900 w-full max-w-lg rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 cursor-default"
+            className="bg-app border border-default w-full max-w-lg rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 cursor-default"
           >
             
             {/* Modal Header */}
-            <div className="p-5 border-b border-neutral-900 flex items-center justify-between bg-black/50">
+            <div className="p-5 border-b border-default flex items-center justify-between bg-app/50">
               <div className="flex items-center gap-2">
                 <Shield className="h-5 w-5 text-emerald-400" />
-                <h3 className="font-display font-extrabold text-white text-base">Novo Chamado de Suporte</h3>
+                <h3 className="font-display font-extrabold text-primary text-base">Novo Chamado de Suporte</h3>
               </div>
               <button
                 onClick={() => setIsNewTicketModalOpen(false)}
-                className="text-slate-400 hover:text-white text-xs font-bold bg-neutral-900 hover:bg-neutral-800 border border-neutral-800/50 px-3 py-1.5 rounded-xl transition cursor-pointer"
+                className="text-secondary hover:text-primary text-xs font-bold bg-surface hover:bg-surface-2 border border-default/50 px-3 py-1.5 rounded-xl transition cursor-pointer"
               >
                 Fechar
               </button>
@@ -5670,20 +5678,20 @@ export default function App() {
               
               {/* Profile Context warning / Requester Info */}
               {isTechUser ? (
-                <div className="bg-black/50 p-3.5 rounded-xl border border-neutral-900 space-y-3">
+                <div className="bg-app/50 p-3.5 rounded-xl border border-default space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">Solicitando como:</span>
-                      <strong className="text-white text-sm">{selectedRequesterName || currentSession.name}</strong>
+                      <span className="text-muted block text-[10px] uppercase tracking-wider font-bold">Solicitando como:</span>
+                      <strong className="text-primary text-sm">{selectedRequesterName || currentSession.name}</strong>
                     </div>
                     <div className="text-right">
-                      <span className="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">Departamento:</span>
+                      <span className="text-muted block text-[10px] uppercase tracking-wider font-bold">Departamento:</span>
                       <span className="text-emerald-400 font-medium text-xs">{selectedRequesterDepartment || currentSession.department}</span>
                     </div>
                   </div>
                   
                   <div className="space-y-1">
-                    <label className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500 flex items-center gap-1">
+                    <label className="text-[10px] font-extrabold uppercase tracking-widest text-muted flex items-center gap-1">
                       <Users className="h-3 w-3 text-emerald-400" />
                       Alterar Solicitante (Apenas Técnicos)
                     </label>
@@ -5699,7 +5707,7 @@ export default function App() {
                           setSelectedRequesterDepartment(currentSession.department);
                         }
                       }}
-                      className="w-full bg-black border border-neutral-800 rounded-lg py-2 px-2.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-all cursor-pointer"
+                      className="w-full bg-app border border-default rounded-lg py-2 px-2.5 text-xs text-secondary focus:outline-none focus:border-emerald-500 transition-all cursor-pointer"
                     >
                       <option value="">{currentSession.name} (Você - {currentSession.department})</option>
                       {users
@@ -5715,13 +5723,13 @@ export default function App() {
                   </div>
                 </div>
               ) : (
-                <div className="bg-black/50 p-3 rounded-xl border border-neutral-900 text-xs text-slate-300 flex items-center justify-between">
+                <div className="bg-app/50 p-3 rounded-xl border border-default text-xs text-secondary flex items-center justify-between">
                   <div>
-                    <span className="text-slate-500 block text-[10px]">Solicitando como:</span>
-                    <strong className="text-white">{currentSession.name}</strong>
+                    <span className="text-muted block text-[10px]">Solicitando como:</span>
+                    <strong className="text-primary">{currentSession.name}</strong>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[10px]">Departamento:</span>
+                    <span className="text-muted block text-[10px]">Departamento:</span>
                     <span className="text-emerald-400 font-medium">{currentSession.department}</span>
                   </div>
                 </div>
@@ -5729,27 +5737,27 @@ export default function App() {
 
               {/* Title input */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-400">Título do Chamado *</label>
+                <label className="text-xs font-bold text-secondary">Título do Chamado *</label>
                 <input
                   type="text"
                   required
                   placeholder="Ex: Impressora do faturamento não liga"
                   value={newTicketForm.title}
                   onChange={(e) => setNewTicketForm({ ...newTicketForm, title: e.target.value })}
-                  className="w-full bg-black border border-neutral-900 rounded-xl py-2 px-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
+                  className="w-full bg-app border border-default rounded-xl py-2 px-3 text-xs text-primary placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
                 />
               </div>
 
               {/* Description input */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-400">Descrição Detalhada *</label>
+                <label className="text-xs font-bold text-secondary">Descrição Detalhada *</label>
                 <textarea
                   required
                   rows={4}
                   placeholder="Forneça o máximo de detalhes possível. Ex: Marca/Modelo do equipamento, mensagem de erro exibida, tentativas já feitas, se o problema afeta mais pessoas."
                   value={newTicketForm.description}
                   onChange={(e) => setNewTicketForm({ ...newTicketForm, description: e.target.value })}
-                  className="w-full bg-black border border-neutral-900 rounded-xl py-2 px-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all resize-none"
+                  className="w-full bg-app border border-default rounded-xl py-2 px-3 text-xs text-primary placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all resize-none"
                 />
               </div>
 
@@ -5757,7 +5765,7 @@ export default function App() {
               {currentSession.role === "tecnico" && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                    <label className="text-xs font-bold text-secondary flex items-center gap-1.5">
                       <FolderKanban className="h-3.5 w-3.5 text-emerald-400" />
                       Tipo de Atendimento
                     </label>
@@ -5773,7 +5781,7 @@ export default function App() {
                           setNewTicketForm({ ...newTicketForm, projectDeadline: dateStr });
                         }
                       }}
-                      className="w-full bg-black border border-neutral-900 rounded-xl py-2 px-3 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all cursor-pointer"
+                      className="w-full bg-app border border-default rounded-xl py-2 px-3 text-xs text-secondary focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all cursor-pointer"
                     >
                       <option value="chamado">Chamado Padrão</option>
                       <option value="projeto">Projeto em Andamento</option>
@@ -5783,7 +5791,7 @@ export default function App() {
                   {/* If "projeto" is selected, show the date picker for deadline */}
                   {!!newTicketForm.projectDeadline && (
                     <div className="space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-150">
-                      <label className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                      <label className="text-xs font-bold text-secondary flex items-center gap-1.5">
                         <Calendar className="h-3.5 w-3.5 text-emerald-400" />
                         Data Limite do Projeto *
                       </label>
@@ -5800,12 +5808,12 @@ export default function App() {
 
               {/* Screenshot and multiple attachments field */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-400 flex items-center justify-between">
+                <label className="text-xs font-bold text-secondary flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
                     <Camera className="h-3.5 w-3.5 text-emerald-400" />
                     Anexar Prints / Imagens / PDFs (Opcional)
                   </span>
-                  <span className="text-[10px] text-neutral-500 font-normal">
+                  <span className="text-[10px] text-muted font-normal">
                     {newTicketForm.attachments.length} {newTicketForm.attachments.length === 1 ? "anexo" : "anexos"}
                   </span>
                 </label>
@@ -5834,7 +5842,7 @@ export default function App() {
                       }
                     }
                   }}
-                  className="border border-dashed border-neutral-900 hover:border-emerald-500/20 bg-black hover:bg-[#070707] transition rounded-xl p-4 text-center cursor-pointer relative group"
+                  className="border border-dashed border-default hover:border-emerald-500/20 bg-app hover:bg-app transition rounded-xl p-4 text-center cursor-pointer relative group"
                 >
                   <input
                     type="file"
@@ -5847,11 +5855,11 @@ export default function App() {
                     }}
                     className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                   />
-                  <Upload className="h-5 w-5 text-slate-500 group-hover:text-emerald-400 mx-auto mb-1.5 transition-colors" />
-                  <p className="text-[11px] text-slate-400 font-medium">
+                  <Upload className="h-5 w-5 text-muted group-hover:text-emerald-400 mx-auto mb-1.5 transition-colors" />
+                  <p className="text-[11px] text-secondary font-medium">
                     Clique para selecionar ou <span className="text-emerald-400">arraste e solte</span> arquivos aqui
                   </p>
-                  <p className="text-[9px] text-slate-500 mt-0.5">
+                  <p className="text-[9px] text-muted mt-0.5">
                     Aceita imagens, PDFs e documentos. Ctrl+V para colar prints.
                   </p>
                 </div>
@@ -5864,22 +5872,22 @@ export default function App() {
                       const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
                       
                       return (
-                        <div key={idx} className="flex items-center justify-between p-2 rounded-xl bg-neutral-900/40 border border-neutral-900 hover:border-neutral-800 transition">
+                        <div key={idx} className="flex items-center justify-between p-2 rounded-xl bg-surface/40 border border-default hover:border-default transition">
                           <div className="flex items-center gap-2 min-w-0 flex-1">
                             {isImage ? (
-                              <div className="w-8 h-8 rounded-lg overflow-hidden border border-neutral-850 flex-shrink-0 bg-black flex items-center justify-center">
+                              <div className="w-8 h-8 rounded-lg overflow-hidden border border-default flex-shrink-0 bg-app flex items-center justify-center">
                                 <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
                               </div>
                             ) : (
-                              <div className={`w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center bg-black border border-neutral-850 ${isPdf ? "text-red-400" : "text-emerald-400"}`}>
+                              <div className={`w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center bg-app border border-default ${isPdf ? "text-red-400" : "text-emerald-400"}`}>
                                 <FileText className="h-4 w-4" />
                               </div>
                             )}
                             <div className="min-w-0 flex-1">
-                              <p className="text-[11px] font-semibold text-slate-300 truncate animate-pulse-once" title={file.name}>
+                              <p className="text-[11px] font-semibold text-secondary truncate animate-pulse-once" title={file.name}>
                                 {file.name}
                               </p>
-                              <p className="text-[9px] text-slate-500 capitalize">
+                              <p className="text-[9px] text-muted capitalize">
                                 {isPdf ? "Documento PDF" : isImage ? "Imagem" : "Arquivo"}
                               </p>
                             </div>
@@ -5910,11 +5918,11 @@ export default function App() {
               </div>
 
               {/* Actions buttons */}
-              <div className="pt-4 flex items-center justify-end gap-3 border-t border-neutral-900">
+              <div className="pt-4 flex items-center justify-end gap-3 border-t border-default">
                 <button
                   type="button"
                   onClick={() => setIsNewTicketModalOpen(false)}
-                  className="px-4 py-2 bg-[#151515] hover:bg-[#202020] text-slate-300 font-semibold rounded-xl text-xs border border-neutral-900 transition cursor-pointer"
+                  className="px-4 py-2 bg-surface hover:bg-surface-2 text-secondary font-semibold rounded-xl text-xs border border-default transition cursor-pointer"
                 >
                   Cancelar
                 </button>
@@ -5947,44 +5955,44 @@ export default function App() {
       {deletingUser && (
         <div 
           onClick={() => setDeletingUser(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 cursor-pointer"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-app/80 backdrop-blur-sm p-4 cursor-pointer"
         >
           <div 
             onClick={(e) => e.stopPropagation()}
-            className="bg-[#0a0a0a] border border-neutral-900 w-full max-w-md rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 cursor-default"
+            className="bg-app border border-default w-full max-w-md rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 cursor-default"
           >
-            <div className="p-5 border-b border-neutral-900 bg-black/50 flex items-center gap-2">
+            <div className="p-5 border-b border-default bg-app/50 flex items-center gap-2">
               <AlertCircle className="h-5 w-5 text-rose-400" />
-              <h3 className="font-display font-extrabold text-white text-sm">Excluir Conta do Colaborador</h3>
+              <h3 className="font-display font-extrabold text-primary text-sm">Excluir Conta do Colaborador</h3>
             </div>
             
             <div className="p-6 space-y-4">
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Tem certeza que deseja excluir o colaborador <strong className="text-white">{deletingUser.name}</strong>?
+              <p className="text-xs text-secondary leading-relaxed">
+                Tem certeza que deseja excluir o colaborador <strong className="text-primary">{deletingUser.name}</strong>?
               </p>
-              <div className="p-3 bg-black/50 border border-neutral-900 rounded-xl space-y-1">
-                <div className="text-[10px] text-slate-500">Setor / Departamento:</div>
-                <div className="text-xs text-slate-200 font-bold">{deletingUser.department}</div>
-                <div className="text-[10px] text-slate-500 mt-2">E-mail Corporativo:</div>
-                <div className="text-xs text-slate-200 font-mono">{deletingUser.email}</div>
+              <div className="p-3 bg-app/50 border border-default rounded-xl space-y-1">
+                <div className="text-[10px] text-muted">Setor / Departamento:</div>
+                <div className="text-xs text-primary font-bold">{deletingUser.department}</div>
+                <div className="text-[10px] text-muted mt-2">E-mail Corporativo:</div>
+                <div className="text-xs text-primary font-mono">{deletingUser.email}</div>
               </div>
               <p className="text-[10px] text-rose-400/90 italic">
                 Aviso: Esta ação é permanente e removerá todas as credenciais de acesso deste usuário.
               </p>
             </div>
 
-            <div className="p-4 bg-black/20 border-t border-neutral-900 flex items-center justify-end gap-3">
+            <div className="p-4 bg-app/20 border-t border-default flex items-center justify-end gap-3">
               <button
                 type="button"
                 onClick={() => setDeletingUser(null)}
-                className="px-4 py-2 bg-neutral-900 hover:bg-neutral-850 border border-neutral-800 text-slate-300 font-semibold rounded-xl text-xs transition cursor-pointer"
+                className="px-4 py-2 bg-surface hover:bg-surface border border-default text-secondary font-semibold rounded-xl text-xs transition cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 type="button"
                 onClick={handleConfirmDeleteUser}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs transition cursor-pointer"
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-primary font-bold rounded-xl text-xs transition cursor-pointer"
               >
                 Confirmar Exclusão
               </button>
@@ -6000,14 +6008,14 @@ export default function App() {
             const isComment = notif.type === "comment";
             const toastStyle = (localStorage.getItem("gran7_notif_toast_style") as ToastStyle) || "emerald";
 
-            let cardContainerStyle = "bg-[#121215] border border-emerald-500/50 shadow-2xl";
+            let cardContainerStyle = "bg-surface border border-emerald-500/50 shadow-2xl";
             if (isComment) {
-              cardContainerStyle = "bg-[#121215] border border-cyan-500/50 shadow-2xl";
+              cardContainerStyle = "bg-surface border border-cyan-500/50 shadow-2xl";
             }
             if (toastStyle === "glass") {
-              cardContainerStyle = "bg-zinc-950/95 border border-zinc-800 shadow-xl";
+              cardContainerStyle = "bg-app/95 border border-default shadow-xl";
             } else if (toastStyle === "compact") {
-              cardContainerStyle = "bg-zinc-900 border border-zinc-800 shadow-lg py-2.5 px-3.5";
+              cardContainerStyle = "bg-surface border border-default shadow-lg py-2.5 px-3.5";
             }
 
             return (
@@ -6018,7 +6026,7 @@ export default function App() {
                   setActiveTab("painel");
                   setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
                 }}
-                className={`${cardContainerStyle} text-white rounded-2xl p-4 flex flex-col pointer-events-auto cursor-pointer animate-in slide-in-from-bottom duration-300 hover:scale-[1.02] transition-all duration-200 group`}
+                className={`${cardContainerStyle} text-primary rounded-2xl p-4 flex flex-col pointer-events-auto cursor-pointer animate-in slide-in-from-bottom duration-300 hover:scale-[1.02] transition-all duration-200 group`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-2">
@@ -6043,28 +6051,28 @@ export default function App() {
                       e.stopPropagation();
                       setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
                     }}
-                    className="text-slate-400 hover:text-white transition-colors p-1 -m-1 focus:outline-none flex items-center justify-center"
+                    className="text-secondary hover:text-primary transition-colors p-1 -m-1 focus:outline-none flex items-center justify-center"
                     title="Fechar"
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
                 </div>
                 
-                <h4 className={`font-display font-extrabold text-sm mt-2 text-slate-100 ${isComment ? 'group-hover:text-cyan-300' : 'group-hover:text-emerald-300'} transition-colors line-clamp-1`}>
+                <h4 className={`font-display font-extrabold text-sm mt-2 text-primary ${isComment ? 'group-hover:text-cyan-300' : 'group-hover:text-emerald-300'} transition-colors line-clamp-1`}>
                   {notif.title}
                 </h4>
 
                 {isComment && notif.commentText && (
-                  <p className="text-slate-300 text-xs mt-1.5 bg-black/40 border border-neutral-900/40 px-2.5 py-2 rounded-xl italic line-clamp-2 leading-relaxed">
+                  <p className="text-secondary text-xs mt-1.5 bg-app/40 border border-default/40 px-2.5 py-2 rounded-xl italic line-clamp-2 leading-relaxed">
                     "{notif.commentText}"
                   </p>
                 )}
                 
-                <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-neutral-900 text-xs">
-                  <span className="text-slate-400 font-mono text-[10px]">
-                    {isComment ? "Por: " : "De: "}<span className="text-slate-200 font-sans font-semibold">{isComment ? notif.commentAuthor : notif.requesterName}</span>
+                <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-default text-xs">
+                  <span className="text-secondary font-mono text-[10px]">
+                    {isComment ? "Por: " : "De: "}<span className="text-primary font-sans font-semibold">{isComment ? notif.commentAuthor : notif.requesterName}</span>
                   </span>
-                  <span className="text-[9px] text-slate-500 font-mono">
+                  <span className="text-[9px] text-muted font-mono">
                     {notif.timestamp.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
                   </span>
                 </div>
@@ -6077,26 +6085,26 @@ export default function App() {
       {/* Full-Screen Image Preview Modal */}
       {previewImage && (
         <div 
-          className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/95 backdrop-blur-md p-4 animate-in fade-in duration-200"
+          className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-app/95 backdrop-blur-md p-4 animate-in fade-in duration-200"
           onClick={() => setPreviewImage(null)}
         >
           {/* Top toolbar */}
           <div className="w-full max-w-5xl flex items-center justify-between mb-4 px-2 select-none" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-2">
               <Camera className="h-4 w-4 text-emerald-400" />
-              <span className="text-xs font-bold text-slate-300 uppercase tracking-widest">Visualização do Anexo</span>
+              <span className="text-xs font-bold text-secondary uppercase tracking-widest">Visualização do Anexo</span>
             </div>
             <div className="flex items-center gap-3">
               <a 
                 href={previewImage} 
                 download="screenshot.png"
-                className="px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-slate-300 font-bold rounded-xl text-[10px] uppercase tracking-wider transition cursor-pointer flex items-center gap-1.5"
+                className="px-3 py-1.5 bg-surface hover:bg-surface-2 border border-default text-secondary font-bold rounded-xl text-[10px] uppercase tracking-wider transition cursor-pointer flex items-center gap-1.5"
               >
                 Download
               </a>
               <button
                 onClick={() => setPreviewImage(null)}
-                className="p-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center"
+                className="p-1.5 rounded-xl bg-surface hover:bg-surface-2 border border-default text-secondary hover:text-primary transition cursor-pointer flex items-center justify-center"
                 title="Fechar visualização"
               >
                 <X className="h-4 w-4" />
@@ -6109,11 +6117,11 @@ export default function App() {
             <img 
               src={previewImage} 
               alt="Visualização ampliada" 
-              className="max-w-full max-h-[80vh] object-contain rounded-2xl border border-neutral-900 shadow-2xl animate-in zoom-in-95 duration-200"
+              className="max-w-full max-h-[80vh] object-contain rounded-2xl border border-default shadow-2xl animate-in zoom-in-95 duration-200"
             />
           </div>
 
-          <p className="text-[10px] text-slate-500 font-medium uppercase mt-4 select-none">Clique em qualquer lugar fora para fechar</p>
+          <p className="text-[10px] text-muted font-medium uppercase mt-4 select-none">Clique em qualquer lugar fora para fechar</p>
         </div>
       )}
 

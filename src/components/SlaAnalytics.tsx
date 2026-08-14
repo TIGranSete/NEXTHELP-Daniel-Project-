@@ -891,7 +891,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
 
 
   return (
-    <div className="bg-[#0a0a0c] rounded-2xl border border-zinc-800 shadow-xl transition-all duration-300 mb-8 p-6">
+    <div className="bg-app rounded-2xl border border-default shadow-xl transition-all duration-300 mb-8 p-6">
       
       {/* Dynamic Header with Indicators & Tag */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
@@ -900,19 +900,19 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
           onClick={() => setIsCollapsed(!isCollapsed)}
         >
           <Activity className="h-5 w-5 text-emerald-400" />
-          <h2 className="font-display text-lg font-bold text-white tracking-tight flex items-center gap-2 group-hover:text-emerald-400 transition-colors">
+          <h2 className="font-display text-lg font-bold text-primary tracking-tight flex items-center gap-2 group-hover:text-emerald-400 transition-colors">
             Indicadores Operacionais <span className="text-emerald-400 font-mono text-xs">[SLA & Métricas]</span>
             {isCollapsed ? (
-              <ChevronDown className="h-4 w-4 text-zinc-400" />
+              <ChevronDown className="h-4 w-4 text-secondary" />
             ) : (
-              <ChevronUp className="h-4 w-4 text-zinc-400" />
+              <ChevronUp className="h-4 w-4 text-secondary" />
             )}
           </h2>
         </div>
         <div className="flex items-center gap-3 self-start sm:self-auto">
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-800 transition cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-surface border border-default text-secondary hover:text-primary hover:bg-surface-2 transition cursor-pointer"
             title={isCollapsed ? "Expandir Painel" : "Recolher Painel"}
           >
             {isCollapsed ? <ChevronDown className="h-4 w-4 text-emerald-400" /> : <ChevronUp className="h-4 w-4 text-emerald-400" />}
@@ -925,15 +925,15 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
         <div className="space-y-6 animate-in fade-in slide-in-from-top-2 duration-300">
 
       {/* Control Panel: Period Filter, Technician Filter and Export Button */}
-      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 mb-6 p-4 bg-zinc-900/60 border border-zinc-800 rounded-xl">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 mb-6 p-4 bg-surface/60 border border-default rounded-xl">
         <div className="flex flex-col md:flex-row md:items-center gap-6">
           <div className="flex flex-col lg:flex-row lg:items-center gap-3">
             <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-              <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
+              <label className="text-xs font-bold text-secondary uppercase tracking-wider flex items-center gap-1.5 shrink-0">
                 <Calendar className="h-4 w-4 text-emerald-400" />
                 Período:
               </label>
-              <div className="flex flex-wrap bg-zinc-950 border border-zinc-800 p-1 rounded-xl shadow-sm">
+              <div className="flex flex-wrap bg-app border border-default p-1 rounded-xl shadow-sm">
                 {[
                   { id: "7d", label: "Últimos 7 dias" },
                   { id: "30d", label: "Últimos 30 dias" },
@@ -947,7 +947,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                     className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
                       period === p.id 
                         ? "bg-emerald-600 text-white font-extrabold shadow-sm" 
-                        : "text-zinc-400 hover:text-white"
+                        : "text-secondary hover:text-primary"
                     }`}
                   >
                     {p.label}
@@ -957,7 +957,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
             </div>
 
             {period === "custom" && (
-              <div className="flex items-center gap-2 animate-in fade-in slide-in-from-left-2 duration-200 mt-2 lg:mt-0 bg-zinc-950 border border-zinc-800 rounded-xl p-1.5">
+              <div className="flex items-center gap-2 animate-in fade-in slide-in-from-left-2 duration-200 mt-2 lg:mt-0 bg-app border border-default rounded-xl p-1.5">
                 <div className="w-[145px] sm:w-[155px]">
                   <WindowsDatePicker
                     value={startDate || undefined}
@@ -967,7 +967,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                     align="left"
                   />
                 </div>
-                <span className="text-[10px] text-zinc-500 font-bold uppercase shrink-0 px-1">até</span>
+                <span className="text-[10px] text-muted font-bold uppercase shrink-0 px-1">até</span>
                 <div className="w-[145px] sm:w-[155px]">
                   <WindowsDatePicker
                     value={endDate || undefined}
@@ -982,14 +982,14 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-            <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
+            <label className="text-xs font-bold text-secondary uppercase tracking-wider flex items-center gap-1.5 shrink-0">
               <User className="h-4 w-4 text-emerald-400" />
               Técnico Responsável:
             </label>
             <select
               value={selectedTech}
               onChange={(e) => setSelectedTech(e.target.value)}
-              className="bg-zinc-950 border border-zinc-800 text-xs text-zinc-300 rounded-xl px-3 py-1.5 focus:outline-none focus:border-emerald-500 font-bold uppercase tracking-wider transition cursor-pointer"
+              className="bg-app border border-default text-xs text-secondary rounded-xl px-3 py-1.5 focus:outline-none focus:border-emerald-500 font-bold uppercase tracking-wider transition cursor-pointer"
             >
               <option value="all">Todos os Técnicos</option>
               {technicians.map(tech => (
@@ -1002,7 +1002,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
         <div className="flex flex-col sm:flex-row gap-2.5 self-start xl:self-auto w-full sm:w-auto">
           <button
             onClick={exportToPdf}
-            className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 font-bold rounded-xl transition-all duration-200 flex items-center justify-center gap-2 text-xs cursor-pointer"
+            className="px-4 py-2 bg-surface hover:bg-surface-2 text-secondary border border-default font-bold rounded-xl transition-all duration-200 flex items-center justify-center gap-2 text-xs cursor-pointer"
           >
             <Download className="h-4 w-4 text-emerald-400" />
             Relatório Geral
@@ -1021,20 +1021,20 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
       </div>
 
       {/* Unified Block of KPI cards */}
-      <div className="bg-[#121215] border border-zinc-800/80 rounded-xl overflow-hidden mb-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 divide-y sm:divide-y-0 sm:divide-x divide-zinc-800/80">
+      <div className="bg-surface border border-default/80 rounded-xl overflow-hidden mb-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 divide-y sm:divide-y-0 sm:divide-x divide-zinc-800/80">
         
         {/* KPI 1: SLA Compliance */}
-        <div className="p-3.5 flex flex-col justify-between hover:bg-zinc-900/40 transition-all">
-          <div className="flex items-center justify-between text-neutral-400 mb-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Cumprimento de SLA</span>
+        <div className="p-3.5 flex flex-col justify-between hover:bg-surface/40 transition-all">
+          <div className="flex items-center justify-between text-secondary mb-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-secondary">Cumprimento de SLA</span>
             <Clock className="h-3.5 w-3.5 text-emerald-400" />
           </div>
           <div>
-            <div className="text-xl sm:text-2xl font-black font-display text-white">{slaCompliancePercent}%</div>
-            <p className="text-[9.5px] text-zinc-500 mt-0.5 font-mono">Meta corporativa: 92%</p>
+            <div className="text-xl sm:text-2xl font-black font-display text-primary">{slaCompliancePercent}%</div>
+            <p className="text-[9.5px] text-muted mt-0.5 font-mono">Meta corporativa: 92%</p>
           </div>
           {/* Progress Micro Bar */}
-          <div className="w-full bg-zinc-950 h-1 rounded-full mt-2 overflow-hidden">
+          <div className="w-full bg-app h-1 rounded-full mt-2 overflow-hidden">
             <div 
               className="bg-emerald-500 h-full rounded-full transition-all duration-500" 
               style={{ width: `${slaCompliancePercent}%` }}
@@ -1043,33 +1043,33 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
         </div>
 
         {/* KPI 2: Critical in Queue */}
-        <div className="p-3.5 flex flex-col justify-between hover:bg-zinc-900/40 transition-all">
-          <div className="flex items-center justify-between text-neutral-400 mb-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Críticos Ativos</span>
-            <AlertCircle className={`h-3.5 w-3.5 ${criticalCount > 0 ? "text-rose-500" : "text-zinc-500"}`} />
+        <div className="p-3.5 flex flex-col justify-between hover:bg-surface/40 transition-all">
+          <div className="flex items-center justify-between text-secondary mb-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-secondary">Críticos Ativos</span>
+            <AlertCircle className={`h-3.5 w-3.5 ${criticalCount > 0 ? "text-rose-500" : "text-muted"}`} />
           </div>
           <div>
-            <div className="text-xl sm:text-2xl font-black font-display text-white">{criticalCount}</div>
-            <p className="text-[9.5px] text-zinc-500 mt-0.5 font-mono">Prioridade Alta/Urgente</p>
+            <div className="text-xl sm:text-2xl font-black font-display text-primary">{criticalCount}</div>
+            <p className="text-[9.5px] text-muted mt-0.5 font-mono">Prioridade Alta/Urgente</p>
           </div>
           {/* Status color indicator */}
           <div className="mt-2 text-[9.5px] flex items-center gap-1.5">
             <span className={`h-1.5 w-1.5 rounded-full ${criticalCount > 0 ? "bg-rose-500" : "bg-emerald-500"}`}></span>
-            <span className="text-zinc-400 font-mono">{criticalCount > 0 ? "Ação imediata" : "Fila sob controle"}</span>
+            <span className="text-secondary font-mono">{criticalCount > 0 ? "Ação imediata" : "Fila sob controle"}</span>
           </div>
         </div>
 
         {/* KPI 3: Resolved tickets */}
-        <div className="p-3.5 flex flex-col justify-between hover:bg-zinc-900/40 transition-all">
-          <div className="flex items-center justify-between text-neutral-400 mb-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Resolvidos Recentes</span>
+        <div className="p-3.5 flex flex-col justify-between hover:bg-surface/40 transition-all">
+          <div className="flex items-center justify-between text-secondary mb-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-secondary">Resolvidos Recentes</span>
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
           </div>
           <div>
-            <div className="text-xl sm:text-2xl font-black font-display text-white">{resolvedCount}</div>
-            <p className="text-[9.5px] text-zinc-500 mt-0.5 font-mono">Eficiência da equipe de TI</p>
+            <div className="text-xl sm:text-2xl font-black font-display text-primary">{resolvedCount}</div>
+            <p className="text-[9.5px] text-muted mt-0.5 font-mono">Eficiência da equipe de TI</p>
           </div>
-          <div className="w-full bg-zinc-950 h-1 rounded-full mt-2 overflow-hidden">
+          <div className="w-full bg-app h-1 rounded-full mt-2 overflow-hidden">
             <div 
               className="bg-emerald-500 h-full rounded-full" 
               style={{ width: `${total > 0 ? (resolvedCount / total) * 100 : 0}%` }}
@@ -1078,33 +1078,33 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
         </div>
 
         {/* KPI 4: Tempo Médio de Atendimento (TMA) */}
-        <div className="p-3.5 flex flex-col justify-between hover:bg-zinc-900/40 transition-all">
-          <div className="flex items-center justify-between text-neutral-400 mb-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Tempo Médio (TMA)</span>
+        <div className="p-3.5 flex flex-col justify-between hover:bg-surface/40 transition-all">
+          <div className="flex items-center justify-between text-secondary mb-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-secondary">Tempo Médio (TMA)</span>
             <Clock className="h-3.5 w-3.5 text-emerald-400" />
           </div>
           <div>
-            <div className="text-xl sm:text-2xl font-black font-display text-white">{averageResolutionTimeStr}</div>
-            <p className="text-[9.5px] text-zinc-500 mt-0.5 font-mono">Tempo médio de conclusão</p>
+            <div className="text-xl sm:text-2xl font-black font-display text-primary">{averageResolutionTimeStr}</div>
+            <p className="text-[9.5px] text-muted mt-0.5 font-mono">Tempo médio de conclusão</p>
           </div>
           <div className="mt-2 text-[9.5px] flex items-center gap-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-            <span className="text-zinc-400 font-mono">Baseado em {resolvedWithTime.length} chamado(s)</span>
+            <span className="text-secondary font-mono">Baseado em {resolvedWithTime.length} chamado(s)</span>
           </div>
         </div>
 
         {/* KPI 5: Volume de Projetos */}
-        <div className="p-3.5 flex flex-col justify-between hover:bg-zinc-900/40 transition-all">
-          <div className="flex items-center justify-between text-neutral-400 mb-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Volume de Projetos</span>
+        <div className="p-3.5 flex flex-col justify-between hover:bg-surface/40 transition-all">
+          <div className="flex items-center justify-between text-secondary mb-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-secondary">Volume de Projetos</span>
             <Layers className="h-3.5 w-3.5 text-emerald-400" />
           </div>
           <div>
-            <div className="text-xl sm:text-2xl font-black font-display text-white">{projectsCount}</div>
-            <p className="text-[9.5px] text-zinc-500 mt-0.5 font-mono">{activeProjectsCount} ativos // {resolvedProjectsCount} ok</p>
+            <div className="text-xl sm:text-2xl font-black font-display text-primary">{projectsCount}</div>
+            <p className="text-[9.5px] text-muted mt-0.5 font-mono">{activeProjectsCount} ativos // {resolvedProjectsCount} ok</p>
           </div>
           {/* Completion rate bar */}
-          <div className="w-full bg-zinc-950 h-1 rounded-full mt-2 overflow-hidden">
+          <div className="w-full bg-app h-1 rounded-full mt-2 overflow-hidden">
             <div 
               className="bg-emerald-500 h-full rounded-full transition-all duration-500" 
               style={{ width: `${projectsCount > 0 ? (resolvedProjectsCount / projectsCount) * 100 : 0}%` }}
@@ -1121,9 +1121,9 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 font-mono">
         
         {/* Category distribution visualizer */}
-        <div className="lg:col-span-7 bg-[#050505] border border-neutral-900 rounded-2xl p-5 hover:border-emerald-500/10 transition-all">
+        <div className="lg:col-span-7 bg-app border border-default rounded-2xl p-5 hover:border-emerald-500/10 transition-all">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">Volume de Chamados por Categoria</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-secondary">Volume de Chamados por Categoria</h3>
             <span className="text-[10px] text-emerald-400/80 font-mono flex items-center gap-1">
               <FileText className="w-3 h-3 text-emerald-400" /> Clique no tipo para ver descrições
             </span>
@@ -1140,7 +1140,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                 Redes: "bg-emerald-600",
                 Acesso: "bg-rose-500",
                 Sistemas: "bg-emerald-700",
-                Outros: "bg-zinc-500",
+                Outros: "bg-surface-3",
                 Projetos: "bg-emerald-600"
               };
 
@@ -1154,15 +1154,15 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                     setCategorySearchQuery("");
                     setCategoryStatusTab("all");
                   }}
-                  className="flex items-center space-x-3 text-xs p-1.5 rounded-xl hover:bg-neutral-900/80 cursor-pointer border border-transparent hover:border-emerald-500/30 transition-all group/cat"
+                  className="flex items-center space-x-3 text-xs p-1.5 rounded-xl hover:bg-surface/80 cursor-pointer border border-transparent hover:border-emerald-500/30 transition-all group/cat"
                   title={`Clique para ver as descrições dos chamados da categoria ${cat}`}
                 >
-                  <div className="w-20 font-semibold text-neutral-300 truncate group-hover/cat:text-emerald-400 transition-colors flex items-center gap-1">
+                  <div className="w-20 font-semibold text-secondary truncate group-hover/cat:text-emerald-400 transition-colors flex items-center gap-1">
                     <span>{cat}</span>
                   </div>
-                  <div className="flex-1 bg-black border border-neutral-950 h-7 rounded-lg overflow-hidden relative flex items-center px-2.5 transition-all group-hover/cat:border-emerald-500/40">
+                  <div className="flex-1 bg-app border border-subtle h-7 rounded-lg overflow-hidden relative flex items-center px-2.5 transition-all group-hover/cat:border-emerald-500/40">
                     <div 
-                      className={`absolute top-0 left-0 bottom-0 ${barColors[cat] || "bg-neutral-500"} rounded-r-lg transition-all duration-700 opacity-85 group-hover/cat:opacity-100`}
+                      className={`absolute top-0 left-0 bottom-0 ${barColors[cat] || "bg-surface-3"} rounded-r-lg transition-all duration-700 opacity-85 group-hover/cat:opacity-100`}
                       style={{ width: `${Math.max(pct, 5)}%` }}
                     ></div>
                     <span className="relative z-10 text-[10px] font-extrabold text-black uppercase flex items-center justify-between w-full pr-1">
@@ -1180,13 +1180,13 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
         </div>
 
         {/* Dynamic Ticket State doughnut layout */}
-        <div className="lg:col-span-5 bg-[#050505] border border-neutral-900 rounded-2xl p-5 flex flex-col justify-between hover:border-emerald-500/10 transition-all">
+        <div className="lg:col-span-5 bg-app border border-default rounded-2xl p-5 flex flex-col justify-between hover:border-emerald-500/10 transition-all">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">Distribuição por Status</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-secondary">Distribuição por Status</h3>
             {statusCategoryFilter && (
               <button 
                 onClick={() => setStatusCategoryFilter(null)}
-                className="text-[9px] bg-neutral-900 hover:bg-neutral-850 text-zinc-300 border border-neutral-800 px-2 py-1 rounded-lg uppercase font-bold transition cursor-pointer"
+                className="text-[9px] bg-surface hover:bg-surface text-secondary border border-default px-2 py-1 rounded-lg uppercase font-bold transition cursor-pointer"
               >
                 Ver Geral
               </button>
@@ -1274,15 +1274,15 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                                     statusCategoryFilter === "Em Atendimento" ? "Fila" : "Concluídos";
                       return (
                         <>
-                          <span className="text-xl font-black font-display text-white">{count}</span>
-                          <span className="text-[7px] uppercase tracking-wider text-zinc-400 font-bold max-w-[65px] leading-none mt-0.5">{label}</span>
+                          <span className="text-xl font-black font-display text-primary">{count}</span>
+                          <span className="text-[7px] uppercase tracking-wider text-secondary font-bold max-w-[65px] leading-none mt-0.5">{label}</span>
                         </>
                       );
                     })()
                   ) : (
                     <>
-                      <span className="text-xl font-black font-display text-white">{total}</span>
-                      <span className="text-[8px] uppercase tracking-wider text-zinc-500 font-bold">Total</span>
+                      <span className="text-xl font-black font-display text-primary">{total}</span>
+                      <span className="text-[8px] uppercase tracking-wider text-muted font-bold">Total</span>
                     </>
                   )}
                 </div>
@@ -1302,21 +1302,21 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                   Redes: "bg-emerald-400",
                   Acesso: "bg-rose-500",
                   Sistemas: "bg-emerald-500",
-                  Outros: "bg-neutral-500",
+                  Outros: "bg-surface-3",
                   Projetos: "bg-emerald-400"
                 };
                 
                 if (statusTotal === 0) {
-                  return <span className="text-neutral-500 font-mono">Sem chamados</span>;
+                  return <span className="text-muted font-mono">Sem chamados</span>;
                 }
                 
                 return statusCats.map(([cat, count]) => {
                   const pct = statusTotal > 0 ? Math.round((count / statusTotal) * 100) : 0;
                   return (
-                    <div key={cat} className="flex items-center space-x-1 text-neutral-300 font-mono">
-                      <span className={`h-1.5 w-1.5 rounded-full ${catColors[cat] || "bg-neutral-500"}`}></span>
+                    <div key={cat} className="flex items-center space-x-1 text-secondary font-mono">
+                      <span className={`h-1.5 w-1.5 rounded-full ${catColors[cat] || "bg-surface-3"}`}></span>
                       <span className="font-semibold">{cat}</span>
-                      <span className="text-neutral-500">({count})</span>
+                      <span className="text-muted">({count})</span>
                     </div>
                   );
                 });
@@ -1325,7 +1325,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
           )}
 
           {/* Map legend labels as interactive buttons */}
-          <div className="grid grid-cols-3 gap-2.5 text-[10px] pt-3 border-t border-zinc-800 mt-2">
+          <div className="grid grid-cols-3 gap-2.5 text-[10px] pt-3 border-t border-default mt-2">
             <button
               onClick={() => setStatusCategoryFilter(statusCategoryFilter === "Aberto" ? null : "Aberto")}
               className={`flex flex-col items-center p-1.5 rounded-xl text-center cursor-pointer transition-all ${
@@ -1336,7 +1336,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
               title="Clique para ver categorias deste status"
             >
               <span className="font-bold text-amber-400">{openCount}</span>
-              <span className="text-zinc-400 text-[9px] font-semibold">Abertos</span>
+              <span className="text-secondary text-[9px] font-semibold">Abertos</span>
             </button>
             <button
               onClick={() => setStatusCategoryFilter(statusCategoryFilter === "Em Atendimento" ? null : "Em Atendimento")}
@@ -1348,7 +1348,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
               title="Clique para ver categorias deste status"
             >
               <span className="font-bold text-emerald-400">{inProgressCount}</span>
-              <span className="text-zinc-400 text-[9px] font-semibold">Em Fila</span>
+              <span className="text-secondary text-[9px] font-semibold">Em Fila</span>
             </button>
             <button
               onClick={() => setStatusCategoryFilter(statusCategoryFilter === "Resolvido" ? null : "Resolvido")}
@@ -1360,7 +1360,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
               title="Clique para ver categorias deste status"
             >
               <span className="font-bold text-emerald-300">{resolvedCount}</span>
-              <span className="text-zinc-400 text-[9px] font-semibold">Concluídos</span>
+              <span className="text-secondary text-[9px] font-semibold">Concluídos</span>
             </button>
           </div>
 
@@ -1371,10 +1371,10 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
       {/* Top Sectors and Top Requesters section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 font-mono mt-6">
         {/* Left Panel: CHAMADOS POR SETOR / DEPARTAMENTO */}
-        <div className="bg-[#050505] border border-neutral-900 rounded-2xl p-5 hover:border-emerald-500/10 transition-all flex flex-col justify-between">
+        <div className="bg-app border border-default rounded-2xl p-5 hover:border-emerald-500/10 transition-all flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-5">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">Chamados por Setor / Departamento</h3>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-secondary">Chamados por Setor / Departamento</h3>
               <span className="border border-emerald-500/30 text-emerald-400 px-2.5 py-1 rounded-lg text-[10px] font-bold font-mono">
                 {uniqueSectorsCount} Setores
               </span>
@@ -1387,14 +1387,14 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                   <div key={sector.name} className="flex items-center space-x-3 text-xs">
                     <div 
                       onClick={() => setSelectedSectorForMembers(sector.name)}
-                      className="w-24 md:w-32 font-semibold text-neutral-300 truncate cursor-pointer hover:text-emerald-400 hover:underline transition-all flex items-center gap-1"
+                      className="w-24 md:w-32 font-semibold text-secondary truncate cursor-pointer hover:text-emerald-400 hover:underline transition-all flex items-center gap-1"
                       title="Clique para ver os membros deste setor"
                     >
                       {sector.name}
                     </div>
                     <div 
                       onClick={() => setSelectedSectorForMembers(sector.name)}
-                      className="flex-1 bg-black border border-neutral-950 hover:border-emerald-500/30 cursor-pointer h-8 rounded-xl overflow-hidden relative flex items-center px-3.5 transition-all group/bar"
+                      className="flex-1 bg-app border border-subtle hover:border-emerald-500/30 cursor-pointer h-8 rounded-xl overflow-hidden relative flex items-center px-3.5 transition-all group/bar"
                       title="Clique para ver os membros deste setor"
                     >
                       <div 
@@ -1410,17 +1410,17 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                 );
               })}
               {sortedSectors.length === 0 && (
-                <div className="text-center py-6 text-xs text-neutral-500 font-medium">Nenhum chamado registrado por setor.</div>
+                <div className="text-center py-6 text-xs text-muted font-medium">Nenhum chamado registrado por setor.</div>
               )}
             </div>
           </div>
         </div>
 
         {/* Right Panel: CHAMADOS POR USUÁRIO (TOP SOLICITANTES) */}
-        <div className="bg-[#050505] border border-neutral-900 rounded-2xl p-5 hover:border-emerald-500/10 transition-all flex flex-col justify-between">
+        <div className="bg-app border border-default rounded-2xl p-5 hover:border-emerald-500/10 transition-all flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-5">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">Chamados por Usuário (Top Solicitantes)</h3>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-secondary">Chamados por Usuário (Top Solicitantes)</h3>
               <span className="border border-emerald-500/30 text-emerald-400 px-2.5 py-1 rounded-lg text-[10px] font-bold font-mono">
                 {uniqueUsersCount} Usuários
               </span>
@@ -1443,12 +1443,12 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                     
                     {/* User Info */}
                     <div className="flex flex-col flex-1 min-w-0">
-                      <span className="font-bold text-white text-xs truncate group-hover/user:text-teal-400 transition-colors">{user.name}</span>
-                      <span className="text-[10px] text-zinc-500 mt-0.5 truncate">{user.department}</span>
+                      <span className="font-bold text-primary text-xs truncate group-hover/user:text-teal-400 transition-colors">{user.name}</span>
+                      <span className="text-[10px] text-muted mt-0.5 truncate">{user.department}</span>
                     </div>
 
                     {/* Progress Bar with count */}
-                    <div className="w-28 sm:w-44 bg-black border border-neutral-950 h-8 rounded-xl overflow-hidden relative flex items-center px-3.5 shrink-0">
+                    <div className="w-28 sm:w-44 bg-app border border-subtle h-8 rounded-xl overflow-hidden relative flex items-center px-3.5 shrink-0">
                       <div 
                         className="absolute top-0 left-0 bottom-0 bg-teal-600 rounded-r-xl transition-all duration-700 opacity-90"
                         style={{ width: `${Math.max(barWidthPct, 5)}%` }}
@@ -1464,7 +1464,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                 );
               })}
               {sortedUsers.length === 0 && (
-                <div className="text-center py-6 text-xs text-neutral-500 font-medium">Nenhum chamado registrado por usuário.</div>
+                <div className="text-center py-6 text-xs text-muted font-medium">Nenhum chamado registrado por usuário.</div>
               )}
             </div>
           </div>
@@ -1497,26 +1497,26 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
         return (
           <div 
             onClick={() => setSelectedSectorForMembers(null)}
-            className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4 font-mono cursor-pointer"
+            className="fixed inset-0 bg-app/85 backdrop-blur-md z-50 flex items-center justify-center p-4 font-mono cursor-pointer"
           >
             <div 
               onClick={(e) => e.stopPropagation()}
-              className="bg-[#050505] border border-neutral-900 w-full max-w-xl rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[85vh] cursor-default"
+              className="bg-app border border-default w-full max-w-xl rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[85vh] cursor-default"
             >
               {/* Modal Header */}
-              <div className="p-5 border-b border-neutral-900 flex items-center justify-between bg-black/50">
+              <div className="p-5 border-b border-default flex items-center justify-between bg-app/50">
                 <div className="flex items-center gap-3">
                   <div className="h-9 w-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
                     <Users className="h-5 w-5 text-emerald-400" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-bold text-white uppercase tracking-wider">Membros de {selectedSectorForMembers}</h3>
-                    <p className="text-[10px] text-zinc-400 mt-0.5">{sectorMembers.length} colaboradores com chamados abertos</p>
+                    <h3 className="text-sm font-bold text-primary uppercase tracking-wider">Membros de {selectedSectorForMembers}</h3>
+                    <p className="text-[10px] text-secondary mt-0.5">{sectorMembers.length} colaboradores com chamados abertos</p>
                   </div>
                 </div>
                 <button
                   onClick={() => setSelectedSectorForMembers(null)}
-                  className="text-zinc-400 hover:text-white text-xs font-bold bg-neutral-900 hover:bg-neutral-800 px-3 py-1.5 rounded-xl transition cursor-pointer border border-neutral-800"
+                  className="text-secondary hover:text-primary text-xs font-bold bg-surface hover:bg-surface-2 px-3 py-1.5 rounded-xl transition cursor-pointer border border-default"
                 >
                   Fechar
                 </button>
@@ -1525,7 +1525,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
               {/* Members List */}
               <div className="flex-1 overflow-y-auto p-5 space-y-3 min-h-[150px] max-h-[50vh]">
                 {sectorMembers.length === 0 ? (
-                  <div className="text-center py-12 text-xs text-zinc-500">
+                  <div className="text-center py-12 text-xs text-muted">
                     Nenhum membro encontrado para este setor.
                   </div>
                 ) : (
@@ -1536,7 +1536,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                         handleUserClick(member.name, member.department);
                         setSelectedSectorForMembers(null);
                       }}
-                      className="flex items-center justify-between p-3 bg-black border border-neutral-950 hover:border-emerald-500/20 rounded-xl cursor-pointer hover:bg-white/5 transition-all group"
+                      className="flex items-center justify-between p-3 bg-app border border-subtle hover:border-emerald-500/20 rounded-xl cursor-pointer hover:bg-white/5 transition-all group"
                       title="Clique para ver o perfil"
                     >
                       <div className="flex items-center space-x-3">
@@ -1544,13 +1544,13 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                           <span className="text-emerald-400 text-xs font-bold">{getInitials(member.name)}</span>
                         </div>
                         <div>
-                          <h4 className="text-xs font-bold text-neutral-200 group-hover:text-emerald-400 transition-colors">{member.name}</h4>
-                          <span className="text-[9px] text-zinc-500 font-medium">{member.department}</span>
+                          <h4 className="text-xs font-bold text-primary group-hover:text-emerald-400 transition-colors">{member.name}</h4>
+                          <span className="text-[9px] text-muted font-medium">{member.department}</span>
                         </div>
                       </div>
                       
                       <div className="flex items-center space-x-3">
-                        <span className="text-[10px] font-bold text-zinc-400 uppercase bg-neutral-900 border border-neutral-800 px-2 py-1 rounded-lg">
+                        <span className="text-[10px] font-bold text-secondary uppercase bg-surface border border-default px-2 py-1 rounded-lg">
                           {member.count} {member.count === 1 ? "Chamado" : "Chamados"}
                         </span>
                         <span className="text-[10px] text-emerald-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
@@ -1569,17 +1569,17 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
 
       {/* Custom Export Modal for Individualization */}
       {isExportModalOpen && (
-        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-[#050505] border border-neutral-900 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl relative animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 bg-app/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-app border border-default rounded-3xl w-full max-w-md overflow-hidden shadow-2xl relative animate-in zoom-in-95 duration-200">
             {/* Modal Header */}
-            <div className="p-5 border-b border-neutral-900 bg-black/30 flex justify-between items-center">
+            <div className="p-5 border-b border-default bg-app/30 flex justify-between items-center">
               <div className="flex items-center gap-2">
                 <Download className="h-5 w-5 text-emerald-400" />
-                <h3 className="font-display font-bold text-sm text-white">Exportação de SLA por Técnico</h3>
+                <h3 className="font-display font-bold text-sm text-primary">Exportação de SLA por Técnico</h3>
               </div>
               <button 
                 onClick={() => setIsExportModalOpen(false)}
-                className="p-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-850 border border-neutral-800 text-zinc-400 hover:text-white transition cursor-pointer"
+                className="p-1.5 rounded-lg bg-surface hover:bg-surface border border-default text-secondary hover:text-primary transition cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1589,14 +1589,14 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
             <div className="p-6 space-y-5">
               {/* Selector */}
               <div className="space-y-2">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                <label className="text-[10px] font-bold text-secondary uppercase tracking-wider flex items-center gap-1.5">
                   <User className="h-3.5 w-3.5 text-emerald-400" />
                   Selecione o Técnico:
                 </label>
                 <select
                   value={selectedTechForExport}
                   onChange={(e) => setSelectedTechForExport(e.target.value)}
-                  className="w-full bg-black border border-neutral-900 text-xs text-zinc-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-emerald-500 font-bold uppercase tracking-wider transition cursor-pointer"
+                  className="w-full bg-app border border-default text-xs text-primary rounded-xl px-3 py-2.5 focus:outline-none focus:border-emerald-500 font-bold uppercase tracking-wider transition cursor-pointer"
                 >
                   <option value="all">Todos os Técnicos</option>
                   {technicians.map(tech => (
@@ -1615,14 +1615,14 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                         exportTechsPerformancePdf();
                         setIsExportModalOpen(false);
                       }}
-                      className="w-full p-4 text-left rounded-2xl bg-neutral-900/40 hover:bg-neutral-900 border border-neutral-900 hover:border-emerald-500/20 transition-all cursor-pointer flex gap-3.5 group"
+                      className="w-full p-4 text-left rounded-2xl bg-surface/40 hover:bg-surface border border-default hover:border-emerald-500/20 transition-all cursor-pointer flex gap-3.5 group"
                     >
                       <div className="h-9 w-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 group-hover:bg-emerald-500 group-hover:text-black transition-all">
                         <Layers className="h-4.5 w-4.5 text-emerald-400 group-hover:text-black" />
                       </div>
                       <div className="flex-1">
-                        <div className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors">Relatório Geral Consolidado</div>
-                        <div className="text-[10px] text-zinc-500 mt-1 font-medium leading-relaxed">Gera um único arquivo PDF contendo um painel comparativo e as páginas individuais de cada técnico.</div>
+                        <div className="text-xs font-bold text-primary group-hover:text-emerald-400 transition-colors">Relatório Geral Consolidado</div>
+                        <div className="text-[10px] text-muted mt-1 font-medium leading-relaxed">Gera um único arquivo PDF contendo um painel comparativo e as páginas individuais de cada técnico.</div>
                       </div>
                     </button>
 
@@ -1634,14 +1634,14 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                         });
                         setIsExportModalOpen(false);
                       }}
-                      className="w-full p-4 text-left rounded-2xl bg-neutral-900/40 hover:bg-neutral-900 border border-neutral-900 hover:border-emerald-500/20 transition-all cursor-pointer flex gap-3.5 group"
+                      className="w-full p-4 text-left rounded-2xl bg-surface/40 hover:bg-surface border border-default hover:border-emerald-500/20 transition-all cursor-pointer flex gap-3.5 group"
                     >
                       <div className="h-9 w-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 group-hover:bg-emerald-500 group-hover:text-black transition-all">
                         <FileText className="h-4.5 w-4.5 text-emerald-400 group-hover:text-black" />
                       </div>
                       <div className="flex-1">
-                        <div className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors">Exportar PDFs Individuais (Lote)</div>
-                        <div className="text-[10px] text-zinc-500 mt-1 font-medium leading-relaxed">Gera e faz o download automático de um PDF exclusivo e separado para cada um dos técnicos cadastrados.</div>
+                        <div className="text-xs font-bold text-primary group-hover:text-emerald-400 transition-colors">Exportar PDFs Individuais (Lote)</div>
+                        <div className="text-[10px] text-muted mt-1 font-medium leading-relaxed">Gera e faz o download automático de um PDF exclusivo e separado para cada um dos técnicos cadastrados.</div>
                       </div>
                     </button>
                   </>
@@ -1652,14 +1652,14 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                       exportIndividualTechPdf(selectedTechForExport);
                       setIsExportModalOpen(false);
                     }}
-                    className="w-full p-4 text-left rounded-2xl bg-neutral-900/40 hover:bg-emerald-500/10 border border-neutral-900 hover:border-emerald-500/30 transition-all cursor-pointer flex gap-3.5 group"
+                    className="w-full p-4 text-left rounded-2xl bg-surface/40 hover:bg-emerald-500/10 border border-default hover:border-emerald-500/30 transition-all cursor-pointer flex gap-3.5 group"
                   >
                     <div className="h-9 w-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 group-hover:bg-emerald-500 group-hover:text-black transition-all">
                       <User className="h-4.5 w-4.5 text-emerald-400 group-hover:text-black" />
                     </div>
                     <div className="flex-1">
-                      <div className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors">Relatório Individualizado do Técnico</div>
-                      <div className="text-[10px] text-zinc-500 mt-1 font-medium leading-relaxed">Gera um PDF elegante contendo apenas as métricas de performance, categorias e lista de chamados de <strong className="text-emerald-400">{selectedTechForExport}</strong>.</div>
+                      <div className="text-xs font-bold text-primary group-hover:text-emerald-400 transition-colors">Relatório Individualizado do Técnico</div>
+                      <div className="text-[10px] text-muted mt-1 font-medium leading-relaxed">Gera um PDF elegante contendo apenas as métricas de performance, categorias e lista de chamados de <strong className="text-emerald-400">{selectedTechForExport}</strong>.</div>
                     </div>
                   </button>
                 )}
@@ -1667,7 +1667,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 bg-black/40 border-t border-neutral-900 text-center text-[10px] text-zinc-500 font-medium">
+            <div className="p-4 bg-app/40 border-t border-default text-center text-[10px] text-muted font-medium">
               Escolha o formato ideal para a sua auditoria operacional.
             </div>
           </div>
@@ -1676,17 +1676,17 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
 
       {/* Category Tickets Details Modal with Descriptions */}
       {selectedCategoryForDetails && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-[#0a0a0a] border border-neutral-800 rounded-3xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-app/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-app border border-default rounded-3xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
             {/* Modal Header */}
-            <div className="p-4 sm:p-5 border-b border-neutral-900 flex items-center justify-between bg-black/60">
+            <div className="p-4 sm:p-5 border-b border-default flex items-center justify-between bg-app/60">
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
                   <FileText className="h-5 w-5" />
                 </div>
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-sm sm:text-base font-extrabold text-white">
+                    <h3 className="text-sm sm:text-base font-extrabold text-primary">
                       Chamados da Categoria: <span className="text-emerald-400">{selectedCategoryForDetails}</span>
                     </h3>
                     <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2.5 py-0.5 rounded-full font-mono">
@@ -1700,7 +1700,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                       } chamado(s)
                     </span>
                   </div>
-                  <p className="text-xs text-zinc-400 mt-0.5">
+                  <p className="text-xs text-secondary mt-0.5">
                     Exibindo descrições e detalhes completos dos chamados registrados.
                   </p>
                 </div>
@@ -1712,14 +1712,14 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                   setCategorySearchQuery("");
                   setCategoryStatusTab("all");
                 }}
-                className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-neutral-900 border border-transparent hover:border-neutral-800 transition cursor-pointer"
+                className="p-2 rounded-xl text-secondary hover:text-primary hover:bg-surface border border-transparent hover:border-default transition cursor-pointer"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             {/* Filter / Search Bar */}
-            <div className="p-3.5 border-b border-neutral-900 bg-neutral-950/80 flex flex-col sm:flex-row items-center justify-between gap-3 font-mono">
+            <div className="p-3.5 border-b border-default bg-app/80 flex flex-col sm:flex-row items-center justify-between gap-3 font-mono">
               {/* Search input */}
               <div className="relative w-full sm:w-80">
                 <input
@@ -1727,7 +1727,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                   value={categorySearchQuery}
                   onChange={(e) => setCategorySearchQuery(e.target.value)}
                   placeholder="Buscar por código, título, solicitante ou descrição..."
-                  className="w-full bg-black border border-neutral-800 focus:border-emerald-500/50 rounded-xl px-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none transition-all"
+                  className="w-full bg-app border border-default focus:border-emerald-500/50 rounded-xl px-3 py-2 text-xs text-primary placeholder-neutral-500 focus:outline-none transition-all"
                 />
               </div>
 
@@ -1746,7 +1746,7 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                     className={`px-2.5 py-1 rounded-lg border font-bold transition-all cursor-pointer ${
                       categoryStatusTab === tab.id
                         ? "bg-emerald-600/20 text-emerald-400 border-emerald-500/40"
-                        : "bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700"
+                        : "bg-app text-secondary border-default hover:border-default"
                     }`}
                   >
                     {tab.label}
@@ -1790,11 +1790,11 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
 
                 if (categoryList.length === 0) {
                   return (
-                    <div className="py-12 text-center text-zinc-500 space-y-3 font-mono">
-                      <HelpCircle className="h-10 w-10 text-neutral-700 mx-auto" />
+                    <div className="py-12 text-center text-muted space-y-3 font-mono">
+                      <HelpCircle className="h-10 w-10 text-muted mx-auto" />
                       <div>
-                        <h4 className="text-sm font-bold text-neutral-400">Nenhum chamado encontrado</h4>
-                        <p className="text-xs text-neutral-500 mt-1">
+                        <h4 className="text-sm font-bold text-secondary">Nenhum chamado encontrado</h4>
+                        <p className="text-xs text-muted mt-1">
                           {categorySearchQuery ? "Nenhum resultado corresponde à sua busca." : "Não há chamados registrados para esta categoria com o filtro selecionado."}
                         </p>
                       </div>
@@ -1811,10 +1811,10 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                   return (
                     <div
                       key={ticket.id}
-                      className={`bg-neutral-950/80 border border-neutral-900 border-l-4 ${priorityBorder} rounded-2xl p-4 sm:p-5 space-y-3 transition-all hover:border-neutral-800 shadow-lg`}
+                      className={`bg-app/80 border border-default border-l-4 ${priorityBorder} rounded-2xl p-4 sm:p-5 space-y-3 transition-all hover:border-default shadow-lg`}
                     >
                       {/* Header row: ID, Badges, Date */}
-                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-900/80 pb-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-default/80 pb-3">
                         <div className="flex flex-wrap items-center gap-2 font-mono">
                           <span className="text-xs font-black text-emerald-400 bg-emerald-950/60 border border-emerald-500/20 px-2 py-0.5 rounded-md">
                             #{ticket.id}
@@ -1823,8 +1823,8 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                             ticket.status === "Aberto" ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" :
                             ticket.status === "Em Atendimento" ? "bg-teal-500/10 text-teal-400 border border-teal-500/20" :
                             ticket.status === "Resolvido" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" :
-                            ticket.status === "Fechado" ? "bg-zinc-800/40 text-zinc-400 border border-zinc-700/30" :
-                            "bg-neutral-900 text-neutral-400 border border-neutral-850"
+                            ticket.status === "Fechado" ? "bg-surface-2/40 text-secondary border border-default/30" :
+                            "bg-surface text-secondary border border-default"
                           }`}>
                             {ticket.status}
                           </span>
@@ -1832,30 +1832,30 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                             ticket.priority === "Urgente" ? "bg-rose-500/10 text-rose-400 border border-rose-500/20" :
                             ticket.priority === "Alta" ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" :
                             ticket.priority === "Média" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" :
-                            "bg-neutral-900 text-neutral-400 border border-neutral-850"
+                            "bg-surface text-secondary border border-default"
                           }`}>
                             Prioridade: {ticket.priority}
                           </span>
                         </div>
 
-                        <div className="text-[11px] text-zinc-500 font-mono flex items-center gap-1.5">
-                          <Clock className="w-3 h-3 text-zinc-600" />
+                        <div className="text-[11px] text-muted font-mono flex items-center gap-1.5">
+                          <Clock className="w-3 h-3 text-muted" />
                           <span>{new Date(ticket.createdAt).toLocaleDateString("pt-BR")} às {new Date(ticket.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
                         </div>
                       </div>
 
                       {/* Ticket Title & Solicitante */}
                       <div>
-                        <h4 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
+                        <h4 className="text-sm font-bold text-primary tracking-tight flex items-center gap-2">
                           {ticket.title}
                         </h4>
-                        <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-400 mt-1 font-mono">
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-secondary mt-1 font-mono">
                           <span className="flex items-center gap-1">
                             <User className="w-3 h-3 text-emerald-500" />
-                            Solicitante: <strong className="text-zinc-200">{ticket.requesterName || "Não informado"}</strong>
+                            Solicitante: <strong className="text-primary">{ticket.requesterName || "Não informado"}</strong>
                           </span>
                           {ticket.requesterDepartment && (
-                            <span className="bg-neutral-900 px-2 py-0.5 rounded text-[10px] text-neutral-400 border border-neutral-850">
+                            <span className="bg-surface px-2 py-0.5 rounded text-[10px] text-secondary border border-default">
                               {ticket.requesterDepartment}
                             </span>
                           )}
@@ -1873,8 +1873,8 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
                           <FileText className="w-3.5 h-3.5 text-emerald-400" />
                           Descrição do Chamado:
                         </div>
-                        <div className="p-3.5 bg-black/70 border border-neutral-850 rounded-xl text-xs text-zinc-200 leading-relaxed font-sans whitespace-pre-line shadow-inner select-text">
-                          {ticket.description && ticket.description.trim() ? ticket.description : <span className="text-zinc-500 italic">Sem descrição informada para este chamado.</span>}
+                        <div className="p-3.5 bg-app/70 border border-default rounded-xl text-xs text-primary leading-relaxed font-sans whitespace-pre-line shadow-inner select-text">
+                          {ticket.description && ticket.description.trim() ? ticket.description : <span className="text-muted italic">Sem descrição informada para este chamado.</span>}
                         </div>
                       </div>
 
@@ -1899,11 +1899,11 @@ export default function SlaAnalytics({ tickets, users = [], onViewUserProfile, o
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 border-t border-neutral-900 bg-black/60 flex items-center justify-between text-xs text-zinc-500 font-mono">
+            <div className="p-4 border-t border-default bg-app/60 flex items-center justify-between text-xs text-muted font-mono">
               <span>Clique em "Abrir Chamado Completo" para gerenciar o chamado.</span>
               <button
                 onClick={() => setSelectedCategoryForDetails(null)}
-                className="px-4 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-850 text-white font-bold transition cursor-pointer"
+                className="px-4 py-1.5 rounded-xl bg-surface hover:bg-surface text-primary font-bold transition cursor-pointer"
               >
                 Fechar
               </button>

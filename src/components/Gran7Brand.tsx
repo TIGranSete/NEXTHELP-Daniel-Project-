@@ -60,7 +60,7 @@ export const Gran7Brand: React.FC<Gran7BrandProps> = ({
 
       {/* Clean Corporate Wordmark */}
       <div className={`font-sans ${textSizeClasses} leading-tight tracking-tight flex items-center justify-center gap-2`}>
-        <span className="text-white font-extrabold tracking-tight">
+        <span className="text-primary font-extrabold tracking-tight">
           GRAN<span className="text-emerald-500 font-black">7</span>
         </span>
         <span className="text-emerald-400 font-bold tracking-tight">
@@ -71,7 +71,7 @@ export const Gran7Brand: React.FC<Gran7BrandProps> = ({
       {/* Subtitle / Tagline */}
       {showSubtitle && (
         <div className="mt-1.5 flex items-center justify-center gap-2">
-          <p className={`font-sans font-semibold uppercase ${subtitleSizeClasses} text-zinc-400 tracking-wider`}>
+          <p className={`font-sans font-semibold uppercase ${subtitleSizeClasses} text-secondary tracking-wider`}>
             {subtitleText}
           </p>
         </div>

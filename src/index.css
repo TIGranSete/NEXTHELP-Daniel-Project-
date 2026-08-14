@@ -1,6 +1,10 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
 @import "tailwindcss";
 
+/* Enables the `dark:` variant based on a `.dark` class on <html>, set by useTheme
+   (instead of Tailwind v4's default of following prefers-color-scheme only). */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Plus Jakarta Sans", sans-serif;
@@ -23,12 +27,74 @@
   --shadow-neon: 0 1px 3px 0 rgba(0, 0, 0, 0.2), 0 1px 2px -1px rgba(0, 0, 0, 0.2);
   --shadow-neon-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.15);
   --shadow-neon-lg: 0 4px 12px 0 rgba(0, 0, 0, 0.25);
+
+  /* Custom breakpoint for the top header nav: logo + pill tabs + role badge +
+     avatar only fit comfortably from ~1440px. Tailwind's stock scale jumps
+     straight from xl (1280px) to 2xl (1536px), and both ends of that gap
+     either overlap or wrap the role badge onto two lines. */
+  --breakpoint-nav: 1460px;
+}
+
+/*
+ * Semantic theme tokens. Every component should use bg-app/bg-surface/etc.
+ * (via the Tailwind utilities generated below) instead of raw grays, so the
+ * same class renders correctly in both light and dark mode.
+ *
+ * Layer scale (dark -> light backgrounds, light -> dark text):
+ *   app       = page background (outermost)
+ *   surface   = cards / panels sitting on the page
+ *   surface-2 = nested panels, inputs, subtle raised blocks
+ *   surface-3 = hover/active states, chips
+ */
+:root {
+  --color-bg-app: #f8f9fa;
+  --color-bg-surface: #ffffff;
+  --color-bg-surface-2: #f1f3f5;
+  --color-bg-surface-3: #e5e7eb;
+
+  --color-border-subtle: #e9ecef;
+  --color-border-default: #dcdfe3;
+
+  --color-text-primary: #16181d;
+  --color-text-secondary: #495057;
+  --color-text-muted: #868e96;
+}
+
+:root.dark {
+  --color-bg-app: #09090b;
+  --color-bg-surface: #121215;
+  --color-bg-surface-2: #18181b;
+  --color-bg-surface-3: #202020;
+
+  --color-border-subtle: #1c1c1f;
+  --color-border-default: #27272a;
+
+  --color-text-primary: #f4f4f5;
+  --color-text-secondary: #a1a1aa;
+  --color-text-muted: #71717a;
+}
+
+/* Registers the tokens above as real Tailwind color utilities:
+   bg-app, bg-surface, bg-surface-2, bg-surface-3, border-subtle,
+   border-default, text-primary, text-secondary, text-muted (each also
+   works with opacity modifiers, e.g. bg-surface/60). */
+@theme inline {
+  --color-app: var(--color-bg-app);
+  --color-surface: var(--color-bg-surface);
+  --color-surface-2: var(--color-bg-surface-2);
+  --color-surface-3: var(--color-bg-surface-3);
+  --color-subtle: var(--color-border-subtle);
+  --color-default: var(--color-border-default);
+  --color-primary: var(--color-text-primary);
+  --color-secondary: var(--color-text-secondary);
+  --color-muted: var(--color-text-muted);
 }
 
 html, body {
   scroll-behavior: smooth;
-  background-color: #09090b;
-  color: #f4f4f5;
+  background-color: var(--color-bg-app);
+  color: var(--color-text-primary);
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 /* Ensure smooth scrolling and momentum scroll for all containers with overflow */
@@ -78,5 +144,35 @@ html, body {
 
 .animate-loading-slide {
   animation: loading-slide 1.5s infinite ease-in-out;
+}
+
+/* Slow, organic drift for the background gradient blobs (auth screens).
+   Each keyframe wanders to different points so the three blobs never move
+   in sync. Kept slow/subtle to stay corporate rather than "lava lamp". */
+@keyframes blob-drift-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-4%, 5%) scale(1.08); }
+  66% { transform: translate(3%, -4%) scale(0.95); }
+}
+
+@keyframes blob-drift-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(5%, -4%) scale(0.94); }
+  66% { transform: translate(-3%, 4%) scale(1.07); }
+}
+
+@keyframes blob-drift-3 {
+  0%, 100% { transform: translate(-50%, 0) scale(1); }
+  50% { transform: translate(-50%, 6%) scale(1.12); }
+}
+
+.animate-blob-1 { animation: blob-drift-1 20s ease-in-out infinite; }
+.animate-blob-2 { animation: blob-drift-2 24s ease-in-out infinite; }
+.animate-blob-3 { animation: blob-drift-3 17s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-blob-1, .animate-blob-2, .animate-blob-3 {
+    animation: none;
+  }
 }
 

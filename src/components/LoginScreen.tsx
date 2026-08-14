@@ -9,7 +9,9 @@ import {
   RefreshCw
 } from "lucide-react";
 import logoImg from "../assets/images/logo.png";
+import logoBlack from "../assets/images/logo-black.png";
 import Gran7Brand from "./Gran7Brand";
+import { useTheme } from "../hooks/useTheme";
 
 interface LoginScreenProps {
   onLoginSuccess: (session: UserSession) => void;
@@ -21,6 +23,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [logoError, setLogoError] = useState(false);
+  const { resolvedTheme } = useTheme();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,23 +78,30 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   };
 
   return (
-    <div 
-      id="login_container" 
-      className="min-h-screen bg-[#09090b] flex flex-col justify-center items-center px-4 py-12 relative overflow-hidden font-sans"
+    <div
+      id="login_container"
+      className="min-h-screen bg-app flex flex-col justify-center items-center px-4 py-12 relative overflow-hidden font-sans"
     >
+      {/* Soft brand-green gradient backdrop, subtler in light mode than dark */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -right-32 w-[30rem] h-[30rem] rounded-full bg-emerald-500/10 dark:bg-emerald-500/20 blur-3xl animate-blob-1" />
+        <div className="absolute -bottom-48 -left-40 w-[34rem] h-[34rem] rounded-full bg-emerald-400/[0.08] dark:bg-emerald-400/[0.15] blur-3xl animate-blob-2" />
+        <div className="absolute top-1/4 left-1/2 w-72 h-72 rounded-full bg-emerald-600/5 dark:bg-emerald-600/10 blur-3xl animate-blob-3" />
+      </div>
+
       <div className="w-full max-w-md space-y-6 z-10 animate-in fade-in duration-300">
         
         {/* App Logo & Header */}
         <div className="text-center space-y-3 mb-2">
           {!logoError ? (
             <div className="flex flex-col items-center justify-center space-y-3">
-              <img 
-                src={logoImg} 
-                alt="GRAN7 HELP" 
+              <img
+                src={resolvedTheme === "light" ? logoBlack : logoImg}
+                alt="GRAN7 HELP"
                 className="h-16 sm:h-20 w-auto object-contain max-w-full"
                 onError={() => setLogoError(true)}
               />
-              <p className="font-sans font-semibold text-[10px] sm:text-[11px] text-zinc-400 uppercase tracking-[0.2em] flex items-center gap-2 justify-center">
+              <p className="font-sans font-semibold text-[10px] sm:text-[11px] text-secondary uppercase tracking-[0.2em] flex items-center gap-2 justify-center">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                 <span>HELP DESK INTELIGENTE CORPORATIVO</span>
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
@@ -103,10 +113,10 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         </div>
 
         {/* Login Box */}
-        <div className="bg-[#121215] border border-zinc-800/80 transition-all duration-300 rounded-2xl p-8 shadow-2xl space-y-6">
+        <div className="bg-surface border border-default/80 transition-all duration-300 rounded-2xl p-8 shadow-2xl space-y-6">
           
-          <div className="border-b border-zinc-800/80 pb-3 text-center">
-            <h2 className="text-xs font-bold text-zinc-300 tracking-wider uppercase">Acessar Conta Corporativa</h2>
+          <div className="border-b border-default/80 pb-3 text-center">
+            <h2 className="text-xs font-bold text-secondary tracking-wider uppercase">Acessar Conta Corporativa</h2>
           </div>
 
           {error && (
@@ -119,31 +129,31 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           {/* Form Login */}
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">E-mail Corporativo</label>
+              <label className="text-[10px] font-bold text-secondary uppercase tracking-wider block">E-mail Corporativo</label>
               <div className="relative">
-                <Mail className="absolute left-3.5 top-2.5 h-4 w-4 text-zinc-500" />
+                <Mail className="absolute left-3.5 top-2.5 h-4 w-4 text-muted" />
                 <input
                   type="email"
                   required
                   placeholder="usuario@gran7.com.br"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-[#09090b] border border-zinc-800 rounded-xl py-2.5 pl-10 pr-3 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
+                  className="w-full bg-app border border-default rounded-xl py-2.5 pl-10 pr-3 text-xs text-primary placeholder-zinc-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
                 />
               </div>
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Senha de Acesso</label>
+              <label className="text-[10px] font-bold text-secondary uppercase tracking-wider block">Senha de Acesso</label>
               <div className="relative">
-                <Lock className="absolute left-3.5 top-2.5 h-4 w-4 text-zinc-500" />
+                <Lock className="absolute left-3.5 top-2.5 h-4 w-4 text-muted" />
                 <input
                   type="password"
                   required
                   placeholder="Sua senha corporativa"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-[#09090b] border border-zinc-800 rounded-xl py-2.5 pl-10 pr-3 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
+                  className="w-full bg-app border border-default rounded-xl py-2.5 pl-10 pr-3 text-xs text-primary placeholder-zinc-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
                 />
               </div>
             </div>
@@ -169,9 +179,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         </div>
 
         {/* Footer signature */}
-        <div className="flex items-center justify-between text-[10px] text-zinc-500 font-medium pt-2 border-t border-zinc-800/60">
+        <div className="flex items-center justify-between text-[10px] text-muted font-medium pt-2 border-t border-default/60">
           <span>Gran7 Nutrição e Fisiologia Vegetal</span>
-          <span className="text-zinc-400 font-mono">v2.4</span>
+          <span className="text-secondary font-mono">v2.4</span>
         </div>
       </div>
     </div>
