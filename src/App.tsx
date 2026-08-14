@@ -1238,6 +1238,33 @@ export default function App() {
     const targetTicket = tickets.find(t => t.id === ticketId);
     if (!targetTicket) return;
 
+    // Ask the server first — it's the only place that actually knows whether
+    // this requester is allowed to touch an already-assigned ticket. Only
+    // apply the change locally/to Supabase once the server has confirmed it,
+    // so a rejected request can't be forced through via the optimistic
+    // update or the direct-to-Supabase fallback.
+    try {
+      const payload = {
+        ...fields,
+        requesterUser: currentSession?.name || null
+      };
+      const response = await fetch(getApiUrl(`/api/tickets/${ticketId}`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        alert(errData?.error || "Não foi possível atualizar o chamado.");
+        return;
+      }
+    } catch (error) {
+      console.warn("Erro ao atualizar chamado na API:", error);
+      alert("Sem conexão com o servidor. Não foi possível atualizar o chamado.");
+      return;
+    }
+
     const updatedTicket: Ticket = {
       ...targetTicket,
       ...fields,
@@ -1246,20 +1273,6 @@ export default function App() {
 
     setTickets(prev => prev.map(t => t.id === ticketId ? updatedTicket : t));
     saveTicketToSupabase(updatedTicket).catch(e => console.warn("Erro ao salvar chamado no Supabase pelo navegador:", e));
-
-    try {
-      const payload = {
-        ...fields,
-        requesterUser: currentSession?.name || null
-      };
-      await fetch(getApiUrl(`/api/tickets/${ticketId}`), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-    } catch (error) {
-      console.warn("Erro ao atualizar chamado na API:", error);
-    }
   };
 
   const handleAddComment = async (e: React.FormEvent) => {
@@ -4443,7 +4456,13 @@ export default function App() {
                 {isTechUser && (
                   <div className="p-3.5 bg-app rounded-xl border border-default space-y-3">
                     <span className="text-[10px] font-bold text-secondary uppercase tracking-wider block">Painel do Técnico (Atendimento)</span>
-                    
+
+                    {isAssignedToOther && (
+                      <div className="p-2 bg-amber-500/5 border border-amber-500/15 rounded-lg text-[10px] text-amber-400 leading-normal font-medium flex items-center gap-2">
+                        <span>⚠️ Atribuído a <strong>{selectedTicket.assignedTo}</strong>. Apenas os responsáveis podem alterar ou finalizar.</span>
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-2 gap-2.5 text-xs">
                       {/* Assign tech button / list */}
                       <div className="space-y-1.5 col-span-2 md:col-span-1">
@@ -4507,7 +4526,7 @@ export default function App() {
                           value={selectedTicket.priority}
                           onChange={(e) => handleUpdateTicketMeta(selectedTicket.id, { priority: e.target.value as Ticket["priority"] })}
                           disabled={isAssignedToOther}
-                          className="w-full bg-surface border border-default rounded-xl py-2 px-2.5 text-xs text-primary focus:outline-none focus:border-emerald-500 cursor-pointer"
+                          className={`w-full bg-surface border border-default rounded-xl py-2 px-2.5 text-xs text-primary focus:outline-none focus:border-emerald-500 cursor-pointer ${isAssignedToOther ? "opacity-40 cursor-not-allowed" : ""}`}
                         >
                           <option value="Baixa">Baixa</option>
                           <option value="Média">Média</option>
@@ -4529,7 +4548,8 @@ export default function App() {
                             handleUpdateTicketMeta(selectedTicket.id, { status: "Resolvido" });
                           }}
                           disabled={isAssignedToOther}
-                          className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                          className={`flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm ${isAssignedToOther ? "opacity-40 cursor-not-allowed" : ""}`}
+                          title={isAssignedToOther ? `Apenas ${selectedTicket.assignedTo} pode finalizar este chamado` : ""}
                         >
                           <CheckCircle className="h-4 w-4" />
                           Finalizar Chamado
@@ -4544,7 +4564,8 @@ export default function App() {
                             handleUpdateTicketMeta(selectedTicket.id, { status: "Aberto" });
                           }}
                           disabled={isAssignedToOther}
-                          className="flex-1 py-2 bg-surface hover:bg-surface-2 text-primary font-bold rounded-xl text-xs border border-default transition flex items-center justify-center gap-1.5 cursor-pointer"
+                          className={`flex-1 py-2 bg-surface hover:bg-surface-2 text-primary font-bold rounded-xl text-xs border border-default transition flex items-center justify-center gap-1.5 cursor-pointer ${isAssignedToOther ? "opacity-40 cursor-not-allowed" : ""}`}
+                          title={isAssignedToOther ? `Apenas ${selectedTicket.assignedTo} pode reabrir este chamado` : ""}
                         >
                           <RefreshCw className="h-4 w-4 text-emerald-400" />
                           Reabrir Chamado

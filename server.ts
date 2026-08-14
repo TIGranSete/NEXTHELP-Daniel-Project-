@@ -1600,13 +1600,10 @@ app.patch("/api/tickets/:id", async (req, res) => {
     const oldTicket = tickets[index];
     const updatedTicket = { ...oldTicket };
 
-    // Find if the requester is a technician to allow full management permissions
-    const users = await loadUsers();
-    const requester = users.find(u => u.name === requesterUser || u.email === requesterUser);
-    const isRequesterTech = requester ? requester.role === "tecnico" : false;
-
-    // Validation: prevent another technician/user from modifying an already assigned ticket (stealing, priority change, category change, finalization)
-    if (oldTicket.assignedTo && !isRequesterTech) {
+    // Validation: prevent another technician/user from modifying an already assigned ticket (stealing, priority change, category change, finalization).
+    // Deliberately does NOT exempt technicians in general — only the specific
+    // assigned tech(s), checked right below, may act on an assigned ticket.
+    if (oldTicket.assignedTo) {
       const assignedTechs = oldTicket.assignedTo.split(",").map(s => s.trim()).filter(Boolean);
       if (requesterUser && !assignedTechs.includes(requesterUser)) {
         const isChangingAssignedTo = assignedTo !== undefined && assignedTo !== oldTicket.assignedTo;
@@ -1624,8 +1621,8 @@ app.patch("/api/tickets/:id", async (req, res) => {
       }
     }
 
-    // Validation: Only the first assigned technician can change/assign other technicians (skip if requester is a technician/admin)
-    if (assignedTo !== undefined && assignedTo !== oldTicket.assignedTo && !isRequesterTech) {
+    // Validation: Only the first assigned technician can change/assign other technicians.
+    if (assignedTo !== undefined && assignedTo !== oldTicket.assignedTo) {
       const oldTechs = oldTicket.assignedTo ? oldTicket.assignedTo.split(",").map(s => s.trim()).filter(Boolean) : [];
       if (oldTechs.length > 0) {
         const firstTech = oldTicket.firstAssignedTo || oldTechs[0];
