@@ -1,0 +1,82 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Plus Jakarta Sans", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  /* Gran7 Official Brand Green Palette (Matching the "7" icon in Gran7 logo) */
+  --color-emerald-50: #f0fdf2;
+  --color-emerald-100: #dcfce1;
+  --color-emerald-200: #b9f7c1;
+  --color-emerald-300: #7dec89;
+  --color-emerald-400: #4ade52;
+  --color-emerald-500: #34c732;
+  --color-emerald-600: #26a925;
+  --color-emerald-700: #1d871d;
+  --color-emerald-800: #1a6b1b;
+  --color-emerald-900: #165818;
+  --color-emerald-950: #072f0a;
+
+  /* Clean subtle corporate shadows */
+  --shadow-neon: 0 1px 3px 0 rgba(0, 0, 0, 0.2), 0 1px 2px -1px rgba(0, 0, 0, 0.2);
+  --shadow-neon-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.15);
+  --shadow-neon-lg: 0 4px 12px 0 rgba(0, 0, 0, 0.25);
+}
+
+html, body {
+  scroll-behavior: smooth;
+  background-color: #09090b;
+  color: #f4f4f5;
+}
+
+/* Ensure smooth scrolling and momentum scroll for all containers with overflow */
+.overflow-y-auto, .overflow-x-auto, .overflow-auto {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Custom scrollbars with neutral dark slate tone */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #09090b;
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(161, 161, 170, 0.2);
+  border-radius: 8px;
+  transition: background 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(161, 161, 170, 0.4);
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 3.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.neon-glow-text {
+  text-shadow: none;
+}
+
+@keyframes loading-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+.animate-loading-slide {
+  animation: loading-slide 1.5s infinite ease-in-out;
+}
+

@@ -1,0 +1,6147 @@
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { Ticket, Comment, UserSession, UserRole, User, Attachment } from "./types";
+import { getApiUrl } from "./lib/api";
+import { 
+  fetchTicketsFromSupabase, 
+  saveTicketToSupabase, 
+  deleteTicketFromSupabase, 
+  fetchUsersFromSupabase, 
+  saveUserToSupabase, 
+  deleteUserFromSupabase,
+  getBrowserSupabaseClient,
+  getSupabaseCredentials,
+  saveSupabaseCredentials
+} from "./lib/supabaseClient";
+import { INITIAL_USERS } from "./data/initialUsers";
+import SlaAnalytics from "./components/SlaAnalytics";
+import LoginScreen from "./components/LoginScreen";
+import ChangePasswordScreen from "./components/ChangePasswordScreen";
+import Gran7Brand from "./components/Gran7Brand";
+import NotificationGuideModal from "./components/NotificationGuideModal";
+import NotificationCustomizerModal, { playCustomNotificationSound, SoundTone, ToastStyle } from "./components/NotificationCustomizerModal";
+import WindowsDatePicker from "./components/WindowsDatePicker";
+import logoImg from "./assets/images/logo.png";
+import logoMin from "./assets/images/7.png";
+import { 
+  Shield, 
+  Users, 
+  RefreshCw, 
+  Cpu, 
+  CheckCircle, 
+  AlertCircle, 
+  Clock, 
+  Search, 
+  PlusCircle, 
+  MessageSquare, 
+  Sparkles, 
+  Send, 
+  CheckSquare, 
+  Sliders, 
+  UserPlus, 
+  User as UserIcon,
+  Filter, 
+  Server, 
+  Trash2,
+  Calendar,
+  Layers,
+  ArrowRight,
+  LogOut,
+  Edit,
+  Lock,
+  Database,
+  Camera,
+  Upload,
+  Eye,
+  ChevronLeft,
+  ChevronRight,
+  Paperclip,
+  FileText,
+  Copy,
+  Check,
+  Terminal,
+  Columns,
+  Briefcase,
+  FolderKanban,
+  ArrowLeft,
+  Menu,
+  X,
+  Bell,
+  BellOff,
+  BellRing,
+  HelpCircle,
+  Laptop,
+  Mail,
+  Building,
+  Activity
+} from "lucide-react";
+
+const USER_PROFILES: UserSession[] = [];
+
+export function getAssignedTechs(assignedToStr: string | null): string[] {
+  if (!assignedToStr) return [];
+  return assignedToStr.split(",").map(s => s.trim()).filter(Boolean);
+}
+
+export function getFirstAssignedTech(ticket: any): string | null {
+  if (ticket.firstAssignedTo) return ticket.firstAssignedTo;
+  const techs = getAssignedTechs(ticket.assignedTo);
+  return techs[0] || null;
+}
+
+function formatDurationText(ms: number): string {
+  if (ms < 0) ms = 0;
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 0) {
+    return `${days}d ${hours % 24}h ${minutes % 60}m`;
+  }
+  if (hours > 0) {
+    return `${hours}h ${minutes % 60}m`;
+  }
+  if (minutes > 0) {
+    return `${minutes} min e ${seconds % 60} seg`;
+  }
+  return `${seconds} segundos`;
+}
+
+const compressImage = (file: File, maxWidth = 1024, maxHeight = 1024, quality = 0.7): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(event.target?.result as string);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL("image/jpeg", quality);
+        resolve(dataUrl);
+      };
+      img.onerror = (err) => reject(err);
+    };
+    reader.onerror = (err) => reject(err);
+  });
+};
+
+interface AppNotification {
+  id: string;
+  ticketId: string;
+  title: string;
+  requesterName: string;
+  timestamp: Date;
+  type?: "ticket" | "comment";
+  commentText?: string;
+  commentAuthor?: string;
+}
+
+export default function App() {
+  // Session management
+  const [currentSession, setCurrentSession] = useState<UserSession | null>(() => {
+    const saved = localStorage.getItem("gran7_session");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  });
+
+  const isTechUser = !!(
+    currentSession &&
+    (currentSession.role === "tecnico" ||
+      (currentSession.role as string) === "ti" ||
+      currentSession.department?.toLowerCase().includes("ti") ||
+      currentSession.department?.toLowerCase().includes("tecnologia"))
+  );
+  
+  // Navigation tabs (Only available for IT team)
+  const [activeTab, setActiveTab] = useState<"painel" | "projetos" | "sla" | "colaboradores" | "banco_dados">("painel");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
+  const [modulesCollapsed, setModulesCollapsed] = useState<boolean>(false);
+  const [isMobileModulesOpen, setIsMobileModulesOpen] = useState<boolean>(false);
+  const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState<boolean>(true);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [projectViewMode, setProjectViewMode] = useState<"bento" | "kanban" | "timeline">("bento");
+  const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
+  const [draggedOverColumn, setDraggedOverColumn] = useState<string | null>(null);
+
+
+  // Database status and synchronization states
+  const [dbStatus, setDbStatus] = useState<{ configured: boolean; connected: boolean; error: string | null } | null>(null);
+  const [dbChecking, setDbChecking] = useState<boolean>(false);
+  const [syncingDb, setSyncingDb] = useState<"idle" | "push" | "pull" | "success" | "error">("idle");
+  const [syncDbError, setSyncDbError] = useState<string | null>(null);
+  const [dbSqlSchema, setDbSqlSchema] = useState<string>("");
+  const [copySuccess, setCopySuccess] = useState<boolean>(false);
+
+  // App states
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [users, setUsers] = useState<User[]>(INITIAL_USERS);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [isPolling, setIsPolling] = useState<boolean>(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [logoError, setLogoError] = useState<boolean>(false);
+  const [showPreloader, setShowPreloader] = useState<boolean>(true);
+  const [preloaderFadeOut, setPreloaderFadeOut] = useState<boolean>(false);
+  const [preloaderProgress, setPreloaderProgress] = useState<number>(0);
+  const [minTimeElapsed, setMinTimeElapsed] = useState<boolean>(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setMinTimeElapsed(true);
+    }, 250); // Ultra-fast minimum display time (250ms)
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    let currentProgress = 0;
+    const interval = setInterval(() => {
+      if (currentProgress < 70) {
+        currentProgress += Math.floor(Math.random() * 20) + 15; // Fast initial jump
+      } else if (currentProgress < 95) {
+        currentProgress += Math.floor(Math.random() * 10) + 5; // Rapid progress to 95%
+      } else {
+        clearInterval(interval);
+      }
+      setPreloaderProgress(Math.min(currentProgress, 95));
+    }, 20); // Fast 20ms tick rate
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Sync preloader completion with real database loading completion & minimum timer elapsed
+  useEffect(() => {
+    if (!loading && minTimeElapsed && showPreloader) {
+      setPreloaderProgress(100);
+      
+      const fadeTimer = setTimeout(() => {
+        setPreloaderFadeOut(true);
+      }, 80);
+
+      const unmountTimer = setTimeout(() => {
+        setShowPreloader(false);
+      }, 280);
+
+      return () => {
+        clearTimeout(fadeTimer);
+        clearTimeout(unmountTimer);
+      };
+    }
+  }, [loading, minTimeElapsed, showPreloader]);
+  
+  // Notifications states
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const seenTicketIds = useRef<Set<string>>(new Set());
+  const seenCommentIds = useRef<Set<string>>(new Set());
+  const hasInitializedTicketsRef = useRef<boolean>(false);
+  const audioUnlockedRef = useRef<boolean>(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+
+  // Auto-unlock Web Audio API on first user interaction for robust notification sounds
+  useEffect(() => {
+    const unlockAudio = () => {
+      if (audioUnlockedRef.current) return;
+      try {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioContextClass) {
+          const ctx = new AudioContextClass();
+          if (ctx.state === "suspended") {
+            ctx.resume();
+          }
+          audioContextRef.current = ctx;
+          audioUnlockedRef.current = true;
+          console.log("AudioContext desbloqueado e ativado com sucesso após gesto do usuário.");
+          // Clean up event listeners once unlocked
+          window.removeEventListener("click", unlockAudio);
+          window.removeEventListener("keydown", unlockAudio);
+          window.removeEventListener("touchstart", unlockAudio);
+        }
+      } catch (e) {
+        console.warn("Falha ao desbloquear o áudio do navegador:", e);
+      }
+    };
+
+    window.addEventListener("click", unlockAudio);
+    window.addEventListener("keydown", unlockAudio);
+    window.addEventListener("touchstart", unlockAudio);
+    return () => {
+      window.removeEventListener("click", unlockAudio);
+      window.removeEventListener("keydown", unlockAudio);
+      window.removeEventListener("touchstart", unlockAudio);
+    };
+  }, []);
+
+  // Desktop Notifications State
+  const [desktopNotificationPermission, setDesktopNotificationPermission] = useState<NotificationPermission>(
+    typeof window !== "undefined" && "Notification" in window ? Notification.permission : "default"
+  );
+  const [isNotificationGuideOpen, setIsNotificationGuideOpen] = useState<boolean>(false);
+  const [isNotificationCustomizerOpen, setIsNotificationCustomizerOpen] = useState<boolean>(false);
+
+  // Register Service Worker on mount and listen to messages
+  useEffect(() => {
+    if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js")
+        .then((reg) => {
+          console.log("Service Worker registrado com sucesso:", reg.scope);
+        })
+        .catch((err) => {
+          console.warn("Falha ao registrar Service Worker:", err);
+        });
+
+      // Listen for SELECT_TICKET messages from Service Worker
+      const handleMessage = (event: MessageEvent) => {
+        if (event.data && event.data.type === "SELECT_TICKET") {
+          setSelectedTicketId(event.data.ticketId);
+        }
+      };
+      navigator.serviceWorker.addEventListener("message", handleMessage);
+      return () => navigator.serviceWorker.removeEventListener("message", handleMessage);
+    }
+  }, []);
+
+  // Check URL parameter for ticket pre-selection on load
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const ticketId = params.get("ticket");
+      if (ticketId) {
+        setSelectedTicketId(ticketId);
+      }
+    }
+  }, []);
+
+  const requestDesktopNotificationPermission = async () => {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      console.warn("Este navegador não suporta notificações de área de trabalho.");
+      return "default";
+    }
+    try {
+      const permission = await Notification.requestPermission();
+      setDesktopNotificationPermission(permission);
+      return permission;
+    } catch (e) {
+      console.error("Erro ao solicitar permissão de notificações:", e);
+      return "default";
+    }
+  };
+
+  const fallbackNotification = (title: string, options: NotificationOptions, ticketId?: string) => {
+    try {
+      const fullIconUrl = typeof window !== "undefined" ? `${window.location.origin}/icon.png` : "/icon.png";
+      const notification = new Notification(title, {
+        ...options,
+        icon: fullIconUrl,
+        badge: fullIconUrl
+      });
+      if (ticketId) {
+        notification.onclick = () => {
+          window.focus();
+          setSelectedTicketId(ticketId);
+        };
+      }
+    } catch (e) {
+      console.warn("Falha no fallback de notificação de área de trabalho:", e);
+    }
+  };
+
+  const showDesktopNotification = (title: string, body: string, ticketId?: string) => {
+    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+      const fullIconUrl = `${window.location.origin}/icon.png`;
+      const options: NotificationOptions & { data?: any; actions?: any[]; renotify?: boolean; vibrate?: number[] } = {
+        body,
+        icon: fullIconUrl,
+        badge: fullIconUrl,
+        tag: ticketId ? `ticket-${ticketId}` : "gran7-alert",
+        renotify: true,
+        requireInteraction: true,
+        vibrate: [200, 100, 200, 100, 200],
+        data: ticketId ? { ticketId } : undefined,
+        actions: [
+          { action: "open_ticket", title: "💬 Abrir Chamado no Helpdesk" }
+        ]
+      };
+
+      // Try service worker notification first (essential for background/desktop notifications)
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.ready.then((registration) => {
+          registration.showNotification(title, options)
+            .catch((err) => {
+              console.warn("Service worker falhou em exibir notificação, usando fallback:", err);
+              fallbackNotification(title, options, ticketId);
+            });
+        }).catch(() => {
+          fallbackNotification(title, options, ticketId);
+        });
+      } else {
+        fallbackNotification(title, options, ticketId);
+      }
+    }
+  };
+
+  const testDesktopNotification = async () => {
+    let perm = desktopNotificationPermission;
+    if (perm !== "granted") {
+      perm = await requestDesktopNotificationPermission();
+    }
+    if (perm === "granted") {
+      showDesktopNotification(
+        "⚡ GRAN7 HELP • Notificações do Sistema",
+        "Sucesso! Permissão ativa no Google Chrome. Notificações nativas configuradas com ícone e atalho para o chat.",
+        selectedTicketId || undefined
+      );
+      playNotificationSound();
+    } else if (perm === "denied") {
+      setIsNotificationGuideOpen(true);
+    }
+  };
+
+  // Auto request permission once logged in
+  useEffect(() => {
+    if (currentSession && typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
+      const timer = setTimeout(() => {
+        requestDesktopNotificationPermission();
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [currentSession]);
+  
+  // Selection/Detail states
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+  const [newCommentText, setNewCommentText] = useState<string>("");
+  const [commentAttachment, setCommentAttachment] = useState<string | null>(null);
+  const [commentAttachmentName, setCommentAttachmentName] = useState<string>("");
+  
+  // Filter/Search states
+  const [searchTerm, setSearchTerm] = useState<string>("");
+  const [selectedCategory, setSelectedCategory] = useState<string>("All");
+  const [selectedPriority, setSelectedPriority] = useState<string>("All");
+  const [selectedStatus, setSelectedStatus] = useState<string>("Active");
+
+  // Collaborators Filter/Search/Sort states
+  const [colabSearchTerm, setColabSearchTerm] = useState<string>("");
+  const [colabSectorFilter, setColabSectorFilter] = useState<string>("All");
+  const [colabRoleFilter, setColabRoleFilter] = useState<string>("All");
+  const [colabStatusFilter, setColabStatusFilter] = useState<string>("All");
+  const [colabSortBy, setColabSortBy] = useState<string>("name");
+  
+  // Creation state (tickets)
+  const [isNewTicketModalOpen, setIsNewTicketModalOpen] = useState<boolean>(false);
+  const [isSubmittingTicket, setIsSubmittingTicket] = useState<boolean>(false);
+  const [newTicketForm, setNewTicketForm] = useState<{
+    title: string;
+    description: string;
+    screenshot: string;
+    projectDeadline: string;
+    attachments: Attachment[];
+  }>({
+    title: "",
+    description: "",
+    screenshot: "",
+    projectDeadline: "",
+    attachments: []
+  });
+  const [selectedRequesterName, setSelectedRequesterName] = useState<string>("");
+  const [selectedRequesterDepartment, setSelectedRequesterDepartment] = useState<string>("");
+
+  // User opened tickets modal state
+  const [isMyTicketsModalOpen, setIsMyTicketsModalOpen] = useState<boolean>(false);
+  const [myTicketsTab, setMyTicketsTab] = useState<"all" | "unresolved" | "resolved">("all");
+  const [myTicketsViewMode, setMyTicketsViewMode] = useState<"created" | "resolved">("created");
+  const [selectedTechProfile, setSelectedTechProfile] = useState<User | null>(null);
+  const [isTechProfileModalOpen, setIsTechProfileModalOpen] = useState<boolean>(false);
+  const [profileModalTab, setProfileModalTab] = useState<"overview" | "tickets" | "metrics" | "activity">("overview");
+  const [profileTicketsFilter, setProfileTicketsFilter] = useState<"all" | "active" | "resolved" | "projects">("all");
+  const [isConfirmingDeleteTicket, setIsConfirmingDeleteTicket] = useState<string | null>(null);
+
+  // User management states
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [deletingUser, setDeletingUser] = useState<User | null>(null);
+
+  // Creation state (users/collaborators)
+  const [newUserForm, setNewUserForm] = useState({
+    name: "",
+    email: "",
+    password: "",
+    department: "Financeiro",
+    role: "colaborador" as UserRole
+  });
+  const [isSubmittingUser, setIsSubmittingUser] = useState<boolean>(false);
+  const [userFormError, setUserFormError] = useState<string>("");
+  const [userFormSuccess, setUserFormSuccess] = useState<string>("");
+
+  // Initialize requester name and department when opening modal
+  useEffect(() => {
+    if (isNewTicketModalOpen && currentSession) {
+      setSelectedRequesterName(currentSession.name);
+      setSelectedRequesterDepartment(currentSession.department);
+    }
+  }, [isNewTicketModalOpen, currentSession]);
+
+  const handleGoToHome = () => {
+    setActiveTab("painel");
+    setSelectedTicketId(null);
+    setSelectedTechProfile(null);
+    setIsTechProfileModalOpen(false);
+    setIsMyTicketsModalOpen(false);
+    setIsNewTicketModalOpen(false);
+    setMobileMenuOpen(false);
+  };
+
+  // Fetch tickets helper with multi-tier fallback (API Express -> Direct Supabase Browser -> Local Cache)
+  const fetchTickets = async (showQuietly = false) => {
+    if (!showQuietly) setLoading(true);
+    setIsPolling(true);
+    let loadedTickets: Ticket[] | null = null;
+
+    try {
+      const response = await fetch(getApiUrl("/api/tickets"));
+      if (response.ok) {
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          loadedTickets = await response.json();
+        }
+      }
+    } catch (error) {
+      console.warn("API de chamados indisponível via HTTP, buscando via Supabase Direto/Cache local:", error);
+    }
+
+    // Tier 2: Try direct browser Supabase client if server returned HTML or failed
+    if (!loadedTickets || !Array.isArray(loadedTickets)) {
+      const supabaseData = await fetchTicketsFromSupabase();
+      if (supabaseData && Array.isArray(supabaseData) && supabaseData.length > 0) {
+        loadedTickets = supabaseData;
+      }
+    }
+
+    // Tier 3: Load from localStorage cache
+    if (!loadedTickets || !Array.isArray(loadedTickets)) {
+      try {
+        const cached = localStorage.getItem("gran7_tickets_cache");
+        if (cached) {
+          loadedTickets = JSON.parse(cached);
+        }
+      } catch (e) {
+        console.warn("Falha ao ler cache local de chamados:", e);
+      }
+    }
+
+    if (loadedTickets && Array.isArray(loadedTickets)) {
+      setTickets(loadedTickets);
+      setLastUpdated(new Date());
+      try {
+        localStorage.setItem("gran7_tickets_cache", JSON.stringify(loadedTickets));
+      } catch (e) {}
+    }
+
+    setLoading(false);
+    setIsPolling(false);
+  };
+
+  // Fetch users helper
+  const fetchUsers = async () => {
+    let loadedUsers: User[] | null = null;
+
+    try {
+      const response = await fetch(getApiUrl("/api/users"));
+      if (response.ok) {
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          loadedUsers = await response.json();
+        }
+      }
+    } catch (error) {
+      console.warn("API de colaboradores indisponível via HTTP, buscando via Supabase Direto/Cache local:", error);
+    }
+
+    // Tier 2: Try direct browser Supabase client
+    if (!loadedUsers || !Array.isArray(loadedUsers)) {
+      const supabaseUsers = await fetchUsersFromSupabase();
+      if (supabaseUsers && Array.isArray(supabaseUsers) && supabaseUsers.length > 0) {
+        loadedUsers = supabaseUsers;
+      }
+    }
+
+    // Tier 3: Load from localStorage cache
+    if (!loadedUsers || !Array.isArray(loadedUsers)) {
+      try {
+        const cached = localStorage.getItem("gran7_users_cache");
+        if (cached) {
+          loadedUsers = JSON.parse(cached);
+        }
+      } catch (e) {}
+    }
+
+    // Tier 4: Fall back to INITIAL_USERS
+    if (!loadedUsers || !Array.isArray(loadedUsers) || loadedUsers.length === 0) {
+      loadedUsers = INITIAL_USERS;
+    }
+
+    if (loadedUsers && Array.isArray(loadedUsers)) {
+      setUsers(loadedUsers);
+      try {
+        localStorage.setItem("gran7_users_cache", JSON.stringify(loadedUsers));
+      } catch (e) {}
+    }
+  };
+
+  // Fetch database status
+  const fetchDbStatus = async () => {
+    setDbChecking(true);
+    try {
+      const response = await fetch(getApiUrl("/api/supabase/status"));
+      if (response.ok) {
+        const data = await response.json();
+        setDbStatus(data);
+      }
+    } catch (e) {
+      console.error("Erro ao carregar status do banco de dados:", e);
+    } finally {
+      setDbChecking(false);
+    }
+  };
+
+  // Fetch database SQL Schema instructions
+  const fetchDbSchema = async () => {
+    try {
+      const response = await fetch(getApiUrl("/api/supabase/sql"));
+      if (response.ok) {
+        const data = await response.text();
+        setDbSqlSchema(data);
+      }
+    } catch (e) {
+      console.error("Erro ao buscar schema SQL:", e);
+    }
+  };
+
+  // Push local cache data to Supabase DB
+  const handlePushSync = async () => {
+    setSyncingDb("push");
+    setSyncDbError(null);
+    try {
+      const response = await fetch(getApiUrl("/api/supabase/sync"), { method: "POST" });
+      if (response.ok) {
+        setSyncingDb("success");
+        await fetchTickets();
+        await fetchUsers();
+        fetchDbStatus();
+        setTimeout(() => setSyncingDb("idle"), 3000);
+      } else {
+        const errData = await response.json();
+        setSyncDbError(errData.error || "Erro desconhecido ao enviar dados.");
+        setSyncingDb("error");
+      }
+    } catch (e: any) {
+      setSyncDbError(e.message || "Erro de rede ao conectar à API.");
+      setSyncingDb("error");
+    }
+  };
+
+  // Pull Supabase DB data into local cache files
+  const handlePullSync = async () => {
+    setSyncingDb("pull");
+    setSyncDbError(null);
+    try {
+      const response = await fetch(getApiUrl("/api/supabase/pull"), { method: "POST" });
+      if (response.ok) {
+        const data = await response.json();
+        setSyncingDb("success");
+        await fetchTickets();
+        await fetchUsers();
+        fetchDbStatus();
+        alert(`Sincronização concluída com sucesso! ${data.ticketsCount} chamados e ${data.usersCount} colaboradores foram importados do Supabase e salvos localmente.`);
+        setTimeout(() => setSyncingDb("idle"), 3000);
+      } else {
+        const errData = await response.json();
+        setSyncDbError(errData.error || "Erro desconhecido ao puxar dados.");
+        setSyncingDb("error");
+      }
+    } catch (e: any) {
+      setSyncDbError(e.message || "Erro de rede ao conectar à API.");
+      setSyncingDb("error");
+    }
+  };
+
+  // Pull database schema and status on technician session mount
+  useEffect(() => {
+    if (isTechUser) {
+      fetchDbStatus();
+      fetchDbSchema();
+    }
+  }, [currentSession, isTechUser]);
+
+  // Force non-technicians to stay on the main tickets queue ('painel')
+  useEffect(() => {
+    if (currentSession && !isTechUser) {
+      if (activeTab !== "painel" && activeTab !== "chamados") {
+        setActiveTab("painel");
+      }
+    }
+  }, [currentSession, activeTab, isTechUser]);
+
+  // Poll tickets and users every 15 seconds for real-time fidelity with low egress overhead
+  useEffect(() => {
+    fetchTickets();
+    fetchUsers();
+
+    // Send a heartbeat ping to the server to register online presence
+    const sendHeartbeat = () => {
+      if (currentSession?.email || currentSession?.name) {
+        fetch(getApiUrl("/api/heartbeat"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: currentSession.email,
+            name: currentSession.name
+          })
+        })
+          .then(() => fetchUsers())
+          .catch((err) => {
+            console.warn("Falha ao enviar heartbeat:", err);
+          });
+      }
+    };
+
+    sendHeartbeat();
+
+    const interval = setInterval(() => {
+      fetchTickets(true);
+      fetchUsers();
+      sendHeartbeat();
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [currentSession?.email, currentSession?.name]);
+
+  // Tell the server presence should clear right away instead of waiting for
+  // the heartbeat to time out, whenever the tab is actually closing.
+  // sendBeacon (not fetch) is used because it's guaranteed to fire during unload.
+  const sendOfflineBeacon = (session?: { email?: string; name?: string } | null) => {
+    const s = session || currentSessionRef.current;
+    if (!s || (!s.email && !s.name)) return;
+    try {
+      const blob = new Blob([JSON.stringify({ email: s.email, name: s.name })], { type: "application/json" });
+      navigator.sendBeacon(getApiUrl("/api/offline"), blob);
+    } catch (e) {}
+  };
+
+  const currentSessionRef = useRef(currentSession);
+  useEffect(() => {
+    currentSessionRef.current = currentSession;
+  }, [currentSession]);
+
+  useEffect(() => {
+    const handler = () => sendOfflineBeacon();
+    window.addEventListener("beforeunload", handler);
+    window.addEventListener("pagehide", handler);
+    return () => {
+      window.removeEventListener("beforeunload", handler);
+      window.removeEventListener("pagehide", handler);
+    };
+  }, []);
+
+  // Audio notification helper using Web Audio API for maximum reliability
+  const playNotificationSound = () => {
+    try {
+      const tone = (localStorage.getItem("gran7_notif_sound_tone") as SoundTone) || "gran7";
+      const volStr = localStorage.getItem("gran7_notif_volume");
+      const volume = volStr !== null ? parseFloat(volStr) : 0.8;
+      playCustomNotificationSound(tone, volume);
+    } catch (error) {
+      console.warn("Navegador bloqueou a reprodução automática de som de notificação:", error);
+    }
+  };
+
+  // Watch for new tickets to show notifications and play sound
+  useEffect(() => {
+    // If the app is still loading and we have no tickets, wait until initial load completes
+    if (loading && tickets.length === 0) return;
+
+    if (!hasInitializedTicketsRef.current) {
+      // First load: register all existing ticket IDs so we don't spam notifications on startup
+      tickets.forEach(t => seenTicketIds.current.add(t.id));
+      // Also register all existing comment IDs so we don't spam comment notifications on startup
+      tickets.forEach(t => {
+        t.comments?.forEach(c => seenCommentIds.current.add(c.id));
+      });
+      hasInitializedTicketsRef.current = true;
+      return;
+    }
+
+    let hasNewNotification = false;
+    let shouldPlaySound = false;
+    const newlyDetected: AppNotification[] = [];
+
+    tickets.forEach((t) => {
+      // 1. Check for new tickets
+      if (!seenTicketIds.current.has(t.id)) {
+        seenTicketIds.current.add(t.id);
+        
+        // Play notification sound if the current user is a technician OR if they are the collaborator who opened this ticket
+        if (currentSession?.role === "tecnico" || t.requesterName === currentSession?.name) {
+          shouldPlaySound = true;
+        }
+
+        // Visual notifications (on-screen pop-ups) only appear for the IT team (technicians)
+        if (currentSession?.role === "tecnico") {
+          hasNewNotification = true;
+          showDesktopNotification(
+            `🔔 Novo Chamado #${t.id} • ${t.title}`,
+            `Solicitante: ${t.requesterName} (${t.requesterDepartment || "TI"}) | Prioridade: ${t.priority.toUpperCase()}`,
+            t.id
+          );
+          const newNotif: AppNotification = {
+            id: `notif-${Date.now()}-${t.id}`,
+            ticketId: t.id,
+            title: t.title,
+            requesterName: t.requesterName,
+            timestamp: new Date(),
+            type: "ticket"
+          };
+          newlyDetected.push(newNotif);
+        }
+      }
+
+      // 2. Check for new comments (messages)
+      t.comments?.forEach((c) => {
+        if (!seenCommentIds.current.has(c.id)) {
+          seenCommentIds.current.add(c.id);
+
+          // Do not notify if the current user wrote the comment themselves
+          if (c.authorName === currentSession?.name) {
+            return;
+          }
+
+          // Decide if user is relevant for this comment:
+          // Technicians get all comment notifications.
+          // Collaborators only get comment notifications for their own tickets.
+          const isUserRelevant = currentSession?.role === "tecnico" || t.requesterName === currentSession?.name;
+
+          if (isUserRelevant) {
+            shouldPlaySound = true;
+            hasNewNotification = true;
+
+            showDesktopNotification(
+              `💬 Chat HelpDesk • ${t.title}`,
+              `${c.authorName}: ${c.content}`,
+              t.id
+            );
+
+            const newNotif: AppNotification = {
+              id: `notif-${Date.now()}-${c.id}`,
+              ticketId: t.id,
+              title: t.title,
+              requesterName: t.requesterName,
+              timestamp: new Date(),
+              type: "comment",
+              commentText: c.content,
+              commentAuthor: c.authorName
+            };
+            newlyDetected.push(newNotif);
+          }
+        }
+      });
+    });
+
+    if (hasNewNotification && newlyDetected.length > 0) {
+      setNotifications((prev) => {
+        // Keep up to 5 notifications at most to avoid screen clutter
+        const combined = [...newlyDetected, ...prev];
+        return combined.slice(0, 5);
+      });
+
+      // Automatically clear notifications after 8 seconds
+      newlyDetected.forEach((notif) => {
+        setTimeout(() => {
+          setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
+        }, 8000);
+      });
+    }
+
+    // Trigger the audio chime sound
+    if (shouldPlaySound) {
+      playNotificationSound();
+    }
+  }, [tickets, loading, currentSession?.role, currentSession?.name]);
+
+  // Handlers
+  const handleProfileSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const listToSearch = users.length > 0 ? users : USER_PROFILES;
+    const profile = listToSearch.find((p) => p.name === e.target.value);
+    if (profile) {
+      const sessionData: UserSession = {
+        name: profile.name,
+        department: profile.department,
+        role: profile.role,
+        email: profile.email
+      };
+      setCurrentSession(sessionData);
+      localStorage.setItem("gran7_session", JSON.stringify(sessionData));
+      setSelectedTicketId(null);
+      setNotifications([]); // Clear current notifications when switching users
+      seenTicketIds.current.clear();
+      hasInitializedTicketsRef.current = false;
+      if (profile.role !== "tecnico") {
+        setActiveTab("painel");
+      }
+    }
+  };
+
+  const handleLogout = () => {
+    sendOfflineBeacon(currentSession);
+    setCurrentSession(null);
+    localStorage.removeItem("gran7_session");
+    setSelectedTicketId(null);
+    setActiveTab("painel");
+    setNotifications([]); // Clear current notifications on logout
+    seenTicketIds.current.clear();
+    hasInitializedTicketsRef.current = false;
+  };
+
+  const handleResetData = async () => {
+    if (confirm("Deseja realmente redefinir o banco de dados para os dados padrão?")) {
+      try {
+        const response = await fetch(getApiUrl("/api/reset"), { method: "POST" });
+        if (response.ok) {
+          await fetchTickets();
+          await fetchUsers();
+          setSelectedTicketId(null);
+          handleLogout();
+        }
+      } catch (error) {
+        console.error("Erro ao resetar dados:", error);
+      }
+    }
+  };
+
+  const handleDeleteTicket = async (ticketId: string) => {
+    if (!currentSession || currentSession.role !== "tecnico") return;
+    
+    const targetTicket = tickets.find(t => t.id === ticketId);
+    if (!targetTicket || !getAssignedTechs(targetTicket.assignedTo).includes(currentSession.name)) {
+      alert("Apenas um dos técnicos responsáveis por este chamado pode excluí-lo.");
+      return;
+    }
+
+    // Remove from local state & cache immediately
+    setTickets(prev => prev.filter(t => t.id !== ticketId));
+    setIsConfirmingDeleteTicket(null);
+    setSelectedTicketId(null);
+
+    // Delete directly from Supabase in browser
+    deleteTicketFromSupabase(ticketId).catch(e => console.warn("Erro ao excluir no Supabase pelo navegador:", e));
+    
+    try {
+      await fetch(getApiUrl(`/api/tickets/${ticketId}`), {
+        method: "DELETE",
+        headers: {
+          "x-user-role": currentSession.role,
+          "x-user-name": currentSession.name
+        }
+      });
+    } catch (error) {
+      console.warn("Erro ao enviar exclusão para API server:", error);
+    }
+  };
+
+  const handleAddFiles = (files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    fileArray.forEach((file) => {
+      if (file.type.startsWith("image/")) {
+        compressImage(file)
+          .then((compressedUrl) => {
+            setNewTicketForm((prev) => {
+              const newAttachments = [...prev.attachments, { name: file.name, url: compressedUrl, type: file.type }];
+              const firstImage = newAttachments.find(a => a.type.startsWith("image/"))?.url || "";
+              return {
+                ...prev,
+                attachments: newAttachments,
+                screenshot: prev.screenshot || firstImage
+              };
+            });
+          })
+          .catch(() => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const resultUrl = reader.result as string;
+              setNewTicketForm((prev) => {
+                const newAttachments = [...prev.attachments, { name: file.name, url: resultUrl, type: file.type }];
+                const firstImage = newAttachments.find(a => a.type.startsWith("image/"))?.url || "";
+                return {
+                  ...prev,
+                  attachments: newAttachments,
+                  screenshot: prev.screenshot || firstImage
+                };
+              });
+            };
+            reader.readAsDataURL(file);
+          });
+      } else {
+        // PDF or other documents
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const resultUrl = reader.result as string;
+          setNewTicketForm((prev) => {
+            const newAttachments = [...prev.attachments, { name: file.name, url: resultUrl, type: file.type }];
+            return {
+              ...prev,
+              attachments: newAttachments
+            };
+          });
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+  };
+
+  const handleCreateTicket = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentSession) return;
+    if (!newTicketForm.title.trim() || !newTicketForm.description.trim()) return;
+
+    setIsSubmittingTicket(true);
+    let createdTicket: Ticket | null = null;
+
+    try {
+      const response = await fetch(getApiUrl("/api/tickets"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newTicketForm.title,
+          description: newTicketForm.description,
+          requesterName: (currentSession.role === "tecnico" && selectedRequesterName) ? selectedRequesterName : currentSession.name,
+          requesterDepartment: (currentSession.role === "tecnico" && selectedRequesterDepartment) ? selectedRequesterDepartment : currentSession.department,
+          screenshot: newTicketForm.screenshot || undefined,
+          projectDeadline: newTicketForm.projectDeadline || undefined,
+          attachments: newTicketForm.attachments
+        })
+      });
+
+      if (response.ok) {
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          createdTicket = await response.json();
+        }
+      }
+    } catch (error) {
+      console.warn("Erro ao enviar chamado para API, criando localmente com sincronização Supabase:", error);
+    }
+
+    // Fallback if API returned HTML or failed
+    if (!createdTicket) {
+      const now = new Date();
+      const nextId = String(Date.now()).slice(-4);
+      createdTicket = {
+        id: nextId,
+        title: newTicketForm.title,
+        description: newTicketForm.description,
+        category: "Outros",
+        priority: "Média",
+        status: "Aberto",
+        requesterName: (currentSession.role === "tecnico" && selectedRequesterName) ? selectedRequesterName : currentSession.name,
+        requesterDepartment: (currentSession.role === "tecnico" && selectedRequesterDepartment) ? selectedRequesterDepartment : currentSession.department,
+        assignedTo: null,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        slaLimit: new Date(now.getTime() + 24 * 3600000).toISOString(),
+        aiCategory: "Aguardando Triagem",
+        aiPriority: "Média",
+        aiReasoning: "Abertura enviada com sucesso.",
+        aiSuggestions: "Aguardando atendimento técnico.",
+        comments: [],
+        screenshot: newTicketForm.screenshot || undefined,
+        projectDeadline: newTicketForm.projectDeadline || undefined,
+        attachments: newTicketForm.attachments
+      };
+    }
+
+    // Save directly to Supabase DB from browser
+    saveTicketToSupabase(createdTicket).catch(e => console.warn("Erro ao salvar no Supabase pelo navegador:", e));
+
+    setIsNewTicketModalOpen(false);
+    setNewTicketForm({ title: "", description: "", screenshot: "", projectDeadline: "", attachments: [] });
+
+    const finalTicket = createdTicket;
+    setTickets(prev => [finalTicket, ...prev.filter(t => t.id !== finalTicket.id)]);
+    setSelectedTicketId(finalTicket.id);
+    setIsSubmittingTicket(false);
+  };
+
+  const handleStartEditUser = (user: User) => {
+    setEditingUserId(user.id);
+    setNewUserForm({
+      name: user.name,
+      email: user.email,
+      password: user.password || "",
+      department: user.department,
+      role: user.role
+    });
+    setUserFormError("");
+    setUserFormSuccess("");
+  };
+
+  const handleCancelEditUser = () => {
+    setEditingUserId(null);
+    setNewUserForm({
+      name: "",
+      email: "",
+      password: "",
+      department: "Financeiro",
+      role: "colaborador"
+    });
+    setUserFormError("");
+    setUserFormSuccess("");
+  };
+
+  const handleCreateOrUpdateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setUserFormError("");
+    setUserFormSuccess("");
+
+    const isEdit = !!editingUserId;
+    if (!newUserForm.name.trim() || !newUserForm.email.trim() || (!isEdit && !newUserForm.password.trim())) {
+      setUserFormError(isEdit ? "Por favor, preencha o nome e e-mail." : "Por favor, preencha o nome, e-mail e senha de acesso.");
+      return;
+    }
+
+    setIsSubmittingUser(true);
+    let savedUser: User | null = null;
+    let apiSucceeded = false;
+
+    try {
+      const url = editingUserId ? `/api/users/${editingUserId}` : "/api/users";
+      const method = editingUserId ? "PUT" : "POST";
+
+      const response = await fetch(getApiUrl(url), {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newUserForm)
+      });
+
+      if (response.ok) {
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          savedUser = await response.json();
+          apiSucceeded = true;
+        }
+      }
+    } catch (error) {
+      console.warn("Erro ao salvar colaborador na API, salvando via Supabase/Local:", error);
+    }
+
+    if (!savedUser) {
+      savedUser = {
+        id: editingUserId || String(1000 + Math.floor(Math.random() * 9000)),
+        name: newUserForm.name.trim(),
+        email: newUserForm.email.trim().toLowerCase(),
+        password: newUserForm.password.trim(),
+        department: newUserForm.department,
+        role: newUserForm.role as "colaborador" | "tecnico",
+        mustChangePassword: false
+      };
+    }
+
+    // Direct browser Supabase save: only needed as a fallback when the API call
+    // itself failed. When the API succeeds, the server already syncs Supabase on
+    // its own — and it never returns the password hash to the client, so re-sending
+    // savedUser here would upsert an empty password and lock the user out.
+    if (!apiSucceeded && savedUser.password) {
+      saveUserToSupabase(savedUser).catch(e => console.warn("Erro ao salvar usuário no Supabase pelo navegador:", e));
+    }
+
+    if (editingUserId) {
+      setUserFormSuccess(`Colaborador ${savedUser.name} atualizado com sucesso!`);
+      handleCancelEditUser();
+    } else {
+      setUserFormSuccess(`Colaborador ${savedUser.name} cadastrado com sucesso!`);
+      setNewUserForm({
+        name: "",
+        email: "",
+        password: "",
+        department: "Financeiro",
+        role: "colaborador"
+      });
+    }
+
+    const finalUser = savedUser;
+    setUsers(prev => [finalUser, ...prev.filter(u => u.id !== finalUser.id)]);
+    setIsSubmittingUser(false);
+  };
+
+  const handleDeleteUserClick = (user: User) => {
+    setDeletingUser(user);
+  };
+
+  const handleConfirmDeleteUser = async () => {
+    if (!deletingUser) return;
+    const deletedId = deletingUser.id;
+    const emailDeleted = deletingUser.email;
+    setDeletingUser(null);
+
+    // Update local state immediately
+    setUsers(prev => prev.filter(u => u.id !== deletedId));
+
+    // Direct Supabase deletion
+    deleteUserFromSupabase(deletedId).catch(e => console.warn("Erro ao excluir usuário no Supabase pelo navegador:", e));
+
+    try {
+      await fetch(getApiUrl(`/api/users/${deletedId}`), {
+        method: "DELETE"
+      });
+    } catch (error) {
+      console.warn("Erro ao enviar deleção para API:", error);
+    }
+
+    if (currentSession?.email === emailDeleted) {
+      handleLogout();
+    }
+  };
+
+  const handleUpdateTicketMeta = async (ticketId: string, fields: Partial<Ticket>) => {
+    const targetTicket = tickets.find(t => t.id === ticketId);
+    if (!targetTicket) return;
+
+    const updatedTicket: Ticket = {
+      ...targetTicket,
+      ...fields,
+      updatedAt: new Date().toISOString()
+    };
+
+    setTickets(prev => prev.map(t => t.id === ticketId ? updatedTicket : t));
+    saveTicketToSupabase(updatedTicket).catch(e => console.warn("Erro ao salvar chamado no Supabase pelo navegador:", e));
+
+    try {
+      const payload = {
+        ...fields,
+        requesterUser: currentSession?.name || null
+      };
+      await fetch(getApiUrl(`/api/tickets/${ticketId}`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+    } catch (error) {
+      console.warn("Erro ao atualizar chamado na API:", error);
+    }
+  };
+
+  const handleAddComment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTicketId || (!newCommentText.trim() && !commentAttachment)) return;
+
+    const targetTicket = tickets.find(t => t.id === selectedTicketId);
+    if (!targetTicket) return;
+
+    const newComment: Comment = {
+      id: String(Date.now()),
+      authorName: currentSession.name,
+      authorRole: currentSession.role,
+      content: newCommentText.trim() || `[Anexo: ${commentAttachmentName || 'Documento/Imagem'}]`,
+      timestamp: new Date().toISOString()
+    };
+
+    const updatedTicket: Ticket = {
+      ...targetTicket,
+      comments: [...targetTicket.comments, newComment],
+      updatedAt: new Date().toISOString()
+    };
+
+    setTickets(prev => prev.map(t => t.id === selectedTicketId ? updatedTicket : t));
+    setNewCommentText("");
+    setCommentAttachment(null);
+    setCommentAttachmentName("");
+
+    saveTicketToSupabase(updatedTicket).catch(e => console.warn("Erro ao salvar comentário no Supabase pelo navegador:", e));
+
+    try {
+      await fetch(getApiUrl(`/api/tickets/${selectedTicketId}/comments`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          authorName: currentSession.name,
+          authorRole: currentSession.role,
+          content: newCommentText.trim() || `[Anexo: ${commentAttachmentName || 'Documento/Imagem'}]`,
+          attachmentUrl: commentAttachment || undefined,
+          attachmentName: commentAttachmentName || undefined
+        })
+      });
+    } catch (error) {
+      console.warn("Erro ao enviar comentário para API:", error);
+    }
+  };
+
+  let statusText = "Inicializando sistemas...";
+  let StatusIcon = Terminal;
+  if (preloaderProgress < 25) {
+    statusText = "Conectando ao banco de dados Supabase...";
+    StatusIcon = Database;
+  } else if (preloaderProgress < 50) {
+    statusText = "Carregando módulos de atendimento...";
+    StatusIcon = Cpu;
+  } else if (preloaderProgress < 75) {
+    statusText = "Sincronizando fila de chamados...";
+    StatusIcon = Layers;
+  } else if (preloaderProgress < 95) {
+    statusText = "Verificando conexões de segurança SSL...";
+    StatusIcon = Lock;
+  } else {
+    statusText = "Pronto para iniciar!";
+    StatusIcon = CheckCircle;
+  }
+
+  const preloaderJSX = showPreloader ? (
+    <div
+      className={`fixed inset-0 z-[9999] bg-[#09090b] flex flex-col items-center justify-center font-sans overflow-hidden transition-all duration-200 ease-in-out ${
+        preloaderFadeOut ? "opacity-0 scale-95 pointer-events-none" : "opacity-100 scale-100"
+      }`}
+    >
+      {/* Clean Corporate Card */}
+      <div className="relative z-10 max-w-[340px] w-full mx-4 border border-zinc-800 bg-[#121215] rounded-2xl p-6 sm:p-8 shadow-2xl text-center flex flex-col items-center gap-6">
+        {/* Top Status Badge */}
+        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-[10px] font-bold tracking-wider text-zinc-400 uppercase">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          <span>PORTAL DE ATENDIMENTO CORPORATIVO</span>
+        </div>
+
+        {/* Clean Logo */}
+        <div className="w-16 h-16 flex items-center justify-center my-1">
+          <img
+            src={logoMin}
+            alt="GRAN7"
+            className="w-14 h-14 object-contain"
+          />
+        </div>
+
+        {/* Text Area */}
+        <div className="text-center">
+          <Gran7Brand size="lg" showSubtitle={true} subtitleText="SISTEMA DE GESTÃO DE CHAMADOS" />
+        </div>
+
+        {/* Progress Section */}
+        <div className="w-full space-y-2 mt-2">
+          <div className="flex justify-between items-center text-[10px] font-bold text-zinc-400 px-0.5">
+            <span className="uppercase text-[10px] tracking-wider text-zinc-400 truncate">
+              {statusText}
+            </span>
+            <span className="text-emerald-400 font-mono font-bold">{preloaderProgress}%</span>
+          </div>
+          <div className="w-full h-1.5 bg-zinc-900 rounded-full border border-zinc-800/80 overflow-hidden">
+            <div 
+              className="h-full bg-emerald-600 rounded-full transition-all duration-150 ease-out"
+              style={{ width: `${preloaderProgress}%` }}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between w-full border-t border-zinc-800/60 pt-3 text-[9px] text-zinc-500 font-medium">
+          <span>GRAN7 NUTRITION &amp; BIOTECHNOLOGY</span>
+          <span className="text-zinc-400 font-mono">v2.4</span>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  // Selected ticket calculation
+  const selectedTicket = useMemo(() => {
+    return tickets.find(t => t.id === selectedTicketId) || null;
+  }, [tickets, selectedTicketId]);
+
+  const isAssignedToOther = useMemo(() => {
+    return !!(selectedTicket && currentSession && currentSession.role === "tecnico" && selectedTicket.assignedTo && !getAssignedTechs(selectedTicket.assignedTo).includes(currentSession.name));
+  }, [selectedTicket, currentSession]);
+
+  // Role-based tickets filter: technicians see everything, collaborators only see their own tickets
+  const userVisibleTickets = useMemo(() => {
+    if (!currentSession) return [];
+    return tickets.filter(t => 
+      currentSession.role === "tecnico" || t.requesterName === currentSession.name
+    );
+  }, [tickets, currentSession]);
+
+  // Helper function to check if a ticket/project is overdue
+  const isTicketOverdue = useCallback((t: Ticket) => {
+    if (t.status === "Resolvido" || t.status === "Fechado") return false;
+    if (t.projectDeadline) {
+      const deadlineDate = new Date(t.projectDeadline);
+      deadlineDate.setHours(23, 59, 59, 999);
+      return deadlineDate.getTime() < Date.now();
+    }
+    return new Date(t.slaLimit).getTime() < Date.now();
+  }, []);
+
+  // Filtered tickets calculation
+  const filteredTickets = useMemo(() => {
+    return userVisibleTickets.filter(t => {
+      // Tab filtering: hide active projects from normal ticket queue and vice versa
+      if (activeTab === "painel") {
+        // "Fila de Chamados" hides active projects
+        if (t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado") {
+          return false;
+        }
+      } else if (activeTab === "projetos") {
+        // "Projetos em Andamento" shows all projects
+        if (!t.projectDeadline) {
+          return false;
+        }
+      }
+
+      const matchesSearch = 
+        t.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        t.id.includes(searchTerm) ||
+        t.requesterName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (t.assignedTo && t.assignedTo.toLowerCase().includes(searchTerm.toLowerCase()));
+      
+      const matchesCategory = selectedCategory === "All" || t.category === selectedCategory;
+      const matchesPriority = selectedPriority === "All" || t.priority === selectedPriority;
+      const matchesStatus = 
+        selectedStatus === "All" || 
+        (selectedStatus === "Active" ? (t.status === "Aberto" || t.status === "Em Atendimento") : t.status === selectedStatus);
+
+      return matchesSearch && matchesCategory && matchesPriority && matchesStatus;
+    });
+  }, [userVisibleTickets, activeTab, searchTerm, selectedCategory, selectedPriority, selectedStatus]);
+
+  // Operational metrics
+  const totalTickets = userVisibleTickets.length;
+  // Fila Ativa excludes active projects with long dates
+  const activeTickets = useMemo(() => {
+    return userVisibleTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado" && !t.projectDeadline);
+  }, [userVisibleTickets]);
+
+  const activeProjects = useMemo(() => {
+    return userVisibleTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado" && !!t.projectDeadline);
+  }, [userVisibleTickets]);
+
+  const resolvedTickets = useMemo(() => {
+    return userVisibleTickets.filter(t => t.status === "Resolvido" || t.status === "Fechado");
+  }, [userVisibleTickets]);
+
+  const criticalTickets = useMemo(() => {
+    return activeTickets.filter(t => t.priority === "Urgente" || t.priority === "Alta");
+  }, [activeTickets]);
+  
+  // SLA Overdue count (includes standard overdue and projects that passed their deadline)
+  const allActiveTickets = useMemo(() => {
+    return userVisibleTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado");
+  }, [userVisibleTickets]);
+
+  const overdueTickets = useMemo(() => {
+    return allActiveTickets.filter(t => isTicketOverdue(t));
+  }, [allActiveTickets, isTicketOverdue]);
+
+  const slaCompliance = useMemo(() => {
+    return totalTickets > 0 ? Math.round(((totalTickets - overdueTickets.length) / totalTickets) * 100) : 100;
+  }, [totalTickets, overdueTickets]);
+
+  // Category counts
+  const catStats = useMemo(() => {
+    const stats = { Hardware: 0, Software: 0, Redes: 0, Acesso: 0, Sistemas: 0, Outros: 0 };
+    userVisibleTickets.forEach(t => { if (stats[t.category] !== undefined) stats[t.category]++; });
+    return stats;
+  }, [userVisibleTickets]);
+
+  // Priority counts for quick indicators
+  const prioStats = useMemo(() => {
+    const stats = { Urgente: 0, Alta: 0, Média: 0, Baixa: 0 };
+    userVisibleTickets.forEach(t => { if (stats[t.priority] !== undefined) stats[t.priority]++; });
+    return stats;
+  }, [userVisibleTickets]);
+
+  if (!currentSession) {
+    return (
+      <>
+        <LoginScreen
+          onLoginSuccess={(session) => {
+            setCurrentSession(session);
+            localStorage.setItem("gran7_session", JSON.stringify(session));
+            if (session.email || session.name) {
+              fetch(getApiUrl("/api/heartbeat"), {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email: session.email, name: session.name })
+              }).then(() => fetchUsers()).catch(() => {});
+            }
+          }} 
+        />
+        {preloaderJSX}
+      </>
+    );
+  }
+
+  if (currentSession.mustChangePassword) {
+    return (
+      <>
+        <ChangePasswordScreen
+          session={currentSession}
+          onPasswordChanged={(updatedSession) => {
+            setCurrentSession(updatedSession);
+            localStorage.setItem("gran7_session", JSON.stringify(updatedSession));
+          }}
+          onLogout={() => {
+            setCurrentSession(null);
+            localStorage.removeItem("gran7_session");
+          }}
+        />
+        {preloaderJSX}
+      </>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#09090b] text-zinc-100 flex flex-col font-sans relative">
+      {/* Gran7 Top Horizontal Navbar (Full-width top bar matching screenshot) */}
+      <header className="w-full bg-[#000000] border-b border-zinc-800/80 sticky top-0 z-40 px-4 sm:px-6 lg:px-8 py-3.5 flex items-center justify-between gap-4 backdrop-blur-md">
+        {/* Left: Brand Logo */}
+        <div className="flex items-center shrink-0">
+          <button 
+            onClick={handleGoToHome}
+            className="flex items-center gap-3 hover:opacity-90 transition cursor-pointer shrink-0"
+            title="Ir para o início"
+          >
+            <img src={logoImg} alt="GRAN7" className="h-8 sm:h-9 w-auto object-contain" />
+          </button>
+        </div>
+
+        {/* Center: Desktop Top Nav Tabs (Gran7 Pill Bar) */}
+        <div className="hidden lg:flex items-center justify-center flex-1">
+          <div className="flex items-center gap-1.5 bg-zinc-900/90 p-1.5 rounded-full border border-zinc-800">
+            <button
+              onClick={() => setActiveTab("painel")}
+              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                activeTab === "painel" 
+                  ? "bg-emerald-600 text-white shadow-lg" 
+                  : "text-zinc-400 hover:text-white hover:bg-zinc-800/60"
+              }`}
+            >
+              Fila de Chamados
+            </button>
+
+            {isTechUser && (
+              <>
+                <button
+                  onClick={() => setActiveTab("projetos")}
+                  className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                    activeTab === "projetos" 
+                      ? "bg-emerald-600 text-white shadow-lg" 
+                      : "text-zinc-400 hover:text-white hover:bg-zinc-800/60"
+                  }`}
+                >
+                  Projetos em Andamento
+                </button>
+                
+                <button
+                  onClick={() => setActiveTab("sla")}
+                  className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                    activeTab === "sla" 
+                      ? "bg-emerald-600 text-white shadow-lg" 
+                      : "text-zinc-400 hover:text-white hover:bg-zinc-800/60"
+                  }`}
+                >
+                  Análise de SLA
+                </button>
+                
+                <button
+                  onClick={() => setActiveTab("colaboradores")}
+                  className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                    activeTab === "colaboradores" 
+                      ? "bg-emerald-600 text-white shadow-lg" 
+                      : "text-zinc-400 hover:text-white hover:bg-zinc-800/60"
+                  }`}
+                >
+                  Gestão de Colaboradores
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Right: User Role Pill, Profile Avatar & Create Ticket CTA */}
+        <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
+          {/* User Session Role Badge */}
+          <div className="hidden sm:flex items-center gap-2 bg-zinc-900 px-3 py-1.5 rounded-full border border-zinc-800 text-xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            <span className="font-black text-[10px] tracking-wider text-zinc-300 uppercase">
+              {isTechUser ? "ADMINISTRATIVO / TI GRAN7" : "COLABORADOR"}
+            </span>
+          </div>
+
+          {/* User Profile Avatar Pill */}
+          <button
+            onClick={() => {
+              const myProfile = users.find(u => u.name === currentSession.name || (u.email && currentSession.email && u.email.toLowerCase() === currentSession.email.toLowerCase())) || {
+                id: "self",
+                name: currentSession.name,
+                email: currentSession.email || `${currentSession.name.toLowerCase().replace(/\s+/g, ".")}@gran7.com.br`,
+                role: currentSession.role,
+                department: currentSession.department || "Geral",
+                isOnline: true
+              };
+              setSelectedTechProfile(myProfile);
+              setProfileModalTab("overview");
+              setProfileTicketsFilter("all");
+              setIsTechProfileModalOpen(true);
+            }}
+            className="w-9 h-9 rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center text-xs font-black text-emerald-400 hover:bg-zinc-800 hover:border-emerald-500 transition cursor-pointer shadow-md ring-2 ring-emerald-500/20"
+            title={`Ver perfil completo: ${currentSession.name}`}
+          >
+            {currentSession.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
+          </button>
+
+          {/* Logout Button */}
+          <button
+            onClick={handleLogout}
+            className="p-2 bg-zinc-900 hover:bg-rose-950/40 border border-zinc-800 hover:border-rose-500/30 text-zinc-400 hover:text-rose-400 rounded-full transition cursor-pointer"
+            title="Sair da Conta"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
+
+
+          {/* Mobile Menu Toggle Button */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="lg:hidden p-2 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+        </div>
+      </header>
+
+      {/* Mobile Horizontal Sub-Navigation Bar */}
+      <div className="lg:hidden bg-zinc-950 border-b border-zinc-800/80 px-4 py-2.5 overflow-x-auto flex items-center gap-2 no-scrollbar">
+        <button
+          onClick={() => setActiveTab("painel")}
+          className={`px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
+            activeTab === "painel" ? "bg-emerald-600 text-white" : "bg-zinc-900 text-zinc-400 border border-zinc-800"
+          }`}
+        >
+          Fila de Chamados
+        </button>
+        {isTechUser && (
+          <>
+            <button
+              onClick={() => setActiveTab("projetos")}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
+                activeTab === "projetos" ? "bg-emerald-600 text-white" : "bg-zinc-900 text-zinc-400 border border-zinc-800"
+              }`}
+            >
+              Projetos em Andamento
+            </button>
+            <button
+              onClick={() => setActiveTab("sla")}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
+                activeTab === "sla" ? "bg-emerald-600 text-white" : "bg-zinc-900 text-zinc-400 border border-zinc-800"
+              }`}
+            >
+              Análise de SLA
+            </button>
+            <button
+              onClick={() => setActiveTab("colaboradores")}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
+                activeTab === "colaboradores" ? "bg-emerald-600 text-white" : "bg-zinc-900 text-zinc-400 border border-zinc-800"
+              }`}
+            >
+              Gestão de Colaboradores
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Animated Mobile Slide-out Drawer */}
+      <AnimatePresence>
+        {mobileMenuOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMobileMenuOpen(false)}
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 lg:hidden"
+            />
+            <motion.div
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="fixed inset-y-0 left-0 w-4/5 max-w-[320px] bg-zinc-950 border-r border-zinc-800 z-50 flex flex-col lg:hidden overflow-hidden shadow-2xl"
+            >
+              <div className="p-4 flex items-center justify-between border-b border-zinc-800 bg-zinc-900">
+                <img src={logoImg} alt="GRAN7" className="h-8 w-auto object-contain" />
+                <button
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-white"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                <div className="p-3.5 bg-zinc-900/90 rounded-2xl border border-zinc-800">
+                  <p className="text-xs font-bold text-white">{currentSession.name}</p>
+                  <p className="text-[10px] text-zinc-400">{currentSession.department}</p>
+                </div>
+                <div className="space-y-1">
+                  <button
+                    onClick={() => { setActiveTab("painel"); setMobileMenuOpen(false); }}
+                    className="w-full text-left px-4 py-2.5 rounded-xl text-xs font-bold text-zinc-200 hover:bg-zinc-900 flex items-center gap-2"
+                  >
+                    <Layers className="h-4 w-4 text-emerald-400" />
+                    Fila de Chamados
+                  </button>
+                  {currentSession.role === "tecnico" && (
+                    <>
+                      <button
+                        onClick={() => { setActiveTab("projetos"); setMobileMenuOpen(false); }}
+                        className="w-full text-left px-4 py-2.5 rounded-xl text-xs font-bold text-zinc-200 hover:bg-zinc-900 flex items-center gap-2"
+                      >
+                        <FolderKanban className="h-4 w-4 text-emerald-400" />
+                        Projetos em Andamento
+                      </button>
+                      <button
+                        onClick={() => { setActiveTab("sla"); setMobileMenuOpen(false); }}
+                        className="w-full text-left px-4 py-2.5 rounded-xl text-xs font-bold text-zinc-200 hover:bg-zinc-900 flex items-center gap-2"
+                      >
+                        <Clock className="h-4 w-4 text-emerald-400" />
+                        Análise de SLA
+                      </button>
+                      <button
+                        onClick={() => { setActiveTab("colaboradores"); setMobileMenuOpen(false); }}
+                        className="w-full text-left px-4 py-2.5 rounded-xl text-xs font-bold text-zinc-200 hover:bg-zinc-900 flex items-center gap-2"
+                      >
+                        <Users className="h-4 w-4 text-emerald-400" />
+                        Gestão de Colaboradores
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Main Full-Width Content Container */}
+      <main className="flex-1 w-full max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-8 flex flex-col gap-6 overflow-x-hidden">
+        
+        {/* Top Header Controls / Page Subheader */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-zinc-800/80 pb-5">
+          <div>
+            <h2 className="text-2xl sm:text-3xl font-display font-black text-white tracking-tight">
+              Chamados em Aberto
+            </h2>
+            <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-400 mt-1 font-medium">
+              <div className="flex items-center gap-1.5 text-zinc-300">
+                <RefreshCw className={`h-3.5 w-3.5 ${isPolling ? "animate-spin text-emerald-400" : ""}`} />
+                <span>Atualizado: {lastUpdated ? lastUpdated.toLocaleTimeString("pt-BR") : "--:--:--"}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Minimalist Top Active IT Team Status Bar */}
+            <div className="flex items-center justify-between gap-2 bg-[#121215] border border-zinc-800/80 rounded-lg px-3 py-1.5 shadow-sm my-1">
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Users className="h-3 w-3 text-emerald-400" />
+                <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider">TI ATIVA:</span>
+                <span className="text-[9px] font-extrabold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full">
+                  {users.filter(u => u.role === "tecnico" && (u.isOnline || (currentSession && (u.email === currentSession.email || u.name === currentSession.name)))).length} / {users.filter(u => u.role === "tecnico").length}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
+                {users
+                  .filter(u => u.role === "tecnico")
+                  .map(u => {
+                    const isOnline = !!(u.isOnline || (currentSession && (
+                      (u.email && currentSession.email && u.email.toLowerCase() === currentSession.email.toLowerCase()) ||
+                      (u.name && currentSession.name && u.name.toLowerCase() === currentSession.name.toLowerCase())
+                    )));
+                    return { ...u, isOnline };
+                  })
+                  .sort((a, b) => (b.isOnline ? 1 : 0) - (a.isOnline ? 1 : 0))
+                  .map((user, idx) => (
+                    <div
+                      key={user.id || idx}
+                      className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[10px] shrink-0 transition ${
+                        user.isOnline
+                          ? "bg-emerald-500/10 border-emerald-500/30 text-white"
+                          : "bg-zinc-900/60 border-zinc-800/60 text-zinc-400"
+                      }`}
+                      title={`${user.name} - ${user.isOnline ? "Online / Ativo" : "Ausente"}`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                        user.isOnline ? "bg-emerald-400 animate-pulse" : "bg-zinc-600"
+                      }`} />
+                      <span className="font-bold truncate max-w-[90px]">{user.name}</span>
+                      <span className={`text-[8px] font-black uppercase tracking-wider px-1 py-0.2 rounded ${
+                        user.isOnline ? "bg-emerald-500/20 text-emerald-400" : "bg-zinc-800/80 text-zinc-500"
+                      }`}>
+                        {user.isOnline ? "ON" : "OFF"}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            <button
+            onClick={() => setIsNewTicketModalOpen(true)}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-full transition duration-200 flex items-center gap-2 text-xs shadow-md cursor-pointer shrink-0"
+          >
+            <PlusCircle className="h-4 w-4" />
+            <span>Abrir Novo Chamado</span>
+          </button>
+        </div>
+      </div>
+
+        {/* Dynamic Bento Grid Layout */}
+        <AnimatePresence mode="wait">
+          {activeTab === "sla" && currentSession.role === "tecnico" ? (
+            <motion.div
+              key="sla"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <SlaAnalytics 
+                tickets={tickets} 
+                users={users} 
+                onViewUserProfile={(user) => {
+                  setSelectedTechProfile(user);
+                  setIsTechProfileModalOpen(true);
+                }}
+                onSelectTicket={(ticketId) => {
+                  setSelectedTicketId(ticketId);
+                  setActiveTab("chamados");
+                }}
+              />
+            </motion.div>
+          ) : activeTab === "colaboradores" && currentSession.role === "tecnico" ? (
+            <motion.div
+              key="colaboradores"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+              className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start"
+            >
+            
+            {/* Top Stat row taking full width - Minimalist */}
+            <div className="xl:col-span-12 grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="bg-[#121215] border border-zinc-800/80 rounded-xl p-4 flex items-center justify-between shadow-sm">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Total de Contas</p>
+                  <p className="text-2xl font-bold text-zinc-100 mt-1">{(users.length > 0 ? users : USER_PROFILES).length}</p>
+                </div>
+                <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-800/80 flex items-center justify-center text-zinc-400">
+                  <Users className="w-4 h-4" />
+                </div>
+              </div>
+
+              <div className="bg-[#121215] border border-zinc-800/80 rounded-xl p-4 flex items-center justify-between shadow-sm">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Equipe de TI</p>
+                  <p className="text-2xl font-bold text-emerald-400 mt-1">
+                    {(users.length > 0 ? users : USER_PROFILES).filter(u => u.role === "tecnico").length}
+                  </p>
+                </div>
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                  <Shield className="w-4 h-4" />
+                </div>
+              </div>
+
+              <div className="bg-[#121215] border border-zinc-800/80 rounded-xl p-4 flex items-center justify-between shadow-sm">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Colaboradores</p>
+                  <p className="text-2xl font-bold text-zinc-100 mt-1">
+                    {(users.length > 0 ? users : USER_PROFILES).filter(u => u.role === "colaborador").length}
+                  </p>
+                </div>
+                <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-800/80 flex items-center justify-center text-zinc-400">
+                  <UserIcon className="w-4 h-4" />
+                </div>
+              </div>
+            </div>
+
+            {/* Left Panel: List (Full Width) */}
+            <div className="xl:col-span-12 space-y-6">
+              {/* Collaborators List Card */}
+              <div className="bg-[#121215] border border-zinc-800/80 rounded-2xl overflow-hidden shadow-lg">
+                {(() => {
+                  const allColabs = users.length > 0 ? users : USER_PROFILES;
+                  const colabDepartments = Array.from(new Set(
+                    allColabs.map(u => u.department).filter(Boolean)
+                  )).sort();
+
+                  // Pre-calculate ticket counts to avoid filtering full tickets array inside .sort comparator (O(N log N) -> O(N))
+                  const ticketsCreatedMap = new Map();
+                  const ticketsSolvedMap = new Map();
+                  
+                  tickets.forEach(t => {
+                    if (t.requesterName) {
+                      ticketsCreatedMap.set(t.requesterName, (ticketsCreatedMap.get(t.requesterName) || 0) + 1);
+                    }
+                    if (t.assignedTo && (t.status === "Resolvido" || t.status === "Fechado")) {
+                      const techs = getAssignedTechs(t.assignedTo);
+                      techs.forEach(tech => {
+                        ticketsSolvedMap.set(tech, (ticketsSolvedMap.get(tech) || 0) + 1);
+                      });
+                    }
+                  });
+
+                  const filteredAndSortedUsers = allColabs
+                    .filter(u => {
+                      // 1. Search filter
+                      const term = colabSearchTerm.toLowerCase();
+                      const matchesSearch = 
+                        u.name.toLowerCase().includes(term) || 
+                        (u.email && u.email.toLowerCase().includes(term)) || 
+                        (u.department && u.department.toLowerCase().includes(term));
+                      if (!matchesSearch) return false;
+
+                      // 2. Sector filter
+                      if (colabSectorFilter !== "All" && u.department !== colabSectorFilter) {
+                        return false;
+                      }
+
+                      // 3. Role filter
+                      if (colabRoleFilter !== "All") {
+                        const isTech = u.role === "tecnico";
+                        if (colabRoleFilter === "tecnico" && !isTech) return false;
+                        if (colabRoleFilter === "colaborador" && isTech) return false;
+                      }
+
+                      // 4. Online status filter
+                      const isOnline = !!(u.isOnline || (currentSession && (
+                        (u.email && currentSession.email && u.email.toLowerCase() === currentSession.email.toLowerCase()) ||
+                        (u.name && currentSession.name && u.name.toLowerCase() === currentSession.name.toLowerCase())
+                      )));
+                      if (colabStatusFilter !== "All") {
+                        if (colabStatusFilter === "online" && !isOnline) return false;
+                        if (colabStatusFilter === "offline" && isOnline) return false;
+                      }
+
+                      return true;
+                    })
+                    .sort((a, b) => {
+                      const aTicketsCreated = ticketsCreatedMap.get(a.name) || 0;
+                      const bTicketsCreated = ticketsCreatedMap.get(b.name) || 0;
+                      const aTicketsSolved = ticketsSolvedMap.get(a.name) || 0;
+                      const bTicketsSolved = ticketsSolvedMap.get(b.name) || 0;
+
+                      if (colabSortBy === "tickets_created") {
+                        return bTicketsCreated - aTicketsCreated; // Descending
+                      } else if (colabSortBy === "tickets_resolved") {
+                        return bTicketsSolved - aTicketsSolved; // Descending
+                      } else {
+                        // Default sort: online first, then alphabetical
+                        const aOnline = !!(a.isOnline || (currentSession && (
+                          (a.email && currentSession.email && a.email.toLowerCase() === currentSession.email.toLowerCase()) ||
+                          (a.name && currentSession.name && a.name.toLowerCase() === currentSession.name.toLowerCase())
+                        )));
+                        const bOnline = !!(b.isOnline || (currentSession && (
+                          (b.email && currentSession.email && b.email.toLowerCase() === currentSession.email.toLowerCase()) ||
+                          (b.name && currentSession.name && b.name.toLowerCase() === currentSession.name.toLowerCase())
+                        )));
+                        if (aOnline && !bOnline) return -1;
+                        if (!aOnline && bOnline) return 1;
+                        return a.name.localeCompare(b.name);
+                      }
+                    });
+
+                  return (
+                    <>
+                      {/* Search & Advanced Filters Bar */}
+                      <div className="p-5 border-b border-neutral-900 bg-black/50 space-y-4">
+                        {/* Top Row: Title & Search */}
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                          <div>
+                            <h3 className="font-display font-extrabold text-white text-sm flex items-center gap-2">
+                              <Users className="h-4 w-4 text-emerald-400" />
+                              Diretório de Colaboradores
+                            </h3>
+                            <p className="text-[10px] text-slate-400">Visualização em tempo real das contas ativas e métricas de chamados</p>
+                          </div>
+                          <div className="relative w-full md:w-80">
+                            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-500" />
+                            <input
+                              type="text"
+                              placeholder="Buscar por nome, email ou setor..."
+                              value={colabSearchTerm}
+                              onChange={(e) => setColabSearchTerm(e.target.value)}
+                              className="w-full bg-black border border-neutral-900 rounded-xl py-1.5 pl-9 pr-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Bottom Row: Quick filters dropdowns */}
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 pt-3 border-t border-neutral-900/40">
+                          {/* Sector Filter */}
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Setor / Departamento</label>
+                            <select
+                              value={colabSectorFilter}
+                              onChange={(e) => setColabSectorFilter(e.target.value)}
+                              className="bg-black border border-neutral-900 rounded-lg p-1.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
+                            >
+                              <option value="All">Todos os Setores</option>
+                              {colabDepartments.map(dept => (
+                                <option key={dept} value={dept}>{dept}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Role Filter */}
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Nível de Acesso</label>
+                            <select
+                              value={colabRoleFilter}
+                              onChange={(e) => setColabRoleFilter(e.target.value)}
+                              className="bg-black border border-neutral-900 rounded-lg p-1.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
+                            >
+                              <option value="All">Todos os Acessos</option>
+                              <option value="tecnico">Técnicos (TI)</option>
+                              <option value="colaborador">Colaboradores</option>
+                            </select>
+                          </div>
+
+                          {/* Connection Status Filter */}
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Status</label>
+                            <select
+                              value={colabStatusFilter}
+                              onChange={(e) => setColabStatusFilter(e.target.value)}
+                              className="bg-black border border-neutral-900 rounded-lg p-1.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
+                            >
+                              <option value="All">Todos os Status</option>
+                              <option value="online">Online</option>
+                              <option value="offline">Offline</option>
+                            </select>
+                          </div>
+
+                          {/* Sorting */}
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Ordenar por</label>
+                            <select
+                              value={colabSortBy}
+                              onChange={(e) => setColabSortBy(e.target.value)}
+                              className="bg-black border border-neutral-900 rounded-lg p-1.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
+                            >
+                              <option value="name">Nome (A-Z)</option>
+                              <option value="tickets_created">Mais Chamados Criados</option>
+                              <option value="tickets_resolved">Mais Chamados Resolvidos (TI)</option>
+                            </select>
+                          </div>
+
+                          {/* Reset Filters */}
+                          <div className="flex items-end">
+                            <button
+                              onClick={() => {
+                                setColabSearchTerm("");
+                                setColabSectorFilter("All");
+                                setColabRoleFilter("All");
+                                setColabStatusFilter("All");
+                                setColabSortBy("name");
+                              }}
+                              disabled={
+                                colabSearchTerm === "" &&
+                                colabSectorFilter === "All" &&
+                                colabRoleFilter === "All" &&
+                                colabStatusFilter === "All" &&
+                                colabSortBy === "name"
+                              }
+                              className="w-full h-[32px] bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-30 disabled:hover:bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:border-emerald-400/40 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
+                            >
+                              <Filter className="h-3.5 w-3.5" />
+                              Limpar Filtros
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="divide-y divide-neutral-900 max-h-[500px] xl:max-h-[calc(100vh-270px)] overflow-y-auto">
+                        {filteredAndSortedUsers.length === 0 ? (
+                          <div className="p-8 text-center text-slate-500 text-xs">
+                            Nenhum colaborador ou técnico atende aos filtros aplicados.
+                          </div>
+                        ) : (
+                          filteredAndSortedUsers.map((user, index) => {
+                            const isTech = user.role === "tecnico";
+                            const isOnline = !!(user.isOnline || (currentSession && (
+                              (user.email && currentSession.email && user.email.toLowerCase() === currentSession.email.toLowerCase()) ||
+                              (user.name && currentSession.name && user.name.toLowerCase() === currentSession.name.toLowerCase())
+                            )));
+
+                            // Calculate ticket stats
+                            const uCreatedCount = tickets.filter(t => t.requesterName === user.name).length;
+                            const uActiveCount = tickets.filter(t => t.requesterName === user.name && t.status !== "Resolvido" && t.status !== "Fechado").length;
+                            const uResolvedCount = tickets.filter(t => getAssignedTechs(t.assignedTo).includes(user.name) && (t.status === "Resolvido" || t.status === "Fechado")).length;
+
+                            return (
+                              <div
+                                key={user.id || index}
+                                onClick={() => {
+                                  setSelectedTechProfile(user);
+                                  setIsTechProfileModalOpen(true);
+                                }}
+                                className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#080808]/50 transition cursor-pointer group/tech"
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className="relative shrink-0">
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 group-hover/tech:border-emerald-400/40 transition`}>
+                                      {user.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
+                                    </div>
+                                    {isOnline ? (
+                                      <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-black animate-pulse" title="Ativo / Online"></span>
+                                    ) : (
+                                      <span className="absolute bottom-0 right-0 w-3 h-3 bg-neutral-700 rounded-full border-2 border-black" title="Inativo"></span>
+                                    )}
+                                  </div>
+                                  <div>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="text-xs font-bold text-white group-hover/tech:text-emerald-400 transition-colors">{user.name}</span>
+                                      <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold bg-emerald-950/40 text-emerald-300 border border-emerald-500/20`}>
+                                        {isTech ? "TI" : "User"}
+                                      </span>
+                                      {isOnline && (
+                                        <span className="text-[8.5px] font-bold text-emerald-400 uppercase tracking-widest bg-emerald-500/10 border border-emerald-500/25 px-1 py-0.2 rounded">
+                                          Online
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex flex-col sm:flex-row sm:items-center gap-x-3 gap-y-1.5 mt-1">
+                                      <p className="text-[10px] text-slate-400">{user.email}</p>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-4 text-right justify-between sm:justify-end w-full sm:w-auto">
+                                  <div className="text-left sm:text-right">
+                                    <span className="text-[10px] text-slate-500 block">Departamento</span>
+                                    <span className="text-[11px] font-semibold text-slate-300">{user.department}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <div className="bg-black border border-emerald-950/20 px-2.5 py-1 rounded-lg text-[11px] font-mono flex items-center gap-1.5 text-emerald-300">
+                                      <span className="text-slate-500">Acesso:</span>
+                                      <span className="text-white font-bold">{isTech ? "Técnico de TI" : "Colaborador"}</span>
+                                    </div>
+                                    <span className="text-[9px] font-bold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 px-2 py-1 rounded-lg transition-all">
+                                      Ver Perfil
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          </motion.div>
+        ) : activeTab === "banco_dados" && currentSession?.role === "tecnico" ? (
+          <motion.div
+            key="banco_dados"
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -15 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+            className="space-y-6"
+          >
+            
+            {/* Header / Intro banner */}
+            <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-6 shadow-lg relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6">
+              <div className="space-y-2 max-w-2xl">
+                <div className="flex items-center gap-2">
+                  <span className="p-1.5 bg-emerald-500/10 text-emerald-400 rounded-lg border border-emerald-500/20">
+                    <Database className="h-5 w-5" />
+                  </span>
+                  <h3 className="text-base font-bold text-white uppercase tracking-wider">Central de Sincronização do Banco de Dados</h3>
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Gerencie o fluxo de dados em nuvem via <strong className="text-white">Supabase</strong> com fallback automático para <strong className="text-white">Armazenamento Local Autônomo</strong>. Nosso sistema de redundância garante que o suporte nunca pare, mesmo que a nuvem esteja indisponível.
+                </p>
+              </div>
+              <div className="shrink-0 flex items-center gap-2.5">
+                <button
+                  onClick={() => {
+                    fetchDbStatus();
+                    fetchTickets();
+                    fetchUsers();
+                  }}
+                  disabled={dbChecking}
+                  className="px-4 py-2 bg-[#151515] hover:bg-[#202020] text-slate-300 hover:text-white font-bold rounded-xl text-xs border border-neutral-900 transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${dbChecking ? "animate-spin" : ""}`} />
+                  Recarregar Tudo
+                </button>
+              </div>
+            </div>
+
+            {/* Bento Grid Analytics Row */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              {/* Card 1: Connection Status */}
+              <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-5 flex flex-col justify-between min-h-[160px] shadow-lg">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Status da Conexão</p>
+                    {dbStatus?.connected ? (
+                      <span className="flex h-2 w-2 relative">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                      </span>
+                    ) : (
+                      <span className="flex h-2 w-2 relative">
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                      </span>
+                    )}
+                  </div>
+                  
+                  <div className="mt-3">
+                    {dbStatus?.connected ? (
+                       <div>
+                         <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded uppercase tracking-wider">
+                          Nuvem Online
+                         </span>
+                         <p className="text-[11px] text-slate-300 mt-2.5 leading-relaxed">
+                          Conectado com sucesso ao banco de dados Supabase. Leituras e escritas estão ativas e sendo persistidas em nuvem em tempo real.
+                         </p>
+                       </div>
+                     ) : (
+                       <div>
+                         <span className="text-xs font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded uppercase tracking-wider">
+                           Modo Redundante / Local
+                         </span>
+                         <p className="text-[11px] text-slate-400 mt-2.5 leading-relaxed">
+                           {dbStatus?.configured 
+                            ? "Não foi possível conectar ao Supabase. Operando em modo de redundância local segura." 
+                            : "Credenciais do Supabase ausentes no painel Secrets do AI Studio. Usando banco local."}
+                         </p>
+                       </div>
+                     )}
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-neutral-900/50 mt-4 flex items-center justify-between">
+                  <span className="text-[9px] font-mono text-slate-500">
+                    Host: {dbStatus?.connected ? "supabase.co" : "cache local"}
+                  </span>
+                  <button
+                    onClick={fetchDbStatus}
+                    disabled={dbChecking}
+                    className="text-[10px] font-bold text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                  >
+                    {dbChecking ? "Testando..." : "Testar Conexão →"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Card 2: Cache Inventory */}
+              <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-5 flex flex-col justify-between min-h-[160px] shadow-lg">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Inventário de Registros Locais</p>
+                  
+                  <div className="grid grid-cols-2 gap-4 mt-4">
+                    <div className="bg-black/40 border border-neutral-900 p-3 rounded-xl">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 block">Chamados</span>
+                      <span className="text-xl font-black text-white font-mono mt-0.5 block">{tickets.length}</span>
+                    </div>
+                    <div className="bg-black/40 border border-neutral-900 p-3 rounded-xl">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 block">Colaboradores</span>
+                      <span className="text-xl font-black text-white font-mono mt-0.5 block">{users.length}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-neutral-900/50 mt-4 text-[10px] text-slate-400 leading-tight">
+                  Os arquivos <code className="text-emerald-400 font-mono">tickets-db.json</code> e <code className="text-emerald-400 font-mono">users-db.json</code> mantêm seus dados seguros no servidor.
+                </div>
+              </div>
+
+            </div>
+
+            {/* Sync Control Center */}
+            <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-6 shadow-lg space-y-6">
+              <div className="space-y-1">
+                <h4 className="text-sm font-bold text-white uppercase tracking-wider">Painel de Sincronização Bidirecional</h4>
+                <p className="text-[11px] text-slate-400">Escolha o fluxo de sincronização para reconciliar dados entre a nuvem e o cache do servidor local.</p>
+              </div>
+
+              {syncingDb === "success" && (
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-xs flex items-center gap-2 animate-in fade-in duration-200">
+                  <CheckCircle className="h-4 w-4 shrink-0" />
+                  <span>Sincronização concluída com sucesso! Os dados foram unificados no destino.</span>
+                </div>
+              )}
+
+              {syncingDb === "error" && syncDbError && (
+                <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl text-xs space-y-1.5 animate-in fade-in duration-200">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    <span className="font-bold">A sincronização falhou</span>
+                  </div>
+                  <p className="text-[11px] text-rose-300/90 leading-relaxed pl-6">
+                    {syncDbError}. Certifique-se de que as tabelas existem no Supabase (use as instruções SQL abaixo no SQL Editor para criá-las).
+                  </p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* Push Sync Card */}
+                <div className="bg-black/50 border border-neutral-900 rounded-2xl p-5 hover:border-emerald-500/20 transition duration-350 flex flex-col justify-between">
+                  <div className="space-y-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                      <Upload className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h5 className="text-xs font-bold text-white uppercase tracking-wider">Exportar Local → Supabase (Push)</h5>
+                      <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
+                        Envia todos os chamados e colaboradores salvos localmente para o banco de dados do Supabase. Use após configurar um novo banco ou resolver quedas de conexão.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="pt-6">
+                    <button
+                      onClick={handlePushSync}
+                      disabled={syncingDb === "push" || syncingDb === "pull" || !dbStatus?.configured}
+                      className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40 shadow-sm"
+                    >
+                      {syncingDb === "push" ? (
+                        <>
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                          Enviando dados...
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="h-3.5 w-3.5" />
+                          Exportar Dados para o Supabase
+                        </>
+                      )}
+                    </button>
+                    {!dbStatus?.configured && (
+                      <p className="text-[9px] text-center text-amber-500 mt-2 font-medium">
+                        * Configure as credenciais do Supabase (SUPABASE_URL e SUPABASE_KEY) nas Secrets para habilitar.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Pull Sync Card */}
+                <div className="bg-black/50 border border-neutral-900 rounded-2xl p-5 hover:border-emerald-500/20 transition duration-350 flex flex-col justify-between">
+                  <div className="space-y-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                      <FileText className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h5 className="text-xs font-bold text-white uppercase tracking-wider">Importar Supabase → Local (Pull)</h5>
+                      <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
+                        Puxa todos os chamados e colaboradores persistidos no Supabase e substitui o cache local do servidor. Ideal para inicializar novos ambientes ou baixar dados inseridos remotamente.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="pt-6">
+                    <button
+                      onClick={() => {
+                        if (confirm("Aviso: Esta ação irá sobrescrever todos os chamados e colaboradores salvos localmente com os dados armazenados no Supabase. Deseja prosseguir?")) {
+                          handlePullSync();
+                        }
+                      }}
+                      disabled={syncingDb === "push" || syncingDb === "pull" || !dbStatus?.configured}
+                      className="w-full py-2 bg-[#151515] hover:bg-[#202020] text-slate-300 hover:text-white border border-neutral-900 font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
+                    >
+                      {syncingDb === "pull" ? (
+                        <>
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                          Baixando dados...
+                        </>
+                      ) : (
+                        <>
+                          <Database className="h-3.5 w-3.5 text-slate-400" />
+                          Importar Dados do Supabase
+                        </>
+                      )}
+                    </button>
+                    {!dbStatus?.configured && (
+                      <p className="text-[9px] text-center text-amber-500 mt-2 font-medium">
+                        * Configure as credenciais do Supabase (SUPABASE_URL e SUPABASE_KEY) nas Secrets para habilitar.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            {/* SQL Script Instruction Card */}
+            <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-6 shadow-lg space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-900/80 pb-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Terminal className="h-4.5 w-4.5 text-emerald-400" />
+                    <h4 className="text-xs font-bold text-white uppercase tracking-wider">Estrutura de Tabelas SQL do Supabase</h4>
+                  </div>
+                  <p className="text-[11px] text-slate-400">Instruções e código SQL para criar a arquitetura de tabelas no banco de dados PostgreSQL do Supabase.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(dbSqlSchema);
+                      setCopySuccess(true);
+                      setTimeout(() => setCopySuccess(false), 2000);
+                    }}
+                    className="px-3 py-1.5 bg-[#151515] hover:bg-[#202020] text-slate-300 hover:text-white font-bold rounded-xl text-[10px] uppercase tracking-wider border border-neutral-900 transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    {copySuccess ? (
+                      <>
+                        <Check className="h-3.5 w-3.5 text-emerald-400" />
+                        Copiado!
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3.5 w-3.5 text-slate-400" />
+                        Copiar Código SQL
+                      </>
+                    )}
+                  </button>
+                  <a
+                    href={`data:text/plain;charset=utf-8,${encodeURIComponent(dbSqlSchema)}`}
+                    download="supabase_schema.sql"
+                    className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-bold rounded-xl text-[10px] uppercase tracking-wider border border-emerald-500/20 transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    Download .sql
+                  </a>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  Para criar as tabelas manualmente, acesse o painel do seu projeto no <strong className="text-white">Supabase</strong>, vá em <strong className="text-white">SQL Editor</strong>, clique em <strong className="text-white">New Query</strong>, cole o código abaixo e clique em <strong className="text-white">Run</strong>.
+                </p>
+
+                <div className="relative rounded-xl overflow-hidden border border-neutral-900 bg-black/90">
+                  <div className="absolute top-3 right-3 bg-neutral-900 px-2 py-0.5 rounded text-[8px] font-mono font-bold text-slate-500 uppercase tracking-widest select-none border border-neutral-850">
+                    PostgreSQL
+                  </div>
+                  <pre className="p-4 text-[10px] font-mono text-slate-300 overflow-x-auto max-h-72 leading-relaxed whitespace-pre select-all">
+                    {dbSqlSchema || "Carregando estrutura SQL..."}
+                  </pre>
+                </div>
+              </div>
+            </div>
+
+          </motion.div>
+        ) : (
+          <motion.div
+            key="painel"
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -15 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+            className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start"
+          >
+          
+          {/* MAIN SECTION: Full width tickets grid and triage panel */}
+          <div className="transition-all duration-300 space-y-6 xl:col-span-12">
+            
+            {/* Bento Grid Analytics Widget Row - Unified Single Block (Tech/TI Only) */}
+            {isTechUser && (
+              <div className="bg-[#121215] border border-zinc-800/80 rounded-xl shadow-sm overflow-hidden">
+                <div className="grid grid-cols-3 divide-x divide-zinc-800/80">
+                  {activeTab === "projetos" ? (
+                    <>
+                      {/* Item 1: Total de Projetos */}
+                      <div className="p-2.5 sm:p-3 flex flex-col justify-between">
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-400">Total de Projetos</p>
+                        <div className="flex items-center justify-between mt-1 gap-2 w-full">
+                          <span className="text-lg sm:text-xl font-black text-white leading-none">
+                            {userVisibleTickets.filter(t => !!t.projectDeadline).length}
+                          </span>
+                          <span className="text-emerald-400 text-[9px] font-bold bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20 whitespace-nowrap">
+                            {userVisibleTickets.filter(t => !!t.projectDeadline && (t.status === "Resolvido" || t.status === "Fechado")).length} Concluídos
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Item 2: Projetos em Dia */}
+                      <div className="p-2.5 sm:p-3 flex flex-col justify-between">
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-400">Projetos em Dia</p>
+                        <div className="flex items-center justify-between mt-1 gap-2 w-full">
+                          <span className="text-lg sm:text-xl font-black text-emerald-400 leading-none">
+                            {(() => {
+                              const activeProjs = userVisibleTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado");
+                              const overdueProjs = activeProjs.filter(t => isTicketOverdue(t));
+                              return activeProjs.length - overdueProjs.length;
+                            })()}
+                          </span>
+                          <span className="text-zinc-400 text-[9px] font-bold bg-zinc-900 px-2 py-0.5 rounded-md border border-zinc-800 whitespace-nowrap">
+                            SLA Monitorado
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Item 3: Fora do Prazo / Críticos */}
+                      <button
+                        onClick={() => {
+                          setSelectedStatus("All");
+                          setSelectedPriority("All");
+                          setSelectedCategory("All");
+                          setSearchTerm("");
+                        }}
+                        className="p-2.5 sm:p-3 flex flex-col justify-between text-left transition hover:bg-zinc-800/40 cursor-pointer group"
+                      >
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-400 group-hover:text-rose-400 transition-colors">Atrasados / Críticos</p>
+                        <div className="flex items-center justify-between mt-1 gap-2 w-full">
+                          <span className={`text-lg sm:text-xl font-black leading-none ${
+                            userVisibleTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado" && isTicketOverdue(t)).length > 0 ? "text-rose-500" : "text-white"
+                          }`}>
+                            {userVisibleTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado" && isTicketOverdue(t)).length}
+                          </span>
+                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md border whitespace-nowrap ${
+                            userVisibleTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado" && isTicketOverdue(t)).length > 0 ? "bg-rose-500/10 text-rose-400 border-rose-500/20" : "bg-zinc-900 text-zinc-400 border-zinc-800"
+                          }`}>
+                            {userVisibleTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado" && isTicketOverdue(t)).length > 0 ? "Ação Requerida" : "Cronograma OK"}
+                          </span>
+                        </div>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {/* Item 1: Tickets em Aberto */}
+                      <button 
+                        onClick={() => {
+                          setActiveTab("painel");
+                          setSelectedStatus("Active");
+                          setSelectedPriority("All");
+                          setSelectedCategory("All");
+                          setSearchTerm("");
+                        }}
+                        className="p-2.5 sm:p-3 flex flex-col justify-between text-left transition hover:bg-zinc-800/40 cursor-pointer group"
+                      >
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-400 group-hover:text-emerald-400 transition-colors">Chamados Ativos</p>
+                        <div className="flex items-center justify-between mt-1 gap-2 w-full">
+                          <span className="text-lg sm:text-xl font-black text-white leading-none">{activeTickets.length}</span>
+                          <span className="text-amber-400 text-[9px] font-bold bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20 whitespace-nowrap">
+                            Aguardando TI
+                          </span>
+                        </div>
+                      </button>
+
+                      {/* Item 2: SLA compliance status */}
+                      <button 
+                        onClick={() => {
+                          setActiveTab("sla");
+                        }}
+                        className="p-2.5 sm:p-3 flex flex-col justify-between text-left transition hover:bg-zinc-800/40 cursor-pointer group"
+                      >
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-400 group-hover:text-emerald-400 transition-colors">Eficiência (SLA)</p>
+                        <div className="flex items-center justify-between mt-1 gap-2 w-full">
+                          <span className="text-lg sm:text-xl font-black text-emerald-400 leading-none">{slaCompliance}%</span>
+                          <span className="text-emerald-400 text-[9px] font-bold bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20 whitespace-nowrap">
+                            Meta: 92%
+                          </span>
+                        </div>
+                      </button>
+
+                      {/* Item 3: Critical alerts pending */}
+                      <button 
+                        onClick={() => {
+                          setActiveTab("painel");
+                          setSelectedStatus("Active");
+                          const hasUrgent = activeTickets.some(t => t.priority === "Urgente");
+                          setSelectedPriority(hasUrgent ? "Urgente" : "Alta");
+                          setSelectedCategory("All");
+                          setSearchTerm("");
+                        }}
+                        className="p-2.5 sm:p-3 flex flex-col justify-between text-left transition hover:bg-zinc-800/40 cursor-pointer group"
+                      >
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-400 group-hover:text-rose-400 transition-colors">Casos Críticos</p>
+                        <div className="flex items-center justify-between mt-1 gap-2 w-full">
+                          <span className={`text-lg sm:text-xl font-black leading-none ${criticalTickets.length > 0 ? "text-rose-500" : "text-white"}`}>
+                            {criticalTickets.length}
+                          </span>
+                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md border whitespace-nowrap ${criticalTickets.length > 0 ? "bg-rose-500/10 text-rose-400 border-rose-500/20" : "bg-zinc-900 text-zinc-400 border-zinc-800"}`}>
+                            {criticalTickets.length > 0 ? "Ação Urgente" : "Fila Limpa"}
+                          </span>
+                        </div>
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Filters Bar, Tickets List & Projects Dashboard */}
+            {activeTab === "projetos" ? (
+              <div className="space-y-6">
+                
+                {/* Dashboard Control Bar */}
+                <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+                      <Briefcase className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-white uppercase tracking-wider">Painel de Projetos</h4>
+                      <p className="text-[10px] text-slate-400">Gerenciamento ágil de projetos corporativos</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Subtitle / Search & Filters for projects */}
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-4 shadow-lg">
+                  <div className="sm:col-span-2 relative">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-500">
+                      <Search className="h-4 w-4" />
+                    </span>
+                    <input
+                      type="text"
+                      placeholder="Buscar projetos..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full bg-black border border-neutral-900 rounded-xl py-2 pl-9 pr-4 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
+                    />
+                  </div>
+                  
+                  <select
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    className="bg-black border border-neutral-900 text-slate-300 text-xs rounded-xl py-2 px-3 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all cursor-pointer"
+                  >
+                    <option value="All">Categoria (Todas)</option>
+                    <option value="Hardware">Hardware</option>
+                    <option value="Software">Software</option>
+                    <option value="Redes">Redes</option>
+                    <option value="Acesso">Acesso</option>
+                    <option value="Sistemas">Sistemas</option>
+                    <option value="Outros">Outros</option>
+                  </select>
+
+                  <select
+                    value={selectedStatus}
+                    onChange={(e) => setSelectedStatus(e.target.value)}
+                    className="bg-black border border-neutral-900 text-slate-300 text-xs rounded-xl py-2 px-3 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all cursor-pointer"
+                  >
+                    <option value="Active">Ativos (Todos)</option>
+                    <option value="All">Status (Todos)</option>
+                    <option value="Aberto">Aberto</option>
+                    <option value="Em Atendimento">Em Atendimento</option>
+                    <option value="Resolvido">Resolvido</option>
+                    <option value="Fechado">Fechado</option>
+                  </select>
+                </div>
+
+                {/* Sub-Views Content Container */}
+                <div className="min-h-[300px]">
+                  {loading ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-3">
+                      <RefreshCw className="h-8 w-8 animate-spin text-emerald-400" />
+                      <p className="text-xs">Carregando projetos corporativos...</p>
+                    </div>
+                  ) : filteredTickets.length === 0 ? (
+                    <div className="text-center py-16 bg-[#0a0a0a] border border-neutral-900 rounded-2xl text-neutral-500 font-mono shadow-lg">
+                      <p className="text-xs font-bold text-emerald-400 uppercase tracking-widest">Nenhum projeto encontrado</p>
+                      <p className="text-[10px] text-neutral-600 mt-2">Ajuste os filtros ou crie um novo chamado definindo uma Data Limite.</p>
+                    </div>
+                  ) : (
+                    /* KANBAN BOARD VIEW */
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pb-4">
+                      {(() => {
+                        const columns = [
+                          { title: "Não Iniciado", status: "Aberto" as const, bg: "border-t-amber-500", text: "text-amber-400", dot: "bg-amber-400" },
+                          { title: "Em Desenvolvimento", status: "Em Atendimento" as const, bg: "border-t-sky-500", text: "text-sky-400", dot: "bg-sky-400" },
+                          { title: "Finalizado", status: "Resolvido" as const, bg: "border-t-emerald-500", text: "text-emerald-400", dot: "bg-emerald-400" }
+                        ];
+
+                        return columns.map((col, colIdx) => {
+                          const colProjects = filteredTickets.filter((p) => {
+                            if (col.status === "Resolvido") {
+                              return p.status === "Resolvido" || p.status === "Fechado";
+                            }
+                            if (col.status === "Em Atendimento") {
+                              return p.status === "Em Atendimento" || p.status === "Pendente" || p.status === "Testando";
+                            }
+                            return p.status === col.status;
+                          });
+
+                          const isDraggedOver = draggedOverColumn === col.status;
+                          
+                          // Dynamic style for column when dragged over
+                          let highlightClass = "border-neutral-900 bg-[#050505]";
+                          if (isDraggedOver) {
+                            if (col.status === "Aberto") {
+                              highlightClass = "border-amber-500/50 bg-amber-500/5 scale-[1.01]";
+                            } else if (col.status === "Em Atendimento") {
+                              highlightClass = "border-sky-500/50 bg-sky-500/5 scale-[1.01]";
+                            } else if (col.status === "Resolvido") {
+                              highlightClass = "border-emerald-500/50 bg-emerald-500/5 scale-[1.01]";
+                            }
+                          }
+
+                          return (
+                            <div 
+                              key={col.status}
+                              id={`kanban-col-${col.status.toLowerCase().replace(/\s+/g, '-')}`}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                if (draggedOverColumn !== col.status) {
+                                  setDraggedOverColumn(col.status);
+                                }
+                              }}
+                              onDragLeave={() => {
+                                setDraggedOverColumn(null);
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                setDraggedOverColumn(null);
+                                const projectId = e.dataTransfer.getData("text/plain") || draggedProjectId;
+                                if (projectId) {
+                                  handleUpdateTicketMeta(projectId, { status: col.status as Ticket["status"] });
+                                }
+                              }}
+                              className={`border p-3 flex flex-col min-h-[550px] transition-all duration-300 rounded-2xl w-full ${highlightClass}`}
+                            >
+                              
+                              {/* Column Header */}
+                              <div className="flex items-center justify-between border-b border-neutral-900 pb-3 mb-3">
+                                <div className="flex items-center gap-2">
+                                  <span className={`h-1.5 w-1.5 rounded-full ${col.dot} shadow-sm animate-pulse`} />
+                                  <span className="text-[10px] font-black uppercase text-white tracking-wider flex items-center gap-1.5">
+                                    {col.title}
+                                    {col.status === "Resolvido" && <Check className="h-3 w-3 text-emerald-400" />}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] font-bold bg-neutral-900 px-2 py-0.5 rounded text-slate-400 font-mono border border-neutral-850">
+                                  {colProjects.length}
+                                </span>
+                              </div>
+
+                              {/* Column Cards Container */}
+                              <div className="space-y-3 flex-1 overflow-y-auto max-h-[500px] pr-1 scrollbar-thin">
+                                {colProjects.length === 0 ? (
+                                  <div className="text-center py-12 border border-dashed border-neutral-900/40 rounded-xl text-neutral-600 text-[10px] font-mono">
+                                    Nenhum projeto nesta etapa
+                                  </div>
+                                ) : (
+                                  colProjects.map((project) => {
+                                    const isSelected = project.id === selectedTicketId;
+                                    const commentsCount = project.comments.filter(c => c.authorRole !== "system").length;
+                                    
+                                    // Project dynamic estimation progress
+                                    let progressVal = 15;
+                                    if (project.status === "Resolvido" || project.status === "Fechado") {
+                                      progressVal = 100;
+                                    } else if (project.status === "Em Atendimento") {
+                                      progressVal = commentsCount >= 3 ? 80 : commentsCount === 2 ? 60 : commentsCount === 1 ? 40 : 30;
+                                    } else if (project.status === "Testando") {
+                                      progressVal = 90;
+                                    } else if (project.status === "Pendente") {
+                                      progressVal = 20;
+                                    }
+
+                                    // Priority custom pills
+                                    const priorityText = project.priority === "Urgente" ? "text-rose-400 bg-rose-500/10" : project.priority === "Alta" ? "text-amber-400 bg-amber-500/10" : "text-slate-400 bg-neutral-900";
+
+                                    return (
+                                      <div
+                                        key={project.id}
+                                        id={`kanban-card-${project.id}`}
+                                        draggable
+                                        onDragStart={(e) => {
+                                          e.dataTransfer.setData("text/plain", project.id);
+                                          setDraggedProjectId(project.id);
+                                        }}
+                                        onDragEnd={() => {
+                                          setDraggedProjectId(null);
+                                          setDraggedOverColumn(null);
+                                        }}
+                                        onClick={() => setSelectedTicketId(project.id)}
+                                        className={`p-3 bg-neutral-950 hover:bg-[#070707] border transition-all duration-200 cursor-pointer rounded-xl flex flex-col justify-between gap-3 relative group overflow-hidden ${
+                                          isSelected 
+                                            ? "border-emerald-500 ring-1 ring-emerald-500/35 bg-black" 
+                                            : "border-neutral-900 hover:border-neutral-850"
+                                        }`}
+                                      >
+                                        <div className="space-y-1.5">
+                                          <div className="flex items-center justify-between text-[8px] text-slate-500 font-bold uppercase font-mono">
+                                            <span>#{project.id}</span>
+                                            <span className={`px-1.5 py-0.5 rounded text-[7px] font-black tracking-wider uppercase ${priorityText}`}>
+                                              {project.priority}
+                                            </span>
+                                          </div>
+                                          
+                                          {/* Custom Tag Indicator similar to user's screenshot */}
+                                          <div className="flex flex-wrap gap-1">
+                                            {project.status === "Aberto" && (
+                                              <span className="text-[7px] font-black bg-neutral-900 text-zinc-400 border border-neutral-850 rounded px-1 uppercase tracking-wider">
+                                                IDEIA
+                                              </span>
+                                            )}
+                                            {project.status === "Em Atendimento" && (
+                                              <span className="text-[7px] font-black bg-sky-500/10 text-sky-400 border border-sky-500/20 rounded px-1 uppercase tracking-wider">
+                                                EXECUÇÃO
+                                              </span>
+                                            )}
+                                            {project.status === "Testando" && (
+                                              <span className="text-[7px] font-black bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded px-1 uppercase tracking-wider">
+                                                TESTE
+                                              </span>
+                                            )}
+                                            {project.status === "Resolvido" && (
+                                              <span className="text-[7px] font-black bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded px-1 uppercase tracking-wider">
+                                                ENTREGUE
+                                              </span>
+                                            )}
+                                            {project.status === "Fechado" && (
+                                              <span className="text-[7px] font-black bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded px-1 uppercase tracking-wider">
+                                                ABORTADO
+                                              </span>
+                                            )}
+                                            {project.status === "Pendente" && (
+                                              <span className="text-[7px] font-black bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded px-1 uppercase tracking-wider">
+                                                AGUARDANDO
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          <h6 className="text-[11px] font-extrabold text-white group-hover:text-emerald-400 transition-colors line-clamp-1 leading-tight">{project.title}</h6>
+                                          <p className="text-[10px] text-slate-400 line-clamp-2 leading-relaxed">{project.description}</p>
+                                        </div>
+
+                                        {/* Progress line */}
+                                        <div className="h-1 bg-black/60 rounded-full overflow-hidden">
+                                          <div className="h-full bg-emerald-400 transition-all duration-300 shadow-[0_0_6px_rgba(52,211,153,0.3)]" style={{ width: `${progressVal}%` }} />
+                                        </div>
+
+                                        {/* Quick status moves / assignees */}
+                                        <div className="flex items-center justify-between border-t border-neutral-900/40 pt-2 text-[9px] text-slate-500 font-bold">
+                                          <div className="flex items-center gap-1 text-[8px] bg-neutral-900 px-1.5 py-0.5 rounded text-emerald-400 border border-neutral-850">
+                                            <Calendar className="h-2.5 w-2.5" />
+                                            <span>
+                                              {(() => {
+                                                try {
+                                                  const [y, m, d] = project.projectDeadline.split("-");
+                                                  return `${d}/${m}`;
+                                                } catch (e) {
+                                                  return project.projectDeadline;
+                                                }
+                                              })()}
+                                            </span>
+                                          </div>
+
+                                          <div className="flex items-center gap-1.5">
+                                            {project.status !== "Resolvido" && project.status !== "Fechado" && (
+                                              <>
+                                                {project.status === "Aberto" && (
+                                                  <button
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleUpdateTicketMeta(project.id, { status: "Em Atendimento" });
+                                                    }}
+                                                    className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded hover:bg-emerald-500/20 text-[8px] font-black uppercase cursor-pointer"
+                                                    title="Iniciar Atendimento"
+                                                  >
+                                                    Iniciar →
+                                                  </button>
+                                                )}
+                                                {(project.status === "Em Atendimento" || project.status === "Pendente" || project.status === "Testando") && (
+                                                  <button
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleUpdateTicketMeta(project.id, { status: "Resolvido" });
+                                                    }}
+                                                    className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded hover:bg-emerald-500/20 text-[8px] font-black uppercase cursor-pointer"
+                                                    title="Concluir Projeto"
+                                                  >
+                                                    Concluir ✓
+                                                  </button>
+                                                )}
+                                              </>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                  )}
+                </div>
+
+              </div>
+            ) : (
+              <div className="bg-[#09090b] border border-zinc-800/80 rounded-3xl p-4 sm:p-6 shadow-2xl">
+                
+                {/* Gran7 Screenshot-style Header Section */}
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6 border-b border-zinc-800/60 pb-5">
+                  <div>
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-2xl sm:text-3xl font-display font-black text-white tracking-tight">
+                        Fila de Chamados
+                      </h3>
+                      <span className="bg-zinc-900 text-emerald-400 font-black text-xs px-3 py-1 rounded-full border border-zinc-800 flex items-center gap-1">
+                        {filteredTickets.length}
+                      </span>
+                    </div>
+                    <p className="text-xs sm:text-sm text-zinc-400 font-medium mt-1">
+                      Gerencie e acompanhe a projeção de atendimentos e chamados semanais.
+                    </p>
+                  </div>
+
+                  {/* Rounded Pill Search & Filter Controls */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Search query input pill */}
+                    <div className="relative min-w-[200px] sm:min-w-[240px] flex-1 sm:flex-initial">
+                      <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-zinc-500">
+                        <Search className="h-4 w-4" />
+                      </span>
+                      <input
+                        type="text"
+                        placeholder="Pesquisar chamado..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full bg-zinc-900 border border-zinc-800 rounded-full py-2 pl-9 pr-4 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500/60 transition-all shadow-inner"
+                      />
+                    </div>
+
+                    {/* Category Filter Pill */}
+                    <select
+                      value={selectedCategory}
+                      onChange={(e) => setSelectedCategory(e.target.value)}
+                      className="bg-zinc-900 border border-zinc-800 text-zinc-200 font-bold text-xs rounded-full py-2 px-3.5 focus:outline-none focus:border-emerald-500/60 transition-all cursor-pointer uppercase tracking-wider"
+                    >
+                      <option value="All">CATEGORIA (TODAS)</option>
+                      <option value="Hardware">HARDWARE</option>
+                      <option value="Software">SOFTWARE</option>
+                      <option value="Redes">REDES</option>
+                      <option value="Acesso">ACESSO</option>
+                      <option value="Sistemas">SISTEMAS</option>
+                    </select>
+
+                    {/* Priority Filter Pill */}
+                    <select
+                      value={selectedPriority}
+                      onChange={(e) => setSelectedPriority(e.target.value)}
+                      className="bg-zinc-900 border border-zinc-800 text-zinc-200 font-bold text-xs rounded-full py-2 px-3.5 focus:outline-none focus:border-emerald-500/60 transition-all cursor-pointer uppercase tracking-wider"
+                    >
+                      <option value="All">PRIORIDADE (TODAS)</option>
+                      <option value="Baixa">BAIXA</option>
+                      <option value="Média">MÉDIA</option>
+                      <option value="Alta">ALTA</option>
+                      <option value="Urgente">URGENTE</option>
+                    </select>
+
+                    {/* Status Filter Pill */}
+                    <select
+                      value={selectedStatus}
+                      onChange={(e) => setSelectedStatus(e.target.value)}
+                      className="bg-zinc-900 border border-zinc-800 text-zinc-200 font-bold text-xs rounded-full py-2 px-3.5 focus:outline-none focus:border-emerald-500/60 transition-all cursor-pointer uppercase tracking-wider"
+                    >
+                      <option value="Active">ATIVOS</option>
+                      <option value="All">TODOS OS STATUS</option>
+                      <option value="Aberto">PENDENTE</option>
+                      <option value="Em Atendimento">EM ATENDIMENTO</option>
+                      <option value="Resolvido">RESOLVIDO</option>
+                      <option value="Fechado">FECHADO</option>
+                    </select>
+
+                    {/* Clear filters pill */}
+                    {(selectedCategory !== "All" || selectedPriority !== "All" || selectedStatus !== "Active" || searchTerm) && (
+                      <button
+                        onClick={() => {
+                          setSelectedCategory("All");
+                          setSelectedPriority("All");
+                          setSelectedStatus("Active");
+                          setSearchTerm("");
+                        }}
+                        className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-bold text-xs rounded-full px-3.5 py-2 border border-emerald-500/30 transition flex items-center gap-1 cursor-pointer"
+                        title="Limpar todos os filtros"
+                      >
+                        <Filter className="h-3 w-3" />
+                        LIMPAR
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Main Interactive Gran7 Card Grid */}
+                <div className={`grid grid-cols-1 md:grid-cols-2 ${rightSidebarCollapsed ? "lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4" : "lg:grid-cols-2 xl:grid-cols-3"} gap-3.5 max-h-[660px] xl:max-h-[calc(100vh-220px)] overflow-y-auto pr-1`}>
+                  {loading ? (
+                    <div className="col-span-full flex flex-col items-center justify-center py-12 text-zinc-400 gap-3">
+                      <RefreshCw className="h-7 w-7 animate-spin text-emerald-400" />
+                      <p className="text-xs font-semibold">Sincronizando banco de dados corporativo...</p>
+                    </div>
+                  ) : filteredTickets.length === 0 ? (
+                    <div className="col-span-full text-center py-12 border border-dashed border-zinc-800 rounded-2xl text-zinc-500 font-mono">
+                      <p className="text-xs font-bold text-emerald-400 uppercase tracking-widest">Nenhum chamado encontrado</p>
+                      <p className="text-[11px] text-zinc-500 mt-1">Ajuste os filtros de busca ou crie um novo chamado.</p>
+                    </div>
+                  ) : (
+                    filteredTickets.map((ticket) => {
+                      const isSelected = ticket.id === selectedTicketId;
+                      const commentsCount = ticket.comments.filter(c => c.authorRole !== "system").length;
+                      
+                      const createdDateFormatted = new Date(ticket.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+                      const createdTimeFormatted = new Date(ticket.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+                      let deadlineFormatted = "--";
+                      if (ticket.projectDeadline) {
+                        try {
+                          const [y, m, d] = ticket.projectDeadline.split("-");
+                          deadlineFormatted = `${d}/${m}`;
+                        } catch (e) {
+                          deadlineFormatted = ticket.projectDeadline;
+                        }
+                      } else {
+                        deadlineFormatted = "SLA 24h";
+                      }
+
+                      const assignedTechsList = getAssignedTechs(ticket.assignedTo);
+                      const mainTech = assignedTechsList[0] || "Sem Técnico";
+
+                      return (
+                        <div
+                          id={`ticket-card-${ticket.id}`}
+                          key={ticket.id}
+                          onClick={() => setSelectedTicketId(ticket.id)}
+                          className={`bg-[#121215] hover:bg-[#16161a] border border-zinc-800/80 hover:border-zinc-700 rounded-2xl p-3.5 sm:p-4 shadow-lg transition-all duration-200 flex flex-col justify-between group cursor-pointer ${
+                            isSelected ? "ring-2 ring-emerald-500/50 bg-[#16161a] border-emerald-500/40" : ""
+                          }`}
+                        >
+                          <div>
+                            {/* Card Top Row: Badges on left, Ticket ID on right */}
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                              <div className="flex flex-wrap items-center gap-1">
+                                {/* Status Badge */}
+                                <span className={`text-[9px] sm:text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full flex items-center gap-1 ${
+                                  ticket.status === "Aberto" ? "bg-amber-500/10 text-amber-400 border border-amber-500/30" :
+                                  ticket.status === "Em Atendimento" ? "bg-sky-500/10 text-sky-400 border border-sky-500/30" :
+                                  ticket.status === "Resolvido" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30" :
+                                  "bg-zinc-800/80 text-zinc-300 border border-zinc-700"
+                                }`}>
+                                  <Clock className="h-2.5 w-2.5" />
+                                  {ticket.status === "Aberto" ? "PENDENTE" : ticket.status.toUpperCase()}
+                                </span>
+
+                                {/* Priority Badge */}
+                                <span className={`text-[9px] sm:text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full flex items-center gap-1 ${
+                                  ticket.priority === "Urgente" ? "bg-rose-500/10 text-rose-400 border border-rose-500/30" :
+                                  ticket.priority === "Alta" ? "bg-amber-500/10 text-amber-400 border border-amber-500/30" :
+                                  "bg-zinc-800/80 text-zinc-300 border border-zinc-700"
+                                }`}>
+                                  <AlertCircle className="h-2.5 w-2.5" />
+                                  {ticket.priority.toUpperCase()}
+                                </span>
+                              </div>
+
+                              {/* Ticket Order Number */}
+                              <div className="text-right shrink-0">
+                                <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest block leading-none">CHAMADO</span>
+                                <span className="text-xs sm:text-sm font-extrabold text-white font-mono tracking-tight leading-tight block mt-0.5">#{ticket.id}</span>
+                              </div>
+                            </div>
+
+                            {/* Requester & Dept Sublabel */}
+                            <span className="text-[8px] font-extrabold uppercase tracking-widest text-zinc-500 block mb-0.5">
+                              SOLICITANTE & DEPARTAMENTO
+                            </span>
+
+                            {/* Main Title */}
+                            <h4 className="text-xs sm:text-sm font-extrabold text-white tracking-tight leading-snug line-clamp-1 group-hover:text-emerald-400 transition-colors" title={ticket.title}>
+                              {ticket.title}
+                            </h4>
+
+                            {/* Location / Subtext Tag */}
+                            <div className="flex items-center gap-1 text-[11px] font-medium text-zinc-400 mt-1">
+                              <Users className="h-3 w-3 text-emerald-400 shrink-0" />
+                              <span className="truncate">{ticket.requesterName}</span>
+                              <span className="text-zinc-600">•</span>
+                              <span className="text-zinc-400 truncate">{ticket.requesterDepartment}</span>
+                            </div>
+
+                            {/* Inner Details Content Box */}
+                            <div className="bg-zinc-950/80 border border-zinc-800/60 rounded-xl p-2.5 mt-2 space-y-1">
+                              <div className="flex items-center justify-between text-[8px] font-bold text-zinc-500 uppercase tracking-wider">
+                                <span className="flex items-center gap-1">
+                                  <FileText className="h-2.5 w-2.5 text-emerald-400" />
+                                  DETALHES DO ATENDIMENTO
+                                </span>
+                                <span className="bg-zinc-900 px-1.5 py-0.5 rounded text-[8px] text-zinc-300 font-bold">
+                                  {ticket.category}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-zinc-300 line-clamp-2 leading-tight">
+                                {ticket.description || "Nenhuma descrição detalhada fornecida para este chamado."}
+                              </p>
+                            </div>
+
+                            {/* Bottom Mini Stats Grid (3 boxes like screenshot) */}
+                            <div className="grid grid-cols-3 gap-1.5 mt-2">
+                              <div className="bg-zinc-950/90 border border-zinc-800/80 rounded-lg p-1.5 sm:p-2 text-left">
+                                <span className="text-[8px] font-extrabold text-zinc-500 uppercase tracking-wider block">STATUS SLA</span>
+                                <span className="text-[10px] sm:text-[11px] font-black text-emerald-400 block mt-0.5 truncate">
+                                  {ticket.status === "Resolvido" ? "CONCLUÍDO" : "DENTRO PRAZO"}
+                                </span>
+                              </div>
+                              <div className="bg-zinc-950/90 border border-zinc-800/80 rounded-lg p-1.5 sm:p-2 text-left">
+                                <span className="text-[8px] font-extrabold text-zinc-500 uppercase tracking-wider block">DATA INICIAL</span>
+                                <span className="text-[10px] sm:text-[11px] font-bold text-zinc-200 block mt-0.5 truncate">
+                                  {createdDateFormatted}
+                                </span>
+                              </div>
+                              <div className="bg-zinc-950/90 border border-zinc-800/80 rounded-lg p-1.5 sm:p-2 text-left">
+                                <span className="text-[8px] font-extrabold text-zinc-500 uppercase tracking-wider block">LIM. ENTREGA</span>
+                                <span className="text-[10px] sm:text-[11px] font-bold text-zinc-200 block mt-0.5 truncate">
+                                  {deadlineFormatted}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Bottom Row: Assignee + Action Buttons */}
+                          <div className="flex items-center justify-between border-t border-zinc-800/80 pt-2.5 mt-2.5">
+                            {/* Tech Assignee & Time */}
+                            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-zinc-400">
+                              <div className="w-5 h-5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center font-bold text-[9px]">
+                                <UserIcon className="h-2.5 w-2.5" />
+                              </div>
+                              <span className="text-zinc-300 font-bold truncate max-w-[80px] sm:max-w-[110px]">{mainTech}</span>
+                              <span className="text-zinc-600">•</span>
+                              <span className="text-zinc-500 text-[10px] font-mono">{createdTimeFormatted}</span>
+                            </div>
+
+                            {/* Right Action Button */}
+                            <div className="text-right">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedTicketId(ticket.id);
+                                }}
+                                className="bg-emerald-700 hover:bg-emerald-600 active:bg-emerald-800 text-white font-extrabold rounded-lg text-[10px] sm:text-[11px] px-2.5 py-1 cursor-pointer shadow-md transition-all flex items-center gap-1"
+                              >
+                                <Eye className="h-3 w-3" />
+                                <span>VER DETALHES</span>
+                              </button>
+                            </div>
+                          </div>
+
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+              </div>
+            )}
+
+          </div>
+
+          {/* RIGHT SECTION (Col 5): Bento Ticket Detail, Diagnosis Panel & Activity */}
+          {!rightSidebarCollapsed && (
+            <div className={`xl:col-span-5 space-y-6 animate-in fade-in slide-in-from-right-3 duration-300 ${
+              selectedTicketId ? "block" : "hidden xl:block"
+            }`}>
+
+            {/* Selected Ticket Deep-Dive & Action Console */}
+            {selectedTicket ? (
+              <div className="bg-[#0a0a0a] border border-emerald-500/10 rounded-2xl overflow-hidden shadow-2xl">
+                
+                {/* Detail Header */}
+                <div className="p-4 md:p-5 bg-[#0e0e0e] border-b border-neutral-900/60 flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setSelectedTicketId(null)}
+                      className="xl:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-850 border border-neutral-800 text-xs font-bold text-emerald-400 transition cursor-pointer active:scale-95 shrink-0"
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                      <span>Voltar</span>
+                    </button>
+                    <div>
+                      <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest block mb-0.5">Diagnóstico Completo</span>
+                      <h3 className="text-sm font-bold text-white">Chamado #{selectedTicket.id}</h3>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {/* Status updater for technicians */}
+                    {currentSession.role === "tecnico" ? (
+                       <select
+                        value={selectedTicket.status}
+                        onChange={(e) => handleUpdateTicketMeta(selectedTicket.id, { status: e.target.value as Ticket["status"] })}
+                        disabled={isAssignedToOther}
+                        className={`bg-black border border-neutral-800 text-xs font-bold rounded-lg px-2 py-1 focus:outline-none transition ${
+                          selectedTicket.status === "Aberto" ? "text-amber-400 focus:border-amber-500" :
+                          selectedTicket.status === "Em Atendimento" ? "text-sky-400 focus:border-sky-500" :
+                          selectedTicket.status === "Resolvido" ? "text-emerald-400 focus:border-emerald-500" :
+                          "text-zinc-400 focus:border-zinc-500"
+                        } ${isAssignedToOther ? "opacity-50 cursor-not-allowed text-slate-500" : ""}`}
+                        title={isAssignedToOther ? `Apenas o técnico responsável (${selectedTicket.assignedTo}) pode alterar o status.` : ""}
+                      >
+                        <option value="Aberto" className="text-amber-400 font-bold bg-neutral-950">Aberto</option>
+                        <option value="Em Atendimento" className="text-sky-400 font-bold bg-neutral-950">Em Atendimento</option>
+                        <option value="Resolvido" className="text-emerald-400 font-bold bg-neutral-950">Resolvido</option>
+                        <option value="Fechado" className="text-zinc-400 font-bold bg-neutral-950">Fechado</option>
+                      </select>
+                    ) : (
+                      <span className={`text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded bg-[#0e0e0e] border transition ${
+                        selectedTicket.status === "Aberto" ? "text-amber-400 border-amber-500/20" :
+                        selectedTicket.status === "Em Atendimento" ? "text-sky-400 border-sky-500/20 shadow-[0_0_10px_rgba(56,189,248,0.05)]" :
+                        selectedTicket.status === "Resolvido" ? "text-emerald-400 border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.05)]" :
+                        "text-zinc-400 border-zinc-700/30"
+                      }`}>
+                        {selectedTicket.status}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Main scrollable body */}
+                <div className="p-5 space-y-5 max-h-[550px] xl:max-h-[calc(100vh-220px)] overflow-y-auto">
+                  
+                  {/* Requester overview */}
+                  <div className="p-3 bg-black/40 rounded-xl border border-emerald-950/20 text-xs space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500 font-medium">Solicitado por:</span>
+                      <strong className="text-white">{selectedTicket.requesterName}</strong>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500 font-medium">Departamento:</span>
+                      <span className="text-slate-300">{selectedTicket.requesterDepartment}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500 font-medium">SLA Limite:</span>
+                      <span className="text-rose-400 font-semibold">
+                        {new Date(selectedTicket.slaLimit).toLocaleDateString("pt-BR")} {new Date(selectedTicket.slaLimit).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </div>
+                    {selectedTicket.projectDeadline && (
+                      <div className="flex justify-between items-center border-t border-neutral-900/40 pt-1.5">
+                        <span className="text-slate-500 font-medium flex items-center gap-1">
+                          <Calendar className="h-3 w-3 text-emerald-400" />
+                          Limite do Projeto:
+                        </span>
+                        <span className="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 text-[11px]">
+                          {(() => {
+                            try {
+                              const [year, month, day] = selectedTicket.projectDeadline.split("-");
+                              if (year && month && day) {
+                                return `${day}/${month}/${year}`;
+                              }
+                              return selectedTicket.projectDeadline;
+                            } catch (e) {
+                              return selectedTicket.projectDeadline;
+                            }
+                          })()}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* AI Intelligent Triage Bento Block */}
+                  {selectedTicket.aiCategory && (
+                    <div className="p-4 bg-emerald-500/5 rounded-xl border border-emerald-500/10 space-y-3 shadow-[0_0_15px_rgba(16,185,129,0.02)]">
+                      <div className="flex items-center justify-between border-b border-emerald-950/25 pb-2 mb-1">
+                        <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <Sparkles className="h-3.5 w-3.5 text-emerald-400 animate-pulse" />
+                          Triagem Inteligente & Diagnóstico (IA)
+                        </span>
+                        {selectedTicket.screenshot && (
+                          <span className="text-[9px] bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 px-1.5 py-0.5 rounded-full font-semibold flex items-center gap-1">
+                            <Camera className="h-2.5 w-2.5" /> Print Analisado por IA
+                          </span>
+                        )}
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div className="bg-black/40 p-2 rounded-lg border border-neutral-900">
+                          <span className="text-slate-500 block text-[9px] uppercase tracking-wider">Categoria IA</span>
+                          <span className="text-emerald-400 font-bold">{selectedTicket.aiCategory}</span>
+                        </div>
+                        <div className="bg-black/40 p-2 rounded-lg border border-neutral-900">
+                          <span className="text-slate-500 block text-[9px] uppercase tracking-wider">Prioridade IA</span>
+                          <span className={`font-bold ${
+                            selectedTicket.aiPriority === "Urgente" ? "text-rose-400" :
+                            selectedTicket.aiPriority === "Alta" ? "text-amber-400" :
+                            selectedTicket.aiPriority === "Média" ? "text-emerald-400" : "text-slate-400"
+                          }`}>{selectedTicket.aiPriority}</span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Justificativa Técnica</span>
+                        <p className="text-slate-300 text-xs leading-relaxed whitespace-pre-line italic">
+                          "{selectedTicket.aiReasoning}"
+                        </p>
+                      </div>
+
+                      {selectedTicket.aiSuggestions && (
+                        <div className="space-y-1.5 pt-1 border-t border-emerald-950/25">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Soluções Recomendadas</span>
+                          <div className="text-slate-300 text-xs leading-relaxed space-y-1 bg-black/30 p-2.5 rounded-lg border border-neutral-900/60 font-sans">
+                            {selectedTicket.aiSuggestions.split("\n").map((line, index) => (
+                              <div key={index} className="flex gap-2 items-start">
+                                <span className="text-emerald-400 font-bold select-none">•</span>
+                                <span>{line.replace(/^\d+[\.\-\s]+/, "")}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Service Registry / Ticket Metrics Log */}
+                  {(() => {
+                    const assignmentComments = selectedTicket.comments.filter(c => 
+                      c.authorRole === "system" && 
+                      (c.content.includes("Responsável atribuído:") || c.content.includes("assumiu o chamado") || c.content.includes("transferido de"))
+                    );
+                    
+                    const resolutionComment = selectedTicket.comments.find(c => 
+                      c.authorRole === "system" && 
+                      c.content.includes("Status alterado de") && 
+                      c.content.includes("para **Resolvido**")
+                    );
+
+                    const hasAssignment = selectedTicket.assignedTo !== null;
+                    const isResolved = selectedTicket.status === "Resolvido";
+
+                    let firstAssumedTime: string | null = null;
+                    if (assignmentComments.length > 0) {
+                      firstAssumedTime = assignmentComments[0].timestamp;
+                    }
+
+                    let durationText = "";
+                    if (isResolved) {
+                      if (resolutionComment) {
+                        const match = resolutionComment.content.match(/Tempo total (?:de atendimento|desde a abertura): \*\*(.*?)\*\*/);
+                        if (match && match[1]) {
+                          durationText = match[1];
+                        }
+                      }
+                      
+                      if (!durationText && firstAssumedTime) {
+                        const diffMs = new Date(selectedTicket.updatedAt).getTime() - new Date(firstAssumedTime).getTime();
+                        durationText = formatDurationText(diffMs);
+                      } else if (!durationText) {
+                        const diffMs = new Date(selectedTicket.updatedAt).getTime() - new Date(selectedTicket.createdAt).getTime();
+                        durationText = diffMs > 0 ? formatDurationText(diffMs) : "Imediato";
+                      }
+                    } else if (hasAssignment && firstAssumedTime) {
+                      const diffMs = Date.now() - new Date(firstAssumedTime).getTime();
+                      durationText = `${formatDurationText(diffMs)} (em andamento)`;
+                    }
+
+                    return (
+                      <div className="p-3 bg-emerald-500/5 rounded-xl border border-emerald-500/10 text-xs space-y-2">
+                        <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider block border-b border-emerald-950/25 pb-1 mb-1">Registro de Atendimento</span>
+                        <div className="flex justify-between items-center gap-4">
+                          <span className="text-slate-400 font-medium shrink-0">Técnicos Responsáveis:</span>
+                          {selectedTicket.assignedTo ? (
+                            <div className="flex flex-wrap gap-1 justify-end">
+                              {getAssignedTechs(selectedTicket.assignedTo).map((t, i) => (
+                                <span key={i} className="bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded text-[10px] border border-emerald-500/20 font-bold shadow-sm">
+                                  {t}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <strong className="text-emerald-400">Aguardando Técnico</strong>
+                          )}
+                        </div>
+                        
+                        {firstAssumedTime && (
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400 font-medium">Início do Atendimento:</span>
+                            <span className="text-slate-300">
+                              {new Date(firstAssumedTime).toLocaleDateString("pt-BR")} {new Date(firstAssumedTime).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                          </div>
+                        )}
+
+                        {durationText && (
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400 font-medium">Tempo de Resolução:</span>
+                            <span className="text-emerald-400 font-semibold">{durationText}</span>
+                          </div>
+                        )}
+
+                        {isResolved && resolutionComment && (
+                          <div className="flex justify-between items-center border-t border-emerald-500/10 pt-1.5 mt-1 text-[10px] text-slate-400 italic">
+                            <span>Resolvido em: {new Date(resolutionComment.timestamp).toLocaleDateString("pt-BR")} {new Date(resolutionComment.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Original issue description block */}
+                  <div className="space-y-1.5">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Descrição do Problema</span>
+                    <div className="bg-black p-4 rounded-xl border border-neutral-900 text-xs text-slate-200 leading-relaxed whitespace-pre-line">
+                      {selectedTicket.description}
+                    </div>
+                  </div>
+
+                  {/* Attached files and screenshots block */}
+                  {((selectedTicket.attachments && selectedTicket.attachments.length > 0) || selectedTicket.screenshot) && (
+                    <div className="space-y-2">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                        <Paperclip className="h-3.5 w-3.5 text-emerald-400" />
+                        Prints e Arquivos Anexados
+                      </span>
+                      <div className="bg-black/40 p-4 rounded-xl border border-neutral-900/60 space-y-3">
+                        {/* If we have multiple attachments */}
+                        {selectedTicket.attachments && selectedTicket.attachments.length > 0 ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {selectedTicket.attachments.map((file, idx) => {
+                              const isImage = file.type.startsWith("image/");
+                              const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+                              
+                              return (
+                                <div key={idx} className="flex flex-col p-2.5 rounded-xl bg-neutral-900/60 border border-neutral-900 hover:border-neutral-800 transition justify-between gap-2.5">
+                                  <div className="flex items-center gap-2.5 min-w-0">
+                                    {isImage ? (
+                                      <div className="w-10 h-10 rounded-lg overflow-hidden border border-neutral-800 flex-shrink-0 bg-black flex items-center justify-center">
+                                        <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
+                                      </div>
+                                    ) : (
+                                      <div className={`w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center bg-black border border-neutral-800 ${isPdf ? "text-red-400" : "text-emerald-400"}`}>
+                                        <FileText className="h-5 w-5" />
+                                      </div>
+                                    )}
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-xs font-semibold text-slate-200 truncate" title={file.name}>
+                                        {file.name}
+                                      </p>
+                                      <p className="text-[9px] text-slate-500 uppercase font-mono tracking-wider">
+                                        {isPdf ? "Documento PDF" : isImage ? "Imagem" : "Arquivo"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  
+                                  <div className="flex items-center gap-2 mt-0.5">
+                                    {isImage ? (
+                                      <button
+                                        onClick={() => setPreviewImage(file.url)}
+                                        className="flex-1 py-1 px-2.5 bg-neutral-950 hover:bg-neutral-900 border border-neutral-850 rounded-lg text-[10px] font-bold text-slate-300 hover:text-emerald-400 flex items-center justify-center gap-1 transition cursor-pointer"
+                                      >
+                                        <Eye className="h-3 w-3" /> Visualizar
+                                      </button>
+                                    ) : (
+                                      <a
+                                        href={file.url}
+                                        download={file.name}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex-1 py-1 px-2.5 bg-neutral-950 hover:bg-neutral-900 border border-neutral-850 rounded-lg text-[10px] font-bold text-slate-300 hover:text-emerald-400 flex items-center justify-center gap-1 transition text-center"
+                                      >
+                                        <Upload className="h-3 w-3 rotate-180" /> Abrir / Baixar
+                                      </a>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          /* Legacy single screenshot fallback */
+                          <div className="flex flex-col items-center">
+                            <button 
+                              onClick={() => setPreviewImage(selectedTicket.screenshot || null)} 
+                              className="relative block rounded-lg overflow-hidden border border-neutral-900 group cursor-zoom-in max-w-full text-left"
+                              title="Clique para abrir em tela cheia"
+                            >
+                              <img 
+                                src={selectedTicket.screenshot} 
+                                alt="Print do chamado" 
+                                className="max-h-64 object-contain rounded-lg group-hover:scale-[1.015] transition-all duration-200" 
+                              />
+                              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <span className="bg-black/95 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-xl border border-neutral-800 shadow-xl flex items-center gap-1">
+                                  <Eye className="h-3.5 w-3.5 text-emerald-400" /> Ver Imagem Completa
+                                </span>
+                              </div>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Interactive Control Controls (TI Assignment / Priority changer) */}
+                  {isTechUser && (
+                    <div className="p-4 bg-black border border-emerald-950/20 rounded-xl space-y-3">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Painel do Técnico (Atendimento)</span>
+                      
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        
+                        {/* Assign to multiple technicians option */}
+                        <div className="space-y-1.5 col-span-2 md:col-span-1">
+                          <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">Técnicos Atribuídos</label>
+                          {(() => {
+                            const assignedTechs = getAssignedTechs(selectedTicket.assignedTo);
+                            const firstTech = getFirstAssignedTech(selectedTicket);
+                            const canManageAssignments = assignedTechs.length === 0 || (currentSession && currentSession.name === firstTech);
+
+                            if (assignedTechs.length === 0) {
+                              return (
+                                <motion.button
+                                  whileHover={{ scale: 1.01 }}
+                                  whileTap={{ scale: 0.99 }}
+                                  onClick={() => handleUpdateTicketMeta(selectedTicket.id, { assignedTo: currentSession.name })}
+                                  className="w-full bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 border border-emerald-400/20 shadow-lg shadow-emerald-950/20 hover:shadow-emerald-500/10 text-xs transition-all uppercase tracking-wider font-mono mt-1"
+                                >
+                                  <UserPlus className="h-4 w-4 animate-pulse text-white shrink-0" />
+                                  Assumir Chamado
+                                </motion.button>
+                              );
+                            }
+
+                            return (
+                              <>
+                                <div 
+                                  className="bg-neutral-950/80 p-2 rounded-xl border border-neutral-900/60 max-h-48 overflow-y-auto space-y-1.5 scrollbar-thin scrollbar-thumb-neutral-800 scrollbar-track-transparent"
+                                  title={!canManageAssignments ? `Apenas o primeiro técnico responsável (${firstTech}) pode alterar as atribuições.` : ""}
+                                >
+                                  {users
+                                    .filter(u => u.role === "tecnico")
+                                    .map(tech => {
+                                      const isAssigned = getAssignedTechs(selectedTicket.assignedTo).includes(tech.name);
+                                      const initials = tech.name
+                                        .split(" ")
+                                        .map((n: string) => n[0])
+                                        .join("")
+                                        .slice(0, 2)
+                                        .toUpperCase();
+
+                                      return (
+                                        <div 
+                                          key={tech.id} 
+                                          onClick={() => {
+                                            if (!canManageAssignments) return;
+                                            const currentTechs = getAssignedTechs(selectedTicket.assignedTo);
+                                            let updatedTechs: string[];
+                                            if (currentTechs.includes(tech.name)) {
+                                              updatedTechs = currentTechs.filter(name => name !== tech.name);
+                                            } else {
+                                              updatedTechs = [...currentTechs, tech.name];
+                                            }
+                                            const assignedStr = updatedTechs.length > 0 ? updatedTechs.join(", ") : null;
+                                            handleUpdateTicketMeta(selectedTicket.id, { assignedTo: assignedStr });
+                                          }}
+                                          className={`group flex items-center justify-between p-2 rounded-lg border transition-all text-left select-none ${
+                                            isAssigned
+                                              ? "bg-emerald-950/15 border-emerald-500/20 text-emerald-300"
+                                              : "bg-[#060606] border-neutral-900/60 text-slate-400 hover:border-neutral-800/80 hover:text-slate-200"
+                                          } ${!canManageAssignments ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
+                                        >
+                                          <div className="flex items-center gap-2 min-w-0">
+                                            {/* Avatar with Initials & Online Status Dot */}
+                                            <div className="relative shrink-0">
+                                              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold border transition-colors ${
+                                                isAssigned 
+                                                  ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/20" 
+                                                  : "bg-neutral-900 text-slate-500 border-neutral-800"
+                                              }`}>
+                                                {initials}
+                                              </div>
+                                              {tech.isOnline && (
+                                                <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-emerald-500 rounded-full border border-black shrink-0 animate-pulse" title="Online" />
+                                              )}
+                                            </div>
+                                            
+                                            <div className="min-w-0 leading-tight">
+                                              <span className={`text-[11px] font-semibold block truncate ${isAssigned ? 'text-emerald-300' : 'text-slate-300 group-hover:text-slate-100'}`}>
+                                                {tech.name}
+                                              </span>
+                                              <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider block">Suporte</span>
+                                            </div>
+                                          </div>
+
+                                          {/* Custom Checkbox/Lock Indicator */}
+                                          <div className="shrink-0 flex items-center justify-center">
+                                            {!canManageAssignments ? (
+                                              isAssigned ? (
+                                                <div className="w-4 h-4 rounded-full bg-emerald-500/10 text-emerald-500/60 flex items-center justify-center border border-emerald-500/10">
+                                                  <Lock className="h-2.5 w-2.5" />
+                                                </div>
+                                              ) : null
+                                            ) : isAssigned ? (
+                                              <div className="w-4 h-4 rounded-full bg-emerald-500 text-black flex items-center justify-center shadow-md shadow-emerald-950/40">
+                                                <Check className="h-2.5 w-2.5 stroke-[3]" />
+                                              </div>
+                                            ) : (
+                                              <div className="w-4 h-4 rounded-full border border-neutral-800 bg-black transition-colors group-hover:border-neutral-700" />
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                </div>
+                                {!canManageAssignments && (
+                                  <div className="p-2 bg-amber-500/5 border border-amber-500/10 rounded-lg text-[10px] text-amber-500 leading-normal font-medium flex items-start gap-1.5">
+                                    <Lock className="h-3 w-3 text-amber-500 shrink-0 mt-0.5" />
+                                    <span>Apenas o técnico inicialmente responsável (<strong>{firstTech}</strong>) pode gerenciar as atribuições.</span>
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
+ 
+                        {/* Adjust priority manually */}
+                        <div className="space-y-1.5 col-span-2 md:col-span-1">
+                          <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">Prioridade Operacional</label>
+                          <div className="relative">
+                            <select
+                              value={selectedTicket.priority}
+                              onChange={(e) => handleUpdateTicketMeta(selectedTicket.id, { priority: e.target.value as Ticket["priority"] })}
+                              disabled={isAssignedToOther}
+                              className={`w-full bg-[#060606] border border-neutral-900 rounded-xl py-2 px-3 text-xs text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all ${
+                                isAssignedToOther 
+                                  ? "opacity-60 cursor-not-allowed text-slate-500" 
+                                  : "hover:border-neutral-800/80 cursor-pointer"
+                              }`}
+                              title={isAssignedToOther ? `Apenas o técnico responsável (${selectedTicket.assignedTo}) pode alterar a prioridade.` : ""}
+                            >
+                              <option value="Baixa">Baixa</option>
+                              <option value="Média">Média</option>
+                              <option value="Alta">Alta</option>
+                              <option value="Urgente">Urgente</option>
+                            </select>
+                          </div>
+                        </div>
+ 
+                      </div>
+
+                      {/* Alterar Solicitante (Visible to technicians) */}
+                      <div className="pt-2.5 border-t border-emerald-950/10 space-y-1.5">
+                        <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                          <UserIcon className="h-3.5 w-3.5 text-emerald-400" />
+                          Alterar Solicitante (Colaborador)
+                        </label>
+                        <select
+                          value={selectedTicket.requesterName}
+                          disabled={isAssignedToOther}
+                          onChange={(e) => {
+                            const selectedUser = users.find(u => u.name === e.target.value);
+                            if (selectedUser) {
+                              if (confirm(`Deseja realmente alterar o solicitante deste chamado para ${selectedUser.name}?`)) {
+                                handleUpdateTicketMeta(selectedTicket.id, {
+                                  requesterName: selectedUser.name,
+                                  requesterDepartment: selectedUser.department
+                                });
+                              }
+                            }
+                          }}
+                          className={`w-full bg-[#060606] border border-neutral-900 rounded-xl py-2 px-3 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all ${
+                            isAssignedToOther 
+                              ? "opacity-60 cursor-not-allowed text-slate-500" 
+                              : "hover:border-neutral-800/80 cursor-pointer"
+                          }`}
+                          title={isAssignedToOther ? `Apenas o técnico responsável (${selectedTicket.assignedTo}) pode alterar o solicitante.` : ""}
+                        >
+                          {users.map(u => (
+                            <option key={u.id} value={u.name}>
+                              {u.name} ({u.department || "Suporte"})
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[9px] text-slate-500 font-medium">Altere o colaborador que solicitou este chamado de suporte.</p>
+                      </div>
+
+                      {/* SLA/Ticket Type Setting (Visible to all technicians) */}
+                      {currentSession?.role === "tecnico" && (
+                        <div className="pt-2.5 border-t border-emerald-950/10 space-y-1.5">
+                          <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                            <FolderKanban className="h-3.5 w-3.5 text-emerald-400" />
+                            Tipo de SLA (Chamado ou Projeto)
+                          </label>
+                          <select
+                            value={selectedTicket.projectDeadline ? "projeto" : "chamado"}
+                            disabled={isAssignedToOther}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === "chamado") {
+                                handleUpdateTicketMeta(selectedTicket.id, { projectDeadline: "" });
+                              } else {
+                                // Default project deadline is 7 days from now
+                                const defaultDeadline = new Date();
+                                defaultDeadline.setDate(defaultDeadline.getDate() + 7);
+                                const dateStr = defaultDeadline.toISOString().split("T")[0];
+                                handleUpdateTicketMeta(selectedTicket.id, { projectDeadline: dateStr });
+                              }
+                            }}
+                            className="w-full bg-[#060606] border border-neutral-900 rounded-xl py-2 px-3 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all hover:border-neutral-800/80 cursor-pointer"
+                          >
+                            <option value="chamado">Chamado Padrão (SLA Baseado em Horas)</option>
+                            <option value="projeto">Projeto em Andamento (SLA Baseado em Data Limite)</option>
+                          </select>
+                          <p className="text-[9px] text-slate-500 font-medium">
+                            Selecione se este item deve ser tratado como um chamado padrão com SLA por prioridade ou um projeto de longo prazo com data limite de entrega.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Project Deadline Setting (Visible to all technicians and only if configured as a project) */}
+                      {currentSession?.role === "tecnico" && selectedTicket.projectDeadline && (
+                        <div className="pt-2.5 border-t border-emerald-950/10 space-y-1.5">
+                          <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                            <Calendar className="h-3.5 w-3.5 text-emerald-400" />
+                            Definir Data Limite do Projeto
+                          </label>
+                          <WindowsDatePicker
+                            value={selectedTicket.projectDeadline}
+                            onChange={(date) => handleUpdateTicketMeta(selectedTicket.id, { projectDeadline: date })}
+                          />
+                          <p className="text-[9px] text-slate-500 font-medium">Defina ou altere o prazo limite para a conclusão do projeto associado a este chamado.</p>
+                        </div>
+                      )}
+
+                      {/* Transfer Option (Only visible to the first assigned technician) */}
+                      {getFirstAssignedTech(selectedTicket) === currentSession.name && (
+                        <div className="pt-2.5 border-t border-emerald-950/10 space-y-1.5">
+                          <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                            <RefreshCw className="h-3.5 w-3.5 text-emerald-400" />
+                            Transferir chamado para outro técnico:
+                          </label>
+                          <select
+                            defaultValue=""
+                            className="w-full bg-[#060606] border border-neutral-900 rounded-xl py-2 px-3 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all hover:border-neutral-800/80 cursor-pointer"
+                            onChange={(e) => {
+                              const targetTechName = e.target.value;
+                              if (targetTechName) {
+                                if (confirm(`Deseja realmente transferir este chamado para ${targetTechName}?`)) {
+                                  handleUpdateTicketMeta(selectedTicket.id, { assignedTo: targetTechName });
+                                }
+                                e.target.value = ""; // reset selection
+                              }
+                            }}
+                          >
+                            <option value="" disabled>Selecione o técnico de destino...</option>
+                            {users
+                              .filter(u => u.role === "tecnico" && u.name !== currentSession.name)
+                              .map(tech => (
+                                <option key={tech.id} value={tech.name}>
+                                  {tech.name} ({tech.department || "Suporte"}) {tech.isOnline ? "• Online" : ""}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Action Button: Finalizar Chamado */}
+                  <div className="p-4 bg-black border border-emerald-950/20 rounded-xl space-y-2">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Ações Disponíveis</span>
+                    
+                    {isAssignedToOther && (
+                      <div className="p-2.5 bg-amber-500/5 border border-amber-500/15 rounded-lg text-[10px] text-amber-400 leading-normal font-medium flex items-center gap-2 mb-2">
+                        <span>⚠️ Este chamado está sob responsabilidade de <strong>{selectedTicket.assignedTo}</strong>. Apenas um dos responsáveis pode alterar ou finalizá-lo.</span>
+                      </div>
+                    )}
+
+                    {selectedTicket.status !== "Resolvido" && selectedTicket.status !== "Fechado" ? (
+                      <button
+                        onClick={() => {
+                          if (isAssignedToOther) {
+                            alert(`Este chamado está atribuído a ${selectedTicket.assignedTo}. Apenas um dos técnicos responsáveis pode finalizá-lo.`);
+                            return;
+                          }
+                          handleUpdateTicketMeta(selectedTicket.id, { status: "Resolvido" });
+                        }}
+                        disabled={isAssignedToOther}
+                        className={`w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-xs transition flex items-center justify-center gap-2 shadow-sm cursor-pointer font-display ${isAssignedToOther ? "opacity-40 cursor-not-allowed" : ""}`}
+                        title={isAssignedToOther ? `Apenas ${selectedTicket.assignedTo} pode finalizar este chamado` : ""}
+                      >
+                        <CheckCircle className="h-4 w-4" />
+                        Finalizar Chamado (Marcar como Resolvido)
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          if (isAssignedToOther) {
+                            alert(`Este chamado está atribuído a ${selectedTicket.assignedTo}. Apenas um dos técnicos responsáveis pode reabri-lo.`);
+                            return;
+                          }
+                          handleUpdateTicketMeta(selectedTicket.id, { status: "Aberto" });
+                        }}
+                        disabled={isAssignedToOther}
+                        className={`w-full py-2.5 bg-black hover:bg-neutral-900 text-slate-200 font-bold rounded-xl text-xs transition flex items-center justify-center gap-2 border border-emerald-950/25 cursor-pointer font-display ${isAssignedToOther ? "opacity-40 cursor-not-allowed" : ""}`}
+                        title={isAssignedToOther ? `Apenas ${selectedTicket.assignedTo} pode reabrir este chamado` : ""}
+                      >
+                        <RefreshCw className="h-4 w-4 text-emerald-400" />
+                        Reabrir Chamado (Definir como Aberto)
+                      </button>
+                    )}
+
+                    {/* Excluir Chamado (Apenas para os técnicos responsáveis) */}
+                    {currentSession.role === "tecnico" && (
+                      <div className="pt-2 border-t border-neutral-900 mt-2">
+                        {!getAssignedTechs(selectedTicket.assignedTo).includes(currentSession.name) ? (
+                          <button
+                            type="button"
+                            disabled
+                            className="w-full py-2 bg-neutral-950 text-neutral-600 border border-neutral-900/40 font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-not-allowed"
+                            title={`Apenas os técnicos responsáveis (${selectedTicket.assignedTo || 'Nenhum'}) podem excluir este chamado.`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 text-neutral-700" />
+                            Excluir Chamado (Apenas Responsável)
+                          </button>
+                        ) : isConfirmingDeleteTicket === selectedTicket.id ? (
+                          <div className="flex gap-2 w-full">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTicket(selectedTicket.id)}
+                              className="flex-1 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-rose-600/20"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              Confirmar Exclusão?
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setIsConfirmingDeleteTicket(null)}
+                              className="px-3 py-2 bg-[#151515] hover:bg-[#202020] text-slate-300 font-medium rounded-xl text-xs border border-neutral-900 transition cursor-pointer"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setIsConfirmingDeleteTicket(selectedTicket.id)}
+                            className="w-full py-2 bg-black hover:bg-rose-950/15 text-rose-400 hover:text-rose-300 border border-emerald-950/20 hover:border-rose-900/30 font-semibold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Excluir Chamado
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* OS Local Notification Callout for Chat */}
+                  <div className={`p-3 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 ${
+                    desktopNotificationPermission === "granted"
+                      ? "bg-emerald-950/20 border-emerald-500/20 text-emerald-300"
+                      : desktopNotificationPermission === "denied"
+                      ? "bg-rose-950/20 border-rose-500/30 text-rose-300"
+                      : "bg-emerald-500/10 border-emerald-500/30 text-white"
+                  }`}>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className={`p-2 rounded-lg shrink-0 ${
+                        desktopNotificationPermission === "granted"
+                          ? "bg-emerald-500/20 text-emerald-400"
+                          : desktopNotificationPermission === "denied"
+                          ? "bg-rose-500/20 text-rose-400"
+                          : "bg-emerald-600 text-white font-semibold"
+                      }`}>
+                        <BellRing className={`h-4 w-4 ${desktopNotificationPermission !== "granted" ? "animate-bounce" : ""}`} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-extrabold text-[11px] uppercase tracking-wider block truncate">
+                            {desktopNotificationPermission === "granted"
+                              ? "Notificações do Sistema Operacional Ativas"
+                              : desktopNotificationPermission === "denied"
+                              ? "Notificações do SO Bloqueadas"
+                              : "Ative as Notificações Nativas do Sistema para este Chat"}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-300 leading-tight mt-0.5">
+                          {desktopNotificationPermission === "granted"
+                            ? "Sua área de trabalho avisará instantaneamente quando houver novas mensagens neste chamado."
+                            : desktopNotificationPermission === "denied"
+                            ? "Bloqueado no navegador. Clique ao lado para saber como permitir alertas de chat."
+                            : "Para não perder mensagens deste chamado sem precisar ficar olhando para esta tela, ative as Notificações do SO."}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                      {desktopNotificationPermission === "granted" ? (
+                        <button
+                          type="button"
+                          onClick={testDesktopNotification}
+                          className="w-full sm:w-auto px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <Sparkles className="h-3 w-3 text-emerald-400" />
+                          Testar Pop-up SO
+                        </button>
+                      ) : desktopNotificationPermission === "denied" ? (
+                        <button
+                          type="button"
+                          onClick={() => setIsNotificationGuideOpen(true)}
+                          className="w-full sm:w-auto px-3 py-1.5 bg-rose-500 hover:bg-rose-400 text-white font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <HelpCircle className="h-3.5 w-3.5" />
+                          Como Desbloquear
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const res = await requestDesktopNotificationPermission();
+                            if (res === "granted") {
+                              testDesktopNotification();
+                            }
+                          }}
+                          className="w-full sm:w-auto px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-[10.5px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer shadow-sm font-sans"
+                        >
+                          <Bell className="h-3.5 w-3.5" />
+                          Ativar no SO
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Interaction history and discussion thread */}
+                  <div className="space-y-3 pt-2">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Histórico de Discussão & Logs</span>
+                    
+                    <div className="space-y-2">
+                      {selectedTicket.comments
+                        .filter((comment) => comment.authorRole !== "ai")
+                        .map((comment) => {
+                        const isSystem = comment.authorRole === "system";
+                        const isAI = comment.authorRole === "ai";
+                        const isTechnical = comment.authorRole === "tecnico";
+
+                        return (
+                          <div
+                            key={comment.id}
+                            className={`p-3 rounded-xl border text-xs leading-relaxed ${
+                              isSystem ? "bg-black/40 text-slate-400 border-neutral-900 text-center py-2 italic font-mono text-[10px]" :
+                              isAI ? "bg-emerald-950/5 text-emerald-300 border-emerald-500/10" :
+                              isTechnical ? "bg-[#0e0e0e] text-slate-200 border-emerald-950/20" :
+                              "bg-black text-slate-200 border-neutral-900"
+                            }`}
+                          >
+                            {!isSystem && (
+                              <div className="flex justify-between items-center mb-1.5">
+                                <span className="font-bold flex items-center gap-1">
+                                  {isAI && <Sparkles className="h-3 w-3 text-emerald-400" />}
+                                  {comment.authorName}
+                                  <span className="text-[9px] font-normal text-slate-500">
+                                    ({comment.authorRole})
+                                  </span>
+                                </span>
+                                <span className="text-[10px] text-slate-500">
+                                  {new Date(comment.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                                </span>
+                              </div>
+                            )}
+                            
+                            <p className="whitespace-pre-line text-xs">{comment.content}</p>
+
+                            {comment.attachmentUrl && (
+                              <div className="mt-2.5 p-2 bg-black/50 rounded-lg border border-neutral-900/60 flex items-center gap-2 max-w-sm" onClick={(e) => e.stopPropagation()}>
+                                {comment.attachmentUrl.startsWith("data:image/") ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPreviewImage(comment.attachmentUrl || null)}
+                                    className="relative h-12 w-12 rounded-md overflow-hidden border border-neutral-800 flex-shrink-0 cursor-zoom-in text-left"
+                                    title="Clique para ver imagem cheia"
+                                  >
+                                    <img 
+                                      src={comment.attachmentUrl} 
+                                      alt="Anexo" 
+                                      className="h-full w-full object-cover"
+                                    />
+                                    <div className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 flex items-center justify-center transition">
+                                      <Eye className="h-3 w-3 text-white" />
+                                    </div>
+                                  </button>
+                                ) : (
+                                  <div className="h-10 w-10 rounded-md bg-neutral-900 border border-neutral-800 flex items-center justify-center text-emerald-400 flex-shrink-0">
+                                    <FileText className="h-5 w-5" />
+                                  </div>
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[10px] font-bold text-slate-300 truncate">{comment.attachmentName || "Anexo"}</p>
+                                  <a
+                                    href={comment.attachmentUrl}
+                                    download={comment.attachmentName || "anexo.png"}
+                                    className="text-[9px] text-emerald-400 hover:text-emerald-300 font-bold uppercase tracking-wider inline-flex items-center gap-1 mt-0.5 cursor-pointer"
+                                  >
+                                    Baixar arquivo
+                                  </a>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* Live Comments Thread Input bar */}
+                <div className="border-t border-neutral-900 bg-black flex flex-col">
+                  {/* Attachment Preview Box */}
+                  {commentAttachment && (
+                    <div className="px-4 py-2 bg-neutral-950/80 border-b border-neutral-900 flex items-center justify-between gap-3 text-xs animate-in slide-in-from-bottom-2 duration-150">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {commentAttachment.startsWith("data:image/") ? (
+                          <img 
+                            src={commentAttachment} 
+                            alt="Preview do anexo" 
+                            className="h-8 w-8 rounded object-cover border border-neutral-800"
+                          />
+                        ) : (
+                          <div className="h-8 w-8 rounded bg-neutral-900 border border-neutral-800 flex items-center justify-center text-emerald-400">
+                            <FileText className="h-4 w-4" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-bold text-slate-300 truncate">{commentAttachmentName}</p>
+                          <p className="text-[9px] text-slate-500 uppercase font-medium">Pronto para enviar</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCommentAttachment(null);
+                          setCommentAttachmentName("");
+                        }}
+                        className="p-1 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center"
+                        title="Remover anexo"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleAddComment} className="p-4 flex gap-2 items-center">
+                    {/* File attach input helper */}
+                    <input
+                      type="file"
+                      id="comment-file-input"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          if (file.type.startsWith("image/")) {
+                            compressImage(file)
+                              .then((compressedUrl) => {
+                                setCommentAttachment(compressedUrl);
+                                setCommentAttachmentName(file.name);
+                              })
+                              .catch(() => {
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                  setCommentAttachment(reader.result as string);
+                                  setCommentAttachmentName(file.name);
+                                };
+                                reader.readAsDataURL(file);
+                              });
+                          } else {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setCommentAttachment(reader.result as string);
+                              setCommentAttachmentName(file.name);
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }
+                        e.target.value = "";
+                      }}
+                    />
+                    <label
+                      htmlFor="comment-file-input"
+                      className="p-2.5 bg-[#0e0e0e] hover:bg-neutral-900 border border-neutral-900 text-slate-400 hover:text-slate-200 rounded-xl transition cursor-pointer flex items-center justify-center flex-shrink-0"
+                      title="Anexar imagem ou documento"
+                    >
+                      <Paperclip className="h-4 w-4" />
+                    </label>
+
+                    <input
+                      type="text"
+                      value={newCommentText}
+                      onChange={(e) => setNewCommentText(e.target.value)}
+                      onPaste={(e) => {
+                        const item = e.clipboardData?.items?.[0];
+                        if (item && item.type.startsWith("image/")) {
+                          const file = item.getAsFile();
+                          if (file) {
+                            compressImage(file)
+                              .then((compressedUrl) => {
+                                setCommentAttachment(compressedUrl);
+                                setCommentAttachmentName(file.name || "imagem_colada.png");
+                              })
+                              .catch(() => {
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                  setCommentAttachment(reader.result as string);
+                                  setCommentAttachmentName(file.name || "imagem_colada.png");
+                                };
+                                reader.readAsDataURL(file);
+                              });
+                          }
+                        } else if (item && item.type.startsWith("application/")) {
+                          const file = item.getAsFile();
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setCommentAttachment(reader.result as string);
+                              setCommentAttachmentName(file.name || "documento_colado.pdf");
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }
+                      }}
+                      placeholder={commentAttachment ? "Adicione um comentário opcional..." : "Adicionar comentário ao chamado..."}
+                      className="flex-1 bg-[#0e0e0e] border border-neutral-900 text-xs rounded-xl px-3 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
+                    />
+                    <button
+                      type="submit"
+                      className="bg-emerald-500 hover:bg-emerald-400 text-black p-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center cursor-pointer flex-shrink-0"
+                    >
+                      <Send className="h-4 w-4" />
+                    </button>
+                  </form>
+                </div>
+
+              </div>
+            ) : null}
+
+            </div>
+          )}
+
+        </motion.div>
+        )}
+        </AnimatePresence>
+
+      </main>
+
+      {/* Modal: Detalhes do Chamado & Chat Tela Cheia */}
+      {selectedTicket && (
+        <div 
+          onClick={() => setSelectedTicketId(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-2 sm:p-4 md:p-6 cursor-pointer animate-in fade-in duration-200"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#0c0c0e] border border-zinc-800/80 w-full max-w-5xl rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[92vh] cursor-default my-auto relative"
+          >
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-zinc-800/80 flex items-center justify-between bg-[#121215] flex-wrap gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 shrink-0">
+                  <MessageSquare className="h-5 w-5 text-emerald-400" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-extrabold text-emerald-400 uppercase tracking-widest bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                      Chamado #{selectedTicket.id}
+                    </span>
+                    <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                      selectedTicket.priority === "Urgente" ? "bg-rose-500/10 text-rose-400 border-rose-500/20" :
+                      selectedTicket.priority === "Alta" ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
+                      "bg-zinc-800 text-zinc-300 border-zinc-700"
+                    }`}>
+                      Prioridade {selectedTicket.priority}
+                    </span>
+                    <span className="text-[10px] font-semibold text-zinc-400 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">
+                      {selectedTicket.category}
+                    </span>
+                  </div>
+                  <h3 className="font-display font-black text-white text-base sm:text-lg truncate mt-0.5">
+                    {selectedTicket.title}
+                  </h3>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                {/* Status indicator / selector */}
+                {currentSession.role === "tecnico" ? (
+                  <select
+                    value={selectedTicket.status}
+                    onChange={(e) => handleUpdateTicketMeta(selectedTicket.id, { status: e.target.value as Ticket["status"] })}
+                    disabled={isAssignedToOther}
+                    className={`bg-zinc-900 border border-zinc-700 text-xs font-bold rounded-xl px-3 py-1.5 focus:outline-none transition cursor-pointer ${
+                      selectedTicket.status === "Aberto" ? "text-amber-400 border-amber-500/30" :
+                      selectedTicket.status === "Em Atendimento" ? "text-sky-400 border-sky-500/30" :
+                      selectedTicket.status === "Resolvido" ? "text-emerald-400 border-emerald-500/30" :
+                      "text-zinc-400 border-zinc-700"
+                    } ${isAssignedToOther ? "opacity-50 cursor-not-allowed" : ""}`}
+                  >
+                    <option value="Aberto" className="bg-zinc-900 text-amber-400 font-bold">Aberto</option>
+                    <option value="Em Atendimento" className="bg-zinc-900 text-sky-400 font-bold">Em Atendimento</option>
+                    <option value="Resolvido" className="bg-zinc-900 text-emerald-400 font-bold">Resolvido</option>
+                    <option value="Fechado" className="bg-zinc-900 text-zinc-400 font-bold">Fechado</option>
+                  </select>
+                ) : (
+                  <span className={`text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-xl border ${
+                    selectedTicket.status === "Aberto" ? "text-amber-400 bg-amber-500/10 border-amber-500/20" :
+                    selectedTicket.status === "Em Atendimento" ? "text-sky-400 bg-sky-500/10 border-sky-500/20" :
+                    selectedTicket.status === "Resolvido" ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" :
+                    "text-zinc-400 bg-zinc-900 border-zinc-800"
+                  }`}>
+                    {selectedTicket.status}
+                  </span>
+                )}
+
+                <button
+                  onClick={() => setSelectedTicketId(null)}
+                  className="p-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer border border-zinc-800 flex items-center justify-center"
+                  title="Fechar (Esc)"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body: Split Grid View */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 flex-1 min-h-0 overflow-y-auto lg:overflow-hidden divide-y lg:divide-y-0 lg:divide-x divide-zinc-800/80">
+              
+              {/* LEFT COLUMN (Informações e Atendimento) */}
+              <div className="lg:col-span-6 p-4 sm:p-5 lg:overflow-y-auto space-y-4 max-h-[50vh] lg:max-h-none scrollbar-thin scrollbar-thumb-zinc-800">
+                {/* Requester overview */}
+                <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800/80 text-xs space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-zinc-400 font-medium">Solicitado por:</span>
+                    <strong className="text-white font-bold">{selectedTicket.requesterName}</strong>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-zinc-400 font-medium">Departamento:</span>
+                    <span className="text-zinc-300 font-medium">{selectedTicket.requesterDepartment}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-zinc-400 font-medium">Data de Abertura:</span>
+                    <span className="text-zinc-300">
+                      {new Date(selectedTicket.createdAt).toLocaleDateString("pt-BR")} às {new Date(selectedTicket.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-zinc-400 font-medium">SLA Limite:</span>
+                    <span className="text-rose-400 font-bold">
+                      {new Date(selectedTicket.slaLimit).toLocaleDateString("pt-BR")} {new Date(selectedTicket.slaLimit).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  </div>
+                  {selectedTicket.projectDeadline && (
+                    <div className="flex justify-between items-center border-t border-zinc-800/60 pt-1.5">
+                      <span className="text-zinc-400 font-medium flex items-center gap-1">
+                        <Calendar className="h-3 w-3 text-emerald-400" />
+                        Limite do Projeto:
+                      </span>
+                      <span className="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 text-[11px]">
+                        {(() => {
+                          try {
+                            const [year, month, day] = selectedTicket.projectDeadline.split("-");
+                            if (year && month && day) return `${day}/${month}/${year}`;
+                            return selectedTicket.projectDeadline;
+                          } catch (e) {
+                            return selectedTicket.projectDeadline;
+                          }
+                        })()}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* AI Intelligent Triage Bento Block */}
+                {selectedTicket.aiCategory && (
+                  <div className="p-3.5 bg-emerald-500/5 rounded-xl border border-emerald-500/15 space-y-2.5">
+                    <div className="flex items-center justify-between border-b border-emerald-500/15 pb-2">
+                      <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <Sparkles className="h-3.5 w-3.5 text-emerald-400 animate-pulse" />
+                        Triagem Inteligente (IA)
+                      </span>
+                      {selectedTicket.screenshot && (
+                        <span className="text-[9px] bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 px-1.5 py-0.5 rounded-full font-semibold flex items-center gap-1">
+                          <Camera className="h-2.5 w-2.5" /> Print Analisado
+                        </span>
+                      )}
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="bg-black/50 p-2 rounded-lg border border-zinc-800">
+                        <span className="text-zinc-500 block text-[9px] uppercase tracking-wider">Categoria IA</span>
+                        <span className="text-emerald-400 font-bold">{selectedTicket.aiCategory}</span>
+                      </div>
+                      <div className="bg-black/50 p-2 rounded-lg border border-zinc-800">
+                        <span className="text-zinc-500 block text-[9px] uppercase tracking-wider">Prioridade IA</span>
+                        <span className={`font-bold ${
+                          selectedTicket.aiPriority === "Urgente" ? "text-rose-400" :
+                          selectedTicket.aiPriority === "Alta" ? "text-amber-400" :
+                          selectedTicket.aiPriority === "Média" ? "text-emerald-400" : "text-zinc-400"
+                        }`}>{selectedTicket.aiPriority}</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Diagnóstico</span>
+                      <p className="text-zinc-300 text-xs leading-relaxed whitespace-pre-line italic bg-black/30 p-2 rounded-lg border border-zinc-800/50">
+                        "{selectedTicket.aiReasoning}"
+                      </p>
+                    </div>
+
+                    {selectedTicket.aiSuggestions && (
+                      <div className="space-y-1 pt-1 border-t border-emerald-500/15">
+                        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Soluções Recomendadas</span>
+                        <div className="text-zinc-300 text-xs leading-relaxed space-y-1 bg-black/40 p-2.5 rounded-lg border border-zinc-800">
+                          {selectedTicket.aiSuggestions.split("\n").map((line, index) => (
+                            <div key={index} className="flex gap-2 items-start">
+                              <span className="text-emerald-400 font-bold select-none">•</span>
+                              <span>{line.replace(/^\d+[\.\-\s]+/, "")}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Problem Description */}
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Descrição do Problema</span>
+                  <div className="bg-black p-3.5 rounded-xl border border-zinc-800/80 text-xs text-zinc-200 leading-relaxed whitespace-pre-line">
+                    {selectedTicket.description}
+                  </div>
+                </div>
+
+                {/* Attached files and screenshots */}
+                {((selectedTicket.attachments && selectedTicket.attachments.length > 0) || selectedTicket.screenshot) && (
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <Paperclip className="h-3.5 w-3.5 text-emerald-400" />
+                      Anexos do Chamado
+                    </span>
+                    <div className="bg-zinc-900/40 p-3 rounded-xl border border-zinc-800/80 space-y-2">
+                      {selectedTicket.attachments && selectedTicket.attachments.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {selectedTicket.attachments.map((file, idx) => {
+                            const isImage = file.type.startsWith("image/");
+                            const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+                            
+                            return (
+                              <div key={idx} className="flex flex-col p-2 rounded-xl bg-black/60 border border-zinc-800 hover:border-zinc-700 transition justify-between gap-2">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  {isImage ? (
+                                    <div className="w-10 h-10 rounded-lg overflow-hidden border border-zinc-800 flex-shrink-0 bg-black flex items-center justify-center">
+                                      <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
+                                    </div>
+                                  ) : (
+                                    <div className={`w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center bg-black border border-zinc-800 ${isPdf ? "text-red-400" : "text-emerald-400"}`}>
+                                      <FileText className="h-5 w-5" />
+                                    </div>
+                                  )}
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-xs font-semibold text-zinc-200 truncate" title={file.name}>
+                                      {file.name}
+                                    </p>
+                                    <p className="text-[9px] text-zinc-500 uppercase font-mono tracking-wider">
+                                      {isPdf ? "Documento PDF" : isImage ? "Imagem" : "Arquivo"}
+                                    </p>
+                                  </div>
+                                </div>
+                                
+                                <div className="flex items-center gap-2">
+                                  {isImage ? (
+                                    <button
+                                      onClick={() => setPreviewImage(file.url)}
+                                      className="flex-1 py-1 px-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 rounded-lg text-[10px] font-bold text-zinc-300 hover:text-emerald-400 flex items-center justify-center gap-1 transition cursor-pointer"
+                                    >
+                                      <Eye className="h-3 w-3" /> Visualizar
+                                    </button>
+                                  ) : (
+                                    <a
+                                      href={file.url}
+                                      download={file.name}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="flex-1 py-1 px-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 rounded-lg text-[10px] font-bold text-zinc-300 hover:text-emerald-400 flex items-center justify-center gap-1 transition text-center"
+                                    >
+                                      <Upload className="h-3 w-3 rotate-180" /> Abrir / Baixar
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center">
+                          <button 
+                            onClick={() => setPreviewImage(selectedTicket.screenshot || null)} 
+                            className="relative block rounded-lg overflow-hidden border border-zinc-800 group cursor-zoom-in max-w-full text-left"
+                            title="Clique para abrir em tela cheia"
+                          >
+                            <img 
+                              src={selectedTicket.screenshot} 
+                              alt="Print do chamado" 
+                              className="max-h-52 object-contain rounded-lg group-hover:scale-[1.015] transition-all duration-200" 
+                            />
+                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <span className="bg-black/95 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-xl border border-zinc-800 shadow-xl flex items-center gap-1">
+                                <Eye className="h-3.5 w-3.5 text-emerald-400" /> Ver Imagem Completa
+                              </span>
+                            </div>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Technician Controls (When role === tecnico or ti) */}
+                {isTechUser && (
+                  <div className="p-3.5 bg-black rounded-xl border border-zinc-800 space-y-3">
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Painel do Técnico (Atendimento)</span>
+                    
+                    <div className="grid grid-cols-2 gap-2.5 text-xs">
+                      {/* Assign tech button / list */}
+                      <div className="space-y-1.5 col-span-2 md:col-span-1">
+                        <label className="text-zinc-400 block text-[10px] font-bold uppercase tracking-wider">Técnicos Atribuídos</label>
+                        {(() => {
+                          const assignedTechs = getAssignedTechs(selectedTicket.assignedTo);
+                          const firstTech = getFirstAssignedTech(selectedTicket);
+                          const canManageAssignments = assignedTechs.length === 0 || (currentSession && currentSession.name === firstTech);
+
+                          if (assignedTechs.length === 0) {
+                            return (
+                              <button
+                                onClick={() => handleUpdateTicketMeta(selectedTicket.id, { assignedTo: currentSession.name })}
+                                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 border border-emerald-400/20 shadow-md text-xs transition-all uppercase tracking-wider cursor-pointer"
+                              >
+                                <UserPlus className="h-4 w-4 shrink-0" />
+                                Assumir Chamado
+                              </button>
+                            );
+                          }
+
+                          return (
+                            <div className="bg-zinc-900 p-2 rounded-xl border border-zinc-800 max-h-36 overflow-y-auto space-y-1">
+                              {users
+                                .filter(u => u.role === "tecnico")
+                                .map(tech => {
+                                  const isAssigned = getAssignedTechs(selectedTicket.assignedTo).includes(tech.name);
+                                  return (
+                                    <div 
+                                      key={tech.id} 
+                                      onClick={() => {
+                                        if (!canManageAssignments) return;
+                                        const currentTechs = getAssignedTechs(selectedTicket.assignedTo);
+                                        let updatedTechs: string[];
+                                        if (currentTechs.includes(tech.name)) {
+                                          updatedTechs = currentTechs.filter(name => name !== tech.name);
+                                        } else {
+                                          updatedTechs = [...currentTechs, tech.name];
+                                        }
+                                        const assignedStr = updatedTechs.length > 0 ? updatedTechs.join(", ") : null;
+                                        handleUpdateTicketMeta(selectedTicket.id, { assignedTo: assignedStr });
+                                      }}
+                                      className={`flex items-center justify-between p-1.5 rounded-lg border text-left ${
+                                        isAssigned ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300" : "bg-black border-zinc-800 text-zinc-400"
+                                      } ${!canManageAssignments ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
+                                    >
+                                      <span className="text-[11px] font-semibold truncate">{tech.name}</span>
+                                      {isAssigned && <Check className="h-3 w-3 text-emerald-400 shrink-0" />}
+                                    </div>
+                                  );
+                                })}
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Operational priority selector */}
+                      <div className="space-y-1.5 col-span-2 md:col-span-1">
+                        <label className="text-zinc-400 block text-[10px] font-bold uppercase tracking-wider">Prioridade</label>
+                        <select
+                          value={selectedTicket.priority}
+                          onChange={(e) => handleUpdateTicketMeta(selectedTicket.id, { priority: e.target.value as Ticket["priority"] })}
+                          disabled={isAssignedToOther}
+                          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-2 px-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
+                        >
+                          <option value="Baixa">Baixa</option>
+                          <option value="Média">Média</option>
+                          <option value="Alta">Alta</option>
+                          <option value="Urgente">Urgente</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Actions: Finish / Reopen */}
+                    <div className="pt-2 border-t border-zinc-800 flex gap-2">
+                      {selectedTicket.status !== "Resolvido" && selectedTicket.status !== "Fechado" ? (
+                        <button
+                          onClick={() => {
+                            if (isAssignedToOther) {
+                              alert(`Este chamado está atribuído a ${selectedTicket.assignedTo}.`);
+                              return;
+                            }
+                            handleUpdateTicketMeta(selectedTicket.id, { status: "Resolvido" });
+                          }}
+                          disabled={isAssignedToOther}
+                          className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                        >
+                          <CheckCircle className="h-4 w-4" />
+                          Finalizar Chamado
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            if (isAssignedToOther) {
+                              alert(`Este chamado está atribuído a ${selectedTicket.assignedTo}.`);
+                              return;
+                            }
+                            handleUpdateTicketMeta(selectedTicket.id, { status: "Aberto" });
+                          }}
+                          disabled={isAssignedToOther}
+                          className="flex-1 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 font-bold rounded-xl text-xs border border-zinc-700 transition flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <RefreshCw className="h-4 w-4 text-emerald-400" />
+                          Reabrir Chamado
+                        </button>
+                      )}
+
+                      {/* Excluir Chamado */}
+                      {getAssignedTechs(selectedTicket.assignedTo).includes(currentSession.name) && (
+                        isConfirmingDeleteTicket === selectedTicket.id ? (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteTicket(selectedTicket.id)}
+                            className="px-3 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs transition cursor-pointer"
+                          >
+                            Confirmar?
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setIsConfirmingDeleteTicket(selectedTicket.id)}
+                            className="p-2 bg-zinc-900 hover:bg-rose-950/20 text-rose-400 border border-zinc-800 hover:border-rose-900/30 rounded-xl transition cursor-pointer"
+                            title="Excluir Chamado"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* RIGHT COLUMN (Chat e Histórico de Comunicação) */}
+              <div className="lg:col-span-6 flex flex-col h-full bg-[#08080a] p-4 sm:p-5">
+                
+                {/* Chat Header */}
+                <div className="pb-3 border-b border-zinc-800/80 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4 text-emerald-400" />
+                    <h4 className="text-xs font-extrabold uppercase tracking-wider text-white">Chat do Chamado & Discussão</h4>
+                    <span className="text-[10px] bg-emerald-500/10 text-emerald-400 font-bold px-2 py-0.5 rounded-full border border-emerald-500/20">
+                      {selectedTicket.comments.filter(c => c.authorRole !== "ai").length} msg
+                    </span>
+                  </div>
+
+                  {/* Desktop OS Notification trigger */}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (desktopNotificationPermission === "granted") {
+                        testDesktopNotification();
+                      } else {
+                        const res = await requestDesktopNotificationPermission();
+                        if (res === "granted") testDesktopNotification();
+                      }
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border flex items-center gap-1 transition cursor-pointer ${
+                      desktopNotificationPermission === "granted"
+                        ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20 hover:bg-emerald-500/20"
+                        : "bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white"
+                    }`}
+                    title="Alertas Pop-up do Sistema Operacional"
+                  >
+                    <Bell className="h-3 w-3 text-emerald-400" />
+                    <span>{desktopNotificationPermission === "granted" ? "Alertas Ativos" : "Ativar Pop-up"}</span>
+                  </button>
+                </div>
+
+                {/* Messages Feed Area */}
+                <div className="flex-1 overflow-y-auto space-y-3 my-3 pr-1 scrollbar-thin scrollbar-thumb-zinc-800 min-h-[220px] max-h-[350px] lg:max-h-none">
+                  {selectedTicket.comments
+                    .filter((comment) => comment.authorRole !== "ai")
+                    .map((comment) => {
+                      const isSystem = comment.authorRole === "system";
+                      const isTechnical = comment.authorRole === "tecnico";
+                      const isCurrentUser = currentSession && comment.authorName === currentSession.name;
+
+                      if (isSystem) {
+                        return (
+                          <div key={comment.id} className="p-2 rounded-lg bg-black/40 text-zinc-500 border border-zinc-900 text-center text-[10px] italic font-mono">
+                            {comment.content}
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div
+                          key={comment.id}
+                          className={`flex flex-col ${isCurrentUser ? "items-end" : "items-start"}`}
+                        >
+                          <div className={`max-w-[85%] p-3 rounded-2xl border text-xs leading-relaxed shadow-sm ${
+                            isCurrentUser
+                              ? "bg-emerald-600/15 border-emerald-500/30 text-white rounded-br-xs"
+                              : isTechnical
+                              ? "bg-zinc-900 border-zinc-800 text-zinc-200 rounded-bl-xs"
+                              : "bg-black border-zinc-800 text-zinc-200 rounded-bl-xs"
+                          }`}>
+                            <div className="flex items-center justify-between gap-3 mb-1 text-[10px]">
+                              <span className="font-bold text-emerald-400 flex items-center gap-1">
+                                {comment.authorName}
+                                <span className="text-[9px] font-normal text-zinc-500">
+                                  ({comment.authorRole === "tecnico" ? "Suporte" : "Solicitante"})
+                                </span>
+                              </span>
+                              <span className="text-zinc-500 text-[9px]">
+                                {new Date(comment.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                              </span>
+                            </div>
+
+                            <p className="whitespace-pre-line text-xs">{comment.content}</p>
+
+                            {comment.attachmentUrl && (
+                              <div className="mt-2 p-2 bg-black/60 rounded-xl border border-zinc-800/80 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                {comment.attachmentUrl.startsWith("data:image/") ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPreviewImage(comment.attachmentUrl || null)}
+                                    className="relative h-12 w-12 rounded-lg overflow-hidden border border-zinc-800 flex-shrink-0 cursor-zoom-in text-left"
+                                    title="Clique para ver em tela cheia"
+                                  >
+                                    <img src={comment.attachmentUrl} alt="Anexo" className="h-full w-full object-cover" />
+                                  </button>
+                                ) : (
+                                  <div className="h-10 w-10 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-emerald-400 flex-shrink-0">
+                                    <FileText className="h-5 w-5" />
+                                  </div>
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[10px] font-bold text-zinc-300 truncate">{comment.attachmentName || "Anexo"}</p>
+                                  <a
+                                    href={comment.attachmentUrl}
+                                    download={comment.attachmentName || "anexo.png"}
+                                    className="text-[9px] text-emerald-400 font-bold uppercase tracking-wider inline-flex items-center gap-1 mt-0.5 cursor-pointer"
+                                  >
+                                    Baixar
+                                  </a>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+
+                {/* Input form */}
+                <div className="pt-2 border-t border-zinc-800/80 flex flex-col">
+                  {commentAttachment && (
+                    <div className="mb-2 px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-xl flex items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {commentAttachment.startsWith("data:image/") ? (
+                          <img src={commentAttachment} alt="Preview" className="h-7 w-7 rounded object-cover border border-zinc-800" />
+                        ) : (
+                          <FileText className="h-4 w-4 text-emerald-400" />
+                        )}
+                        <span className="text-[10px] font-bold text-zinc-300 truncate">{commentAttachmentName}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCommentAttachment(null);
+                          setCommentAttachmentName("");
+                        }}
+                        className="text-zinc-400 hover:text-white p-1"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleAddComment} className="flex gap-2 items-center">
+                    <input
+                      type="file"
+                      id="comment-file-input-modal"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          if (file.type.startsWith("image/")) {
+                            compressImage(file)
+                              .then((compressedUrl) => {
+                                setCommentAttachment(compressedUrl);
+                                setCommentAttachmentName(file.name);
+                              })
+                              .catch(() => {
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                  setCommentAttachment(reader.result as string);
+                                  setCommentAttachmentName(file.name);
+                                };
+                                reader.readAsDataURL(file);
+                              });
+                          } else {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setCommentAttachment(reader.result as string);
+                              setCommentAttachmentName(file.name);
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }
+                        e.target.value = "";
+                      }}
+                    />
+                    <label
+                      htmlFor="comment-file-input-modal"
+                      className="p-2.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white rounded-xl transition cursor-pointer flex items-center justify-center flex-shrink-0"
+                      title="Anexar imagem ou documento"
+                    >
+                      <Paperclip className="h-4 w-4" />
+                    </label>
+
+                    <input
+                      type="text"
+                      value={newCommentText}
+                      onChange={(e) => setNewCommentText(e.target.value)}
+                      onPaste={(e) => {
+                        const item = e.clipboardData?.items?.[0];
+                        if (item && item.type.startsWith("image/")) {
+                          const file = item.getAsFile();
+                          if (file) {
+                            compressImage(file)
+                              .then((compressedUrl) => {
+                                setCommentAttachment(compressedUrl);
+                                setCommentAttachmentName(file.name || "imagem_colada.png");
+                              })
+                              .catch(() => {
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                  setCommentAttachment(reader.result as string);
+                                  setCommentAttachmentName(file.name || "imagem_colada.png");
+                                };
+                                reader.readAsDataURL(file);
+                              });
+                          }
+                        }
+                      }}
+                      placeholder={commentAttachment ? "Comentário opcional..." : "Digite uma mensagem ou cole um print..."}
+                      className="flex-1 bg-zinc-900 border border-zinc-800 text-xs rounded-xl px-3 py-2.5 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 transition-all"
+                    />
+                    <button
+                      type="submit"
+                      className="bg-emerald-500 hover:bg-emerald-400 text-black p-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center cursor-pointer flex-shrink-0"
+                    >
+                      <Send className="h-4 w-4" />
+                    </button>
+                  </form>
+                </div>
+
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: My Tickets History */}
+      {isMyTicketsModalOpen && currentSession && (
+        <div 
+          onClick={() => setIsMyTicketsModalOpen(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 cursor-pointer"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#0a0a0a] border border-neutral-900 w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[90vh] cursor-default"
+          >
+            
+            {/* Modal Header */}
+            <div className="p-5 border-b border-neutral-900 flex items-center justify-between bg-black/50 backdrop-blur-md">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
+                  <Layers className="h-4 w-4 text-emerald-400" />
+                </div>
+                <div>
+                  <h3 className="font-display font-extrabold text-white text-base">Meus Chamados</h3>
+                  <p className="text-[10px] text-slate-400">Gerencie todos os chamados abertos por você</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsMyTicketsModalOpen(false)}
+                className="text-slate-400 hover:text-white text-xs font-bold bg-neutral-900 hover:bg-neutral-800 px-3 py-1.5 rounded-xl transition cursor-pointer border border-neutral-800/55"
+              >
+                Fechar
+              </button>
+            </div>
+
+            {/* Segmented view controls for technicians */}
+            {currentSession.role === "tecnico" && (
+              <div className="px-6 py-2 border-b border-neutral-900 flex gap-2 bg-black/40">
+                <button
+                  onClick={() => {
+                    setMyTicketsViewMode("created");
+                    setMyTicketsTab("all");
+                  }}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition cursor-pointer border ${
+                    myTicketsViewMode === "created"
+                      ? "bg-neutral-900 text-white border-neutral-800"
+                      : "bg-transparent text-slate-400 border-transparent hover:text-white"
+                  }`}
+                >
+                  Chamados Criados
+                </button>
+                <button
+                  onClick={() => {
+                    setMyTicketsViewMode("resolved");
+                    setMyTicketsTab("all");
+                  }}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition cursor-pointer border ${
+                    myTicketsViewMode === "resolved"
+                      ? "bg-emerald-500 text-slate-950 border-emerald-500 shadow-sm"
+                      : "bg-transparent text-slate-400 border-transparent hover:text-white"
+                  }`}
+                >
+                  Meus Atendimentos Resolvidos
+                </button>
+              </div>
+            )}
+
+            {/* Profile context summary */}
+            <div className="px-4 sm:px-6 py-2.5 sm:py-3 bg-black/20 border-b border-neutral-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-neutral-900 flex items-center justify-center text-[8px] sm:text-[10px] font-bold text-emerald-400 border border-neutral-800 shrink-0">
+                  {currentSession.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
+                </div>
+                <div className="flex flex-wrap items-baseline gap-1 sm:gap-1.5">
+                  <span className="text-slate-400 font-semibold text-[11px] sm:text-xs">{currentSession.name}</span>
+                  <span className="text-slate-500 text-[9px] sm:text-[10px] font-medium">({currentSession.department})</span>
+                </div>
+              </div>
+              <div className="text-[9px] sm:text-[10px] text-slate-500 font-medium">
+                {myTicketsViewMode === "resolved" ? (
+                  <>
+                    Total de chamados resolvidos por você: <strong className="text-emerald-400">{tickets.filter(t => getAssignedTechs(t.assignedTo).includes(currentSession.name) && (t.status === "Resolvido" || t.status === "Fechado")).length}</strong>
+                  </>
+                ) : (
+                  <>
+                    Total de chamados criados: <strong className="text-slate-300">{tickets.filter(t => t.requesterName === currentSession.name).length}</strong>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Tabs filter */}
+            {myTicketsViewMode === "created" ? (
+              <div className="p-3 sm:p-4 border-b border-neutral-900 flex gap-1.5 sm:gap-2 overflow-x-auto scrollbar-none">
+                <button
+                  onClick={() => setMyTicketsTab("all")}
+                  className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0 ${
+                    myTicketsTab === "all"
+                      ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/10"
+                      : "bg-black text-slate-400 hover:text-white border border-neutral-900"
+                  }`}
+                >
+                  <span>Todos</span>
+                  <span className={`text-[8px] sm:text-[10px] font-extrabold px-1 sm:px-1.5 py-0.5 rounded-md ${
+                    myTicketsTab === "all" ? "bg-black/20 text-slate-950" : "bg-neutral-900 text-slate-400"
+                  }`}>
+                    {tickets.filter(t => t.requesterName === currentSession.name).length}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setMyTicketsTab("unresolved")}
+                  className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0 ${
+                    myTicketsTab === "unresolved"
+                      ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/10"
+                      : "bg-black text-slate-400 hover:text-white border border-neutral-900"
+                  }`}
+                >
+                  <span>Pendentes</span>
+                  <span className={`text-[8px] sm:text-[10px] font-extrabold px-1 sm:px-1.5 py-0.5 rounded-md ${
+                    myTicketsTab === "unresolved" ? "bg-black/20 text-slate-950" : "bg-neutral-900 text-slate-400"
+                  }`}>
+                    {tickets.filter(t => t.requesterName === currentSession.name && t.status !== "Resolvido" && t.status !== "Fechado").length}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setMyTicketsTab("resolved")}
+                  className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0 ${
+                    myTicketsTab === "resolved"
+                      ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/10"
+                      : "bg-black text-slate-400 hover:text-white border border-neutral-900"
+                  }`}
+                >
+                  <span>Resolvidos</span>
+                  <span className={`text-[8px] sm:text-[10px] font-extrabold px-1 sm:px-1.5 py-0.5 rounded-md ${
+                    myTicketsTab === "resolved" ? "bg-black/20 text-slate-950" : "bg-neutral-900 text-slate-400"
+                  }`}>
+                    {tickets.filter(t => t.requesterName === currentSession.name && (t.status === "Resolvido" || t.status === "Fechado")).length}
+                  </span>
+                </button>
+              </div>
+            ) : (
+              <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-neutral-900 bg-black/20 flex items-center justify-between gap-3">
+                <span className="text-[10px] sm:text-xs text-slate-400 font-bold uppercase tracking-wider truncate">Histórico de Atendimentos Concluídos</span>
+                <span className="text-[9px] sm:text-xs bg-emerald-500/10 text-emerald-400 font-semibold px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg sm:rounded-xl border border-emerald-500/20 whitespace-nowrap">
+                  {tickets.filter(t => getAssignedTechs(t.assignedTo).includes(currentSession.name) && (t.status === "Resolvido" || t.status === "Fechado")).length} Chamado(s)
+                </span>
+              </div>
+            )}
+
+            {/* List Area */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-[250px] max-h-[50vh]">
+              {(() => {
+                const baseList = myTicketsViewMode === "resolved"
+                  ? tickets.filter(t => getAssignedTechs(t.assignedTo).includes(currentSession.name) && (t.status === "Resolvido" || t.status === "Fechado"))
+                  : tickets.filter(t => t.requesterName === currentSession.name);
+
+                const filteredList = myTicketsViewMode === "resolved" ? baseList : baseList.filter(t => {
+                  if (myTicketsTab === "unresolved") {
+                    return t.status !== "Resolvido" && t.status !== "Fechado";
+                  }
+                  if (myTicketsTab === "resolved") {
+                    return t.status === "Resolvido" || t.status === "Fechado";
+                  }
+                  return true;
+                });
+
+                if (filteredList.length === 0) {
+                  return (
+                    <div className="py-12 text-center text-slate-500 space-y-3">
+                      <CheckCircle className="h-8 w-8 text-slate-700 mx-auto" />
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-400">Nenhum chamado encontrado</h4>
+                        <p className="text-[10px] text-slate-500 mt-1">Não há registros para esta categoria no momento.</p>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return filteredList.map((ticket) => {
+                  const priorityBorder = 
+                    ticket.priority === "Urgente" ? "border-l-rose-500" :
+                    ticket.priority === "Alta" ? "border-l-amber-500" :
+                    ticket.priority === "Média" ? "border-l-emerald-500" : "border-l-neutral-700";
+
+                  const priorityTextClass = 
+                    ticket.priority === "Urgente" ? "text-rose-400" :
+                    ticket.priority === "Alta" ? "text-amber-400" :
+                    ticket.priority === "Média" ? "text-emerald-400" : "text-neutral-400";
+
+                  return (
+                    <div
+                      key={ticket.id}
+                      onClick={() => {
+                        setSelectedTicketId(ticket.id);
+                        setIsMyTicketsModalOpen(false);
+                      }}
+                      className={`p-3.5 bg-black/50 hover:bg-[#080808]/50 rounded-xl border border-neutral-900 border-l-4 ${priorityBorder} flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition cursor-pointer hover:border-emerald-500/20 group`}
+                    >
+                      <div className="space-y-1 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[10px] font-bold text-neutral-500">#{ticket.id}</span>
+                          <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                            ticket.status === "Aberto" ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" :
+                            ticket.status === "Em Atendimento" ? "bg-sky-500/10 text-sky-400 border border-sky-500/20 shadow-[0_0_10px_rgba(56,189,248,0.05)]" :
+                            ticket.status === "Resolvido" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.05)]" :
+                            ticket.status === "Fechado" ? "bg-zinc-800/40 text-zinc-400 border border-zinc-700/30" :
+                            "bg-neutral-900 text-neutral-400 border border-neutral-850"
+                          }`}>
+                            {ticket.status}
+                          </span>
+                          <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                            ticket.category === 'Acesso' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
+                            ticket.category === 'Redes' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                            ticket.category === 'Hardware' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                            ticket.category === 'Software' ? 'bg-emerald-400/10 text-emerald-400 border border-emerald-400/20' :
+                            ticket.category === 'Sistemas' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                            'bg-neutral-900 text-neutral-300'
+                          }`}>
+                            {ticket.category}
+                          </span>
+                        </div>
+                        <h4 className="text-xs font-bold text-neutral-200 group-hover:text-emerald-400 transition-colors line-clamp-1">{ticket.title}</h4>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-neutral-500">
+                          <span>
+                            Aberto em: {new Date(ticket.createdAt).toLocaleDateString("pt-BR")} às {new Date(ticket.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                          {ticket.projectDeadline && (
+                            <span className="flex items-center gap-1 text-emerald-400 font-semibold bg-emerald-500/5 px-1.5 py-0.2 rounded border border-emerald-500/10">
+                              <Calendar className="h-3 w-3" />
+                              Limite Projeto: {(() => {
+                                try {
+                                  const [year, month, day] = ticket.projectDeadline.split("-");
+                                  return `${day}/${month}/${year}`;
+                                } catch (e) {
+                                  return ticket.projectDeadline;
+                                }
+                              })()}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex sm:flex-col items-start sm:items-end justify-between sm:justify-center gap-1.5 flex-shrink-0 text-[10px]">
+                        <span className={`font-bold uppercase ${priorityTextClass}`}>{ticket.priority}</span>
+                        <span className="text-slate-400 font-medium">
+                          {ticket.assignedTo ? `Técnicos: ${ticket.assignedTo}` : "Sem técnico atribuído"}
+                        </span>
+                        <span className="text-emerald-500 font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                          Ver Detalhes <ArrowRight className="h-3 w-3" />
+                        </span>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+
+            <div className="p-4 border-t border-neutral-900 bg-black/30 text-center text-[10px] text-slate-500">
+              Dica: Clique em qualquer chamado para abrir os detalhes completos e interagir com o suporte.
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Perfil Completo do Usuário */}
+      {isTechProfileModalOpen && selectedTechProfile && (() => {
+        const userIsTech = selectedTechProfile.role === "tecnico" || (selectedTechProfile.role as string) === "ti" || selectedTechProfile.department?.toLowerCase().includes("ti");
+        const isCurrentSessionUser = currentSession && (selectedTechProfile.name === currentSession.name || selectedTechProfile.email === currentSession.email);
+
+        // Tickets
+        const requestedTickets = tickets.filter(t => t.requesterName === selectedTechProfile.name);
+        const assignedTickets = tickets.filter(t => getAssignedTechs(t.assignedTo).includes(selectedTechProfile.name));
+        const allUserTickets = userIsTech ? Array.from(new Set([...requestedTickets, ...assignedTickets])) : requestedTickets;
+
+        const totalTicketsCount = allUserTickets.length;
+        const activeTicketsCount = allUserTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado").length;
+        const resolvedTicketsCount = allUserTickets.filter(t => t.status === "Resolvido" || t.status === "Fechado").length;
+        const projectTicketsCount = allUserTickets.filter(t => !!t.projectDeadline).length;
+
+        // Technician SLA metrics
+        const techResolved = assignedTickets.filter(t => t.status === "Resolvido" || t.status === "Fechado");
+        const techActive = assignedTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado");
+        const techOverdue = techActive.filter(t => isTicketOverdue(t)).length;
+        const techSlaCompliance = assignedTickets.length > 0 ? Math.round(((assignedTickets.length - techOverdue) / assignedTickets.length) * 100) : 100;
+
+        let techTmaStr = "N/A";
+        if (techResolved.length > 0) {
+          const totalMs = techResolved.reduce((sum, t) => {
+            if (t.createdAt && t.updatedAt) {
+              const duration = new Date(t.updatedAt).getTime() - new Date(t.createdAt).getTime();
+              return sum + (duration > 0 ? duration : 0);
+            }
+            return sum;
+          }, 0);
+          const avgMs = totalMs / techResolved.length;
+          const avgMinutes = avgMs / (1000 * 60);
+          if (avgMinutes < 1) techTmaStr = `${Math.round(avgMs / 1000)}s`;
+          else if (avgMinutes < 60) techTmaStr = `${Math.round(avgMinutes)} min`;
+          else {
+            const h = Math.floor(avgMinutes / 60);
+            const m = Math.round(avgMinutes % 60);
+            techTmaStr = m > 0 ? `${h}h ${m}m` : `${h}h`;
+          }
+        }
+
+        // Recent Activity Comments by this user
+        const userComments = tickets
+          .flatMap(t => (t.comments || []).filter(c => c.authorName === selectedTechProfile.name).map(c => ({ ...c, ticketTitle: t.title, ticketId: t.id })))
+          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+          .slice(0, 15);
+
+        // Filtered tickets for Tickets Tab
+        const filteredTickets = allUserTickets.filter(t => {
+          if (profileTicketsFilter === "active") return t.status !== "Resolvido" && t.status !== "Fechado";
+          if (profileTicketsFilter === "resolved") return t.status === "Resolvido" || t.status === "Fechado";
+          if (profileTicketsFilter === "projects") return !!t.projectDeadline;
+          return true;
+        });
+
+        const initials = selectedTechProfile.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase() || "U";
+
+        return (
+          <div 
+            onClick={() => setIsTechProfileModalOpen(false)}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-3 sm:p-4 cursor-pointer"
+          >
+            <div 
+              onClick={(e) => e.stopPropagation()}
+              className="bg-[#0c0c0e] border border-zinc-800/80 w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[92vh] cursor-default"
+            >
+              
+              {/* Profile Cover & Header */}
+              <div className="relative p-5 sm:p-6 bg-gradient-to-r from-[#121215] via-[#16161c] to-[#0d1310] border-b border-zinc-800/80">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  
+                  <div className="flex items-center gap-4">
+                    {/* Glowing Avatar */}
+                    <div className="relative shrink-0">
+                      <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-zinc-900 border-2 border-emerald-500/40 flex items-center justify-center text-emerald-400 font-extrabold text-xl sm:text-2xl shadow-xl shadow-emerald-500/10">
+                        {initials}
+                      </div>
+                      <span 
+                        className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-[#0c0c0e] flex items-center justify-center text-[9px] font-black ${
+                          selectedTechProfile.isOnline !== false ? "bg-emerald-500 text-black" : "bg-zinc-600 text-zinc-300"
+                        }`}
+                        title={selectedTechProfile.isOnline !== false ? "Online" : "Offline"}
+                      >
+                        {selectedTechProfile.isOnline !== false ? "ON" : "OFF"}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-display font-black text-white text-lg sm:text-2xl tracking-tight">
+                          {selectedTechProfile.name}
+                        </h3>
+                        {userIsTech ? (
+                          <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm">
+                            TÉCNICO / TI
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-sky-500/15 text-sky-400 border border-sky-500/30 shadow-sm">
+                            COLABORADOR
+                          </span>
+                        )}
+                        {isCurrentSessionUser && (
+                          <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">
+                            Sua Conta
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-400">
+                        <span className="flex items-center gap-1">
+                          <Mail className="h-3.5 w-3.5 text-zinc-500" />
+                          {selectedTechProfile.email || `${selectedTechProfile.name.toLowerCase().replace(/\s+/g, ".")}@gran7.com.br`}
+                        </span>
+                        <span className="text-zinc-600">•</span>
+                        <span className="flex items-center gap-1">
+                          <Building className="h-3.5 w-3.5 text-zinc-500" />
+                          Setor: <strong className="text-zinc-200 font-semibold">{selectedTechProfile.department || "Geral"}</strong>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex sm:flex-col items-end justify-between sm:justify-center gap-2 border-t sm:border-t-0 pt-3 sm:pt-0 border-zinc-800/60">
+                    <button
+                      onClick={() => setIsTechProfileModalOpen(false)}
+                      className="text-zinc-400 hover:text-white text-xs font-bold bg-zinc-900 hover:bg-zinc-800 px-4 py-2 rounded-xl transition cursor-pointer border border-zinc-800 shadow-sm"
+                    >
+                      Fechar Perfil
+                    </button>
+                    {isCurrentSessionUser && (
+                      <button
+                        onClick={() => {
+                          setIsTechProfileModalOpen(false);
+                          setIsNewTicketModalOpen(true);
+                        }}
+                        className="text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-black px-3.5 py-1.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-md shadow-emerald-500/10"
+                      >
+                        <PlusCircle className="h-3.5 w-3.5" />
+                        <span>Novo Chamado</span>
+                      </button>
+                    )}
+                  </div>
+
+                </div>
+              </div>
+
+              {/* Navigation Tabs Bar inside Modal */}
+              <div className="flex items-center gap-1 sm:gap-2 px-4 sm:px-6 border-b border-zinc-800/80 bg-[#121215] overflow-x-auto scrollbar-none">
+                <button
+                  onClick={() => setProfileModalTab("overview")}
+                  className={`py-3 px-3 sm:px-4 text-xs font-bold transition flex items-center gap-2 border-b-2 whitespace-nowrap cursor-pointer ${
+                    profileModalTab === "overview"
+                      ? "border-emerald-400 text-emerald-400 bg-emerald-500/5"
+                      : "border-transparent text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  <UserIcon className="h-3.5 w-3.5" />
+                  <span>Visão Geral & Dados</span>
+                </button>
+
+                <button
+                  onClick={() => setProfileModalTab("tickets")}
+                  className={`py-3 px-3 sm:px-4 text-xs font-bold transition flex items-center gap-2 border-b-2 whitespace-nowrap cursor-pointer ${
+                    profileModalTab === "tickets"
+                      ? "border-emerald-400 text-emerald-400 bg-emerald-500/5"
+                      : "border-transparent text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  <span>Chamados & Histórico</span>
+                  <span className="text-[10px] bg-zinc-800 text-zinc-300 font-extrabold px-1.5 py-0.2 rounded-full">
+                    {totalTicketsCount}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setProfileModalTab("metrics")}
+                  className={`py-3 px-3 sm:px-4 text-xs font-bold transition flex items-center gap-2 border-b-2 whitespace-nowrap cursor-pointer ${
+                    profileModalTab === "metrics"
+                      ? "border-emerald-400 text-emerald-400 bg-emerald-500/5"
+                      : "border-transparent text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  <Cpu className="h-3.5 w-3.5" />
+                  <span>Métricas & Desempenho</span>
+                </button>
+
+                <button
+                  onClick={() => setProfileModalTab("activity")}
+                  className={`py-3 px-3 sm:px-4 text-xs font-bold transition flex items-center gap-2 border-b-2 whitespace-nowrap cursor-pointer ${
+                    profileModalTab === "activity"
+                      ? "border-emerald-400 text-emerald-400 bg-emerald-500/5"
+                      : "border-transparent text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  <span>Atividades Recentes</span>
+                  <span className="text-[10px] bg-zinc-800 text-zinc-300 font-extrabold px-1.5 py-0.2 rounded-full">
+                    {userComments.length}
+                  </span>
+                </button>
+              </div>
+
+              {/* Modal Main Body Content */}
+              <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6 min-h-[350px] max-h-[60vh] bg-black/40">
+
+                {/* TAB 1: VISÃO GERAL */}
+                {profileModalTab === "overview" && (
+                  <div className="space-y-6 animate-in fade-in duration-200">
+                    
+                    {/* Consolidated Bento Cards */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+                      <div className="bg-[#121215] border border-zinc-800/80 rounded-xl p-4 space-y-1">
+                        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">Total de Chamados</span>
+                        <div className="text-2xl font-extrabold text-white">{totalTicketsCount}</div>
+                        <span className="text-[10px] text-zinc-500 block">Registrados no sistema</span>
+                      </div>
+
+                      <div className="bg-[#121215] border border-zinc-800/80 rounded-xl p-4 space-y-1">
+                        <span className="text-[10px] font-bold text-amber-500 uppercase tracking-wider block">Em Aberto / Ativos</span>
+                        <div className="text-2xl font-extrabold text-amber-400">{activeTicketsCount}</div>
+                        <span className="text-[10px] text-zinc-500 block">Aguardando/em fila</span>
+                      </div>
+
+                      <div className="bg-[#121215] border border-zinc-800/80 rounded-xl p-4 space-y-1">
+                        <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-wider block">Resolvidos / Fechados</span>
+                        <div className="text-2xl font-extrabold text-emerald-400">{resolvedTicketsCount}</div>
+                        <span className="text-[10px] text-zinc-500 block">Finalizados com sucesso</span>
+                      </div>
+
+                      <div className="bg-[#121215] border border-zinc-800/80 rounded-xl p-4 space-y-1">
+                        <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider block">
+                          {userIsTech ? "SLA Cumprimento" : "Resolutividade"}
+                        </span>
+                        <div className="text-2xl font-extrabold text-sky-400">
+                          {userIsTech ? `${techSlaCompliance}%` : totalTicketsCount > 0 ? `${Math.round((resolvedTicketsCount / totalTicketsCount) * 100)}%` : "100%"}
+                        </div>
+                        <span className="text-[10px] text-zinc-500 block">{userIsTech ? "Cumprimento de prazo" : "Taxa de conclusão"}</span>
+                      </div>
+                    </div>
+
+                    {/* Personal & Account Details Card */}
+                    <div className="bg-[#121215] border border-zinc-800/80 rounded-2xl p-5 space-y-4">
+                      <div className="flex items-center justify-between border-b border-zinc-800/60 pb-3">
+                        <h4 className="text-xs font-bold text-zinc-200 uppercase tracking-wider flex items-center gap-2">
+                          <UserIcon className="h-4 w-4 text-emerald-400" />
+                          Informações da Conta & Acesso
+                        </h4>
+                        <span className="text-[10px] font-mono text-zinc-500">ID: {selectedTechProfile.id || "USR-REGISTRO"}</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-bold text-zinc-500 uppercase">Nome Completo</span>
+                          <p className="font-semibold text-zinc-200">{selectedTechProfile.name}</p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-bold text-zinc-500 uppercase">E-mail de Contato</span>
+                          <p className="font-semibold text-zinc-200">{selectedTechProfile.email || `${selectedTechProfile.name.toLowerCase().replace(/\s+/g, ".")}@gran7.com.br`}</p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-bold text-zinc-500 uppercase">Cargo / Nível de Permissão</span>
+                          <p className="font-semibold text-emerald-400 flex items-center gap-1.5">
+                            <Shield className="h-3.5 w-3.5 text-emerald-400" />
+                            {userIsTech ? "Administrativo & Técnico de Suporte TI" : "Colaborador Solicitante de Chamados"}
+                          </p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-bold text-zinc-500 uppercase">Setor / Departamento</span>
+                          <p className="font-semibold text-zinc-200">{selectedTechProfile.department || "Tecnologia da Informação"}</p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-bold text-zinc-500 uppercase">Status do Atendimento</span>
+                          <p className="font-semibold text-emerald-400 flex items-center gap-1.5">
+                            <span className={`w-2 h-2 rounded-full ${selectedTechProfile.isOnline !== false ? "bg-emerald-400 animate-pulse" : "bg-zinc-600"}`} />
+                            {selectedTechProfile.isOnline !== false ? "Online e Disponível" : "Ausente / Indisponível"}
+                          </p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-bold text-zinc-500 uppercase">Notificações de Sistema</span>
+                          <p className="font-semibold text-zinc-300">Ativas (Sonoro + Visual Toast)</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Quick Preview of Recent Tickets */}
+                    <div className="bg-[#121215] border border-zinc-800/80 rounded-2xl p-5 space-y-4">
+                      <div className="flex items-center justify-between border-b border-zinc-800/60 pb-3">
+                        <h4 className="text-xs font-bold text-zinc-200 uppercase tracking-wider flex items-center gap-2">
+                          <Clock className="h-4 w-4 text-emerald-400" />
+                          Últimos Chamados Registrados
+                        </h4>
+                        <button
+                          onClick={() => setProfileModalTab("tickets")}
+                          className="text-[11px] font-bold text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
+                        >
+                          Ver Todos ({totalTicketsCount}) <ArrowRight className="h-3 w-3" />
+                        </button>
+                      </div>
+
+                      {allUserTickets.length === 0 ? (
+                        <div className="text-center py-6 text-zinc-500 text-xs">
+                          Nenhum chamado registrado para este perfil até o momento.
+                        </div>
+                      ) : (
+                        <div className="space-y-2.5">
+                          {allUserTickets.slice(0, 3).map((ticket) => (
+                            <div
+                              key={ticket.id}
+                              onClick={() => {
+                                setSelectedTicketId(ticket.id);
+                                setIsTechProfileModalOpen(false);
+                              }}
+                              className="p-3 bg-black/60 border border-zinc-800/80 rounded-xl flex items-center justify-between gap-3 hover:border-emerald-500/30 transition cursor-pointer group"
+                            >
+                              <div className="space-y-0.5 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[9px] font-mono text-zinc-400">#{ticket.id}</span>
+                                  <span className="text-[9px] font-bold uppercase px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-300">
+                                    {ticket.status}
+                                  </span>
+                                  <span className="text-[9px] font-bold uppercase px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                    {ticket.category}
+                                  </span>
+                                </div>
+                                <h5 className="text-xs font-bold text-zinc-200 group-hover:text-emerald-400 transition-colors truncate">
+                                  {ticket.title}
+                                </h5>
+                              </div>
+                              <span className="text-[10px] text-emerald-400 font-bold shrink-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                                Abrir <ArrowRight className="h-3 w-3" />
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                  </div>
+                )}
+
+                {/* TAB 2: CHAMADOS & HISTÓRICO */}
+                {profileModalTab === "tickets" && (
+                  <div className="space-y-4 animate-in fade-in duration-200">
+                    
+                    {/* Filter Pills */}
+                    <div className="flex items-center gap-2 overflow-x-auto scrollbar-none pb-1">
+                      <button
+                        onClick={() => setProfileTicketsFilter("all")}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                          profileTicketsFilter === "all"
+                            ? "bg-emerald-500 text-black shadow-md shadow-emerald-500/10"
+                            : "bg-[#121215] text-zinc-400 hover:text-white border border-zinc-800/80"
+                        }`}
+                      >
+                        Todos ({totalTicketsCount})
+                      </button>
+
+                      <button
+                        onClick={() => setProfileTicketsFilter("active")}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                          profileTicketsFilter === "active"
+                            ? "bg-amber-500 text-black shadow-md shadow-amber-500/10"
+                            : "bg-[#121215] text-zinc-400 hover:text-white border border-zinc-800/80"
+                        }`}
+                      >
+                        Ativos / Pendentes ({activeTicketsCount})
+                      </button>
+
+                      <button
+                        onClick={() => setProfileTicketsFilter("resolved")}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                          profileTicketsFilter === "resolved"
+                            ? "bg-emerald-500 text-black shadow-md shadow-emerald-500/10"
+                            : "bg-[#121215] text-zinc-400 hover:text-white border border-zinc-800/80"
+                        }`}
+                      >
+                        Resolvidos ({resolvedTicketsCount})
+                      </button>
+
+                      <button
+                        onClick={() => setProfileTicketsFilter("projects")}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                          profileTicketsFilter === "projects"
+                            ? "bg-sky-500 text-black shadow-md shadow-sky-500/10"
+                            : "bg-[#121215] text-zinc-400 hover:text-white border border-zinc-800/80"
+                        }`}
+                      >
+                        Com Prazo de Projeto ({projectTicketsCount})
+                      </button>
+                    </div>
+
+                    {/* List Area */}
+                    <div className="space-y-3">
+                      {filteredTickets.length === 0 ? (
+                        <div className="py-12 text-center text-zinc-500 space-y-2 bg-[#121215] border border-zinc-800/80 rounded-2xl">
+                          <CheckCircle className="h-8 w-8 text-zinc-700 mx-auto" />
+                          <h4 className="text-xs font-bold text-zinc-400">Nenhum chamado encontrado</h4>
+                          <p className="text-[10px] text-zinc-500">Não há chamados para o filtro selecionado neste perfil.</p>
+                        </div>
+                      ) : (
+                        filteredTickets.map((ticket) => {
+                          const priorityBorder = 
+                            ticket.priority === "Urgente" ? "border-l-rose-500" :
+                            ticket.priority === "Alta" ? "border-l-amber-500" :
+                            ticket.priority === "Média" ? "border-l-emerald-500" : "border-l-zinc-700";
+
+                          const isClosed = ticket.status === "Resolvido" || ticket.status === "Fechado";
+
+                          return (
+                            <div
+                              key={ticket.id}
+                              onClick={() => {
+                                setSelectedTicketId(ticket.id);
+                                setIsTechProfileModalOpen(false);
+                              }}
+                              className={`p-4 bg-[#121215] border border-zinc-800/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-emerald-500/40 transition cursor-pointer group border-l-4 ${priorityBorder}`}
+                            >
+                              <div className="space-y-1 flex-1 min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-[10px] bg-zinc-900 text-zinc-400 border border-zinc-800 px-1.5 py-0.2 rounded font-mono">
+                                    #{ticket.id}
+                                  </span>
+                                  <span className={`border text-[9px] font-bold uppercase px-1.5 py-0.2 rounded ${
+                                    isClosed 
+                                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
+                                      : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                                  }`}>
+                                    {ticket.status}
+                                  </span>
+                                  <span className="bg-zinc-900 text-zinc-300 text-[9px] font-bold uppercase px-1.5 py-0.2 rounded">
+                                    {ticket.category}
+                                  </span>
+                                </div>
+                                <h4 className="text-xs font-bold text-zinc-100 group-hover:text-emerald-400 transition-colors truncate">
+                                  {ticket.title}
+                                </h4>
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-zinc-500">
+                                  <span>Criado em: {new Date(ticket.createdAt).toLocaleDateString("pt-BR")}</span>
+                                  <span>•</span>
+                                  <span>Solicitante: {ticket.requesterName}</span>
+                                  {ticket.assignedTo && (
+                                    <>
+                                      <span>•</span>
+                                      <span>Técnico: {ticket.assignedTo}</span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex sm:flex-col items-start sm:items-end justify-between sm:justify-center gap-1 shrink-0 text-[10px]">
+                                <span className="font-extrabold text-zinc-400 uppercase">{ticket.priority}</span>
+                                <span className="text-emerald-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                                  Ver Chamado <ArrowRight className="h-3 w-3" />
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+
+                  </div>
+                )}
+
+                {/* TAB 3: MÉTRICAS & DESEMPENHO */}
+                {profileModalTab === "metrics" && (
+                  <div className="space-y-5 animate-in fade-in duration-200">
+                    <div className="bg-[#121215] border border-zinc-800/80 rounded-2xl p-5 space-y-4">
+                      <h4 className="text-xs font-bold text-zinc-200 uppercase tracking-wider flex items-center gap-2">
+                        <Cpu className="h-4 w-4 text-emerald-400" />
+                        Relatório de Desempenho do Perfil
+                      </h4>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
+                        <div className="p-4 bg-black/60 border border-zinc-800/80 rounded-xl space-y-1">
+                          <span className="text-[10px] font-bold text-zinc-500 uppercase block">Total de Atendimentos</span>
+                          <span className="text-2xl font-black text-white">{totalTicketsCount}</span>
+                          <span className="text-[10px] text-zinc-500 block">Registros associados</span>
+                        </div>
+
+                        <div className="p-4 bg-black/60 border border-zinc-800/80 rounded-xl space-y-1">
+                          <span className="text-[10px] font-bold text-emerald-400 uppercase block">SLA de Atendimento</span>
+                          <span className="text-2xl font-black text-emerald-400">{techSlaCompliance}%</span>
+                          <span className="text-[10px] text-zinc-500 block">Dentro do prazo estabelecido</span>
+                        </div>
+
+                        <div className="p-4 bg-black/60 border border-zinc-800/80 rounded-xl space-y-1">
+                          <span className="text-[10px] font-bold text-sky-400 uppercase block">Tempo Médio (TMA)</span>
+                          <span className="text-2xl font-black text-sky-400">{techTmaStr}</span>
+                          <span className="text-[10px] text-zinc-500 block">Tempo até encerramento</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Categories distribution */}
+                    <div className="bg-[#121215] border border-zinc-800/80 rounded-2xl p-5 space-y-4">
+                      <h4 className="text-xs font-bold text-zinc-200 uppercase tracking-wider flex items-center gap-2">
+                        <Layers className="h-4 w-4 text-emerald-400" />
+                        Distribuição por Categorias de Suporte
+                      </h4>
+
+                      {["Software", "Hardware", "Redes", "Acesso", "Sistemas", "Outros"].map((cat) => {
+                        const count = allUserTickets.filter(t => t.category === cat).length;
+                        const pct = totalTicketsCount > 0 ? Math.round((count / totalTicketsCount) * 100) : 0;
+                        return (
+                          <div key={cat} className="space-y-1 text-xs">
+                            <div className="flex items-center justify-between font-medium">
+                              <span className="text-zinc-300">{cat}</span>
+                              <span className="text-zinc-500">{count} chamado(s) ({pct}%)</span>
+                            </div>
+                            <div className="w-full bg-zinc-900 rounded-full h-1.5 overflow-hidden border border-zinc-800">
+                              <div className="bg-emerald-500 h-full rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 4: ATIVIDADES RECENTES */}
+                {profileModalTab === "activity" && (
+                  <div className="space-y-4 animate-in fade-in duration-200">
+                    <div className="bg-[#121215] border border-zinc-800/80 rounded-2xl p-5 space-y-4">
+                      <h4 className="text-xs font-bold text-zinc-200 uppercase tracking-wider flex items-center gap-2">
+                        <MessageSquare className="h-4 w-4 text-emerald-400" />
+                        Histórico de Respostas & Comentários
+                      </h4>
+
+                      {userComments.length === 0 ? (
+                        <div className="text-center py-8 text-zinc-500 text-xs">
+                          Nenhum comentário ou resposta registrada por este perfil no histórico de chamados.
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {userComments.map((comment) => (
+                            <div
+                              key={comment.id}
+                              onClick={() => {
+                                setSelectedTicketId(comment.ticketId);
+                                setIsTechProfileModalOpen(false);
+                              }}
+                              className="p-3.5 bg-black/60 border border-zinc-800/80 rounded-xl space-y-2 hover:border-emerald-500/30 transition cursor-pointer group"
+                            >
+                              <div className="flex items-center justify-between text-[10px] text-zinc-500">
+                                <span className="font-bold text-emerald-400 group-hover:underline flex items-center gap-1">
+                                  #{comment.ticketId} • {comment.ticketTitle}
+                                </span>
+                                <span>{new Date(comment.timestamp).toLocaleDateString("pt-BR")} às {new Date(comment.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+                              </div>
+                              <p className="text-xs text-zinc-300 line-clamp-2 italic">
+                                "{comment.content}"
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 bg-[#121215] border-t border-zinc-800/80 flex items-center justify-between text-[10px] text-zinc-500">
+                <span>Perfil de {selectedTechProfile.name} • Sistema de Suporte TI Gran7</span>
+                <button
+                  onClick={() => setIsTechProfileModalOpen(false)}
+                  className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold rounded-xl transition cursor-pointer"
+                >
+                  Fechar
+                </button>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Slide-over Modal: Create New Ticket */}
+      {isNewTicketModalOpen && (
+        <div 
+          onClick={() => setIsNewTicketModalOpen(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 cursor-pointer"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#0a0a0a] border border-neutral-900 w-full max-w-lg rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 cursor-default"
+          >
+            
+            {/* Modal Header */}
+            <div className="p-5 border-b border-neutral-900 flex items-center justify-between bg-black/50">
+              <div className="flex items-center gap-2">
+                <Shield className="h-5 w-5 text-emerald-400" />
+                <h3 className="font-display font-extrabold text-white text-base">Novo Chamado de Suporte</h3>
+              </div>
+              <button
+                onClick={() => setIsNewTicketModalOpen(false)}
+                className="text-slate-400 hover:text-white text-xs font-bold bg-neutral-900 hover:bg-neutral-800 border border-neutral-800/50 px-3 py-1.5 rounded-xl transition cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleCreateTicket} className="p-6 space-y-4">
+              
+              {/* Profile Context warning / Requester Info */}
+              {isTechUser ? (
+                <div className="bg-black/50 p-3.5 rounded-xl border border-neutral-900 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">Solicitando como:</span>
+                      <strong className="text-white text-sm">{selectedRequesterName || currentSession.name}</strong>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">Departamento:</span>
+                      <span className="text-emerald-400 font-medium text-xs">{selectedRequesterDepartment || currentSession.department}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500 flex items-center gap-1">
+                      <Users className="h-3 w-3 text-emerald-400" />
+                      Alterar Solicitante (Apenas Técnicos)
+                    </label>
+                    <select
+                      value={users.find(u => u.name === selectedRequesterName)?.id || ""}
+                      onChange={(e) => {
+                        const u = users.find(user => user.id === e.target.value);
+                        if (u) {
+                          setSelectedRequesterName(u.name);
+                          setSelectedRequesterDepartment(u.department);
+                        } else {
+                          setSelectedRequesterName(currentSession.name);
+                          setSelectedRequesterDepartment(currentSession.department);
+                        }
+                      }}
+                      className="w-full bg-black border border-neutral-800 rounded-lg py-2 px-2.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-all cursor-pointer"
+                    >
+                      <option value="">{currentSession.name} (Você - {currentSession.department})</option>
+                      {users
+                        .filter(u => u.name !== currentSession.name)
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map(u => (
+                          <option key={u.id} value={u.id}>
+                            {u.name} ({u.role === "tecnico" ? "Técnico" : "Colaborador"} - {u.department})
+                          </option>
+                        ))
+                      }
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-black/50 p-3 rounded-xl border border-neutral-900 text-xs text-slate-300 flex items-center justify-between">
+                  <div>
+                    <span className="text-slate-500 block text-[10px]">Solicitando como:</span>
+                    <strong className="text-white">{currentSession.name}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-[10px]">Departamento:</span>
+                    <span className="text-emerald-400 font-medium">{currentSession.department}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Title input */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-400">Título do Chamado *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Impressora do faturamento não liga"
+                  value={newTicketForm.title}
+                  onChange={(e) => setNewTicketForm({ ...newTicketForm, title: e.target.value })}
+                  className="w-full bg-black border border-neutral-900 rounded-xl py-2 px-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
+                />
+              </div>
+
+              {/* Description input */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-400">Descrição Detalhada *</label>
+                <textarea
+                  required
+                  rows={4}
+                  placeholder="Forneça o máximo de detalhes possível. Ex: Marca/Modelo do equipamento, mensagem de erro exibida, tentativas já feitas, se o problema afeta mais pessoas."
+                  value={newTicketForm.description}
+                  onChange={(e) => setNewTicketForm({ ...newTicketForm, description: e.target.value })}
+                  className="w-full bg-black border border-neutral-900 rounded-xl py-2 px-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all resize-none"
+                />
+              </div>
+
+              {/* Tipo de Atendimento selection */}
+              {currentSession.role === "tecnico" && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                      <FolderKanban className="h-3.5 w-3.5 text-emerald-400" />
+                      Tipo de Atendimento
+                    </label>
+                    <select
+                      value={newTicketForm.projectDeadline ? "projeto" : "chamado"}
+                      onChange={(e) => {
+                        if (e.target.value === "chamado") {
+                          setNewTicketForm({ ...newTicketForm, projectDeadline: "" });
+                        } else {
+                          const defaultDeadline = new Date();
+                          defaultDeadline.setDate(defaultDeadline.getDate() + 7);
+                          const dateStr = defaultDeadline.toISOString().split("T")[0];
+                          setNewTicketForm({ ...newTicketForm, projectDeadline: dateStr });
+                        }
+                      }}
+                      className="w-full bg-black border border-neutral-900 rounded-xl py-2 px-3 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all cursor-pointer"
+                    >
+                      <option value="chamado">Chamado Padrão</option>
+                      <option value="projeto">Projeto em Andamento</option>
+                    </select>
+                  </div>
+
+                  {/* If "projeto" is selected, show the date picker for deadline */}
+                  {!!newTicketForm.projectDeadline && (
+                    <div className="space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-150">
+                      <label className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                        <Calendar className="h-3.5 w-3.5 text-emerald-400" />
+                        Data Limite do Projeto *
+                      </label>
+                      <WindowsDatePicker
+                        value={newTicketForm.projectDeadline}
+                        onChange={(date) => setNewTicketForm({ ...newTicketForm, projectDeadline: date })}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+
+
+              {/* Screenshot and multiple attachments field */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-400 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Camera className="h-3.5 w-3.5 text-emerald-400" />
+                    Anexar Prints / Imagens / PDFs (Opcional)
+                  </span>
+                  <span className="text-[10px] text-neutral-500 font-normal">
+                    {newTicketForm.attachments.length} {newTicketForm.attachments.length === 1 ? "anexo" : "anexos"}
+                  </span>
+                </label>
+                
+                <div 
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (e.dataTransfer.files) {
+                      handleAddFiles(e.dataTransfer.files);
+                    }
+                  }}
+                  onPaste={(e) => {
+                    const items = e.clipboardData?.items;
+                    if (items) {
+                      const files: File[] = [];
+                      for (let i = 0; i < items.length; i++) {
+                        const item = items[i];
+                        if (item.kind === "file") {
+                          const file = item.getAsFile();
+                          if (file) files.push(file);
+                        }
+                      }
+                      if (files.length > 0) {
+                        handleAddFiles(files);
+                      }
+                    }
+                  }}
+                  className="border border-dashed border-neutral-900 hover:border-emerald-500/20 bg-black hover:bg-[#070707] transition rounded-xl p-4 text-center cursor-pointer relative group"
+                >
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt"
+                    onChange={(e) => {
+                      if (e.target.files) {
+                        handleAddFiles(e.target.files);
+                      }
+                    }}
+                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                  />
+                  <Upload className="h-5 w-5 text-slate-500 group-hover:text-emerald-400 mx-auto mb-1.5 transition-colors" />
+                  <p className="text-[11px] text-slate-400 font-medium">
+                    Clique para selecionar ou <span className="text-emerald-400">arraste e solte</span> arquivos aqui
+                  </p>
+                  <p className="text-[9px] text-slate-500 mt-0.5">
+                    Aceita imagens, PDFs e documentos. Ctrl+V para colar prints.
+                  </p>
+                </div>
+
+                {/* Attachments Preview Grid */}
+                {newTicketForm.attachments.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 max-h-48 overflow-y-auto pr-1">
+                    {newTicketForm.attachments.map((file, idx) => {
+                      const isImage = file.type.startsWith("image/");
+                      const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+                      
+                      return (
+                        <div key={idx} className="flex items-center justify-between p-2 rounded-xl bg-neutral-900/40 border border-neutral-900 hover:border-neutral-800 transition">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            {isImage ? (
+                              <div className="w-8 h-8 rounded-lg overflow-hidden border border-neutral-850 flex-shrink-0 bg-black flex items-center justify-center">
+                                <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
+                              </div>
+                            ) : (
+                              <div className={`w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center bg-black border border-neutral-850 ${isPdf ? "text-red-400" : "text-emerald-400"}`}>
+                                <FileText className="h-4 w-4" />
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[11px] font-semibold text-slate-300 truncate animate-pulse-once" title={file.name}>
+                                {file.name}
+                              </p>
+                              <p className="text-[9px] text-slate-500 capitalize">
+                                {isPdf ? "Documento PDF" : isImage ? "Imagem" : "Arquivo"}
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewTicketForm((prev) => {
+                                const newAttachments = prev.attachments.filter((_, i) => i !== idx);
+                                const firstImage = newAttachments.find(a => a.type.startsWith("image/"))?.url || "";
+                                return {
+                                  ...prev,
+                                  attachments: newAttachments,
+                                  screenshot: firstImage
+                                };
+                              });
+                            }}
+                            className="p-1 text-rose-400 hover:bg-rose-500/10 rounded-lg transition"
+                            title="Remover anexo"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Actions buttons */}
+              <div className="pt-4 flex items-center justify-end gap-3 border-t border-neutral-900">
+                <button
+                  type="button"
+                  onClick={() => setIsNewTicketModalOpen(false)}
+                  className="px-4 py-2 bg-[#151515] hover:bg-[#202020] text-slate-300 font-semibold rounded-xl text-xs border border-neutral-900 transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingTicket}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-xs transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-sm"
+                >
+                  {isSubmittingTicket ? (
+                    <>
+                      <RefreshCw className="h-3 w-3 animate-spin" />
+                      Processando IA...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="h-3.5 w-3.5" />
+                      Enviar Chamado
+                    </>
+                  )}
+                </button>
+              </div>
+
+            </form>
+
+          </div>
+        </div>
+      )}
+
+      {/* Delete User Confirmation Modal */}
+      {deletingUser && (
+        <div 
+          onClick={() => setDeletingUser(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 cursor-pointer"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#0a0a0a] border border-neutral-900 w-full max-w-md rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 cursor-default"
+          >
+            <div className="p-5 border-b border-neutral-900 bg-black/50 flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-rose-400" />
+              <h3 className="font-display font-extrabold text-white text-sm">Excluir Conta do Colaborador</h3>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Tem certeza que deseja excluir o colaborador <strong className="text-white">{deletingUser.name}</strong>?
+              </p>
+              <div className="p-3 bg-black/50 border border-neutral-900 rounded-xl space-y-1">
+                <div className="text-[10px] text-slate-500">Setor / Departamento:</div>
+                <div className="text-xs text-slate-200 font-bold">{deletingUser.department}</div>
+                <div className="text-[10px] text-slate-500 mt-2">E-mail Corporativo:</div>
+                <div className="text-xs text-slate-200 font-mono">{deletingUser.email}</div>
+              </div>
+              <p className="text-[10px] text-rose-400/90 italic">
+                Aviso: Esta ação é permanente e removerá todas as credenciais de acesso deste usuário.
+              </p>
+            </div>
+
+            <div className="p-4 bg-black/20 border-t border-neutral-900 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setDeletingUser(null)}
+                className="px-4 py-2 bg-neutral-900 hover:bg-neutral-850 border border-neutral-800 text-slate-300 font-semibold rounded-xl text-xs transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteUser}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs transition cursor-pointer"
+              >
+                Confirmar Exclusão
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Real-time Notification Center */}
+      {currentSession && notifications.length > 0 && (
+        <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3 max-w-sm w-full pointer-events-none font-sans">
+          {notifications.map((notif) => {
+            const isComment = notif.type === "comment";
+            const toastStyle = (localStorage.getItem("gran7_notif_toast_style") as ToastStyle) || "emerald";
+
+            let cardContainerStyle = "bg-[#121215] border border-emerald-500/50 shadow-2xl";
+            if (isComment) {
+              cardContainerStyle = "bg-[#121215] border border-cyan-500/50 shadow-2xl";
+            }
+            if (toastStyle === "glass") {
+              cardContainerStyle = "bg-zinc-950/95 border border-zinc-800 shadow-xl";
+            } else if (toastStyle === "compact") {
+              cardContainerStyle = "bg-zinc-900 border border-zinc-800 shadow-lg py-2.5 px-3.5";
+            }
+
+            return (
+              <div
+                key={notif.id}
+                onClick={() => {
+                  setSelectedTicketId(notif.ticketId);
+                  setActiveTab("painel");
+                  setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
+                }}
+                className={`${cardContainerStyle} text-white rounded-2xl p-4 flex flex-col pointer-events-auto cursor-pointer animate-in slide-in-from-bottom duration-300 hover:scale-[1.02] transition-all duration-200 group`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="relative flex h-2 w-2">
+                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isComment ? 'bg-cyan-400' : 'bg-emerald-400'} opacity-75`}></span>
+                      <span className={`relative inline-flex rounded-full h-2 w-2 ${isComment ? 'bg-cyan-500' : 'bg-emerald-500'}`}></span>
+                    </span>
+                    <span className={`text-[10px] font-mono font-bold ${isComment ? 'text-cyan-400' : 'text-emerald-400'} uppercase tracking-widest flex items-center gap-1`}>
+                      {isComment ? (
+                        <>
+                          <MessageSquare className="h-3 w-3" /> NOVA MENSAGEM
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="h-3 w-3" /> NOVO CHAMADO ABERTO
+                        </>
+                      )}
+                    </span>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
+                    }}
+                    className="text-slate-400 hover:text-white transition-colors p-1 -m-1 focus:outline-none flex items-center justify-center"
+                    title="Fechar"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                
+                <h4 className={`font-display font-extrabold text-sm mt-2 text-slate-100 ${isComment ? 'group-hover:text-cyan-300' : 'group-hover:text-emerald-300'} transition-colors line-clamp-1`}>
+                  {notif.title}
+                </h4>
+
+                {isComment && notif.commentText && (
+                  <p className="text-slate-300 text-xs mt-1.5 bg-black/40 border border-neutral-900/40 px-2.5 py-2 rounded-xl italic line-clamp-2 leading-relaxed">
+                    "{notif.commentText}"
+                  </p>
+                )}
+                
+                <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-neutral-900 text-xs">
+                  <span className="text-slate-400 font-mono text-[10px]">
+                    {isComment ? "Por: " : "De: "}<span className="text-slate-200 font-sans font-semibold">{isComment ? notif.commentAuthor : notif.requesterName}</span>
+                  </span>
+                  <span className="text-[9px] text-slate-500 font-mono">
+                    {notif.timestamp.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Full-Screen Image Preview Modal */}
+      {previewImage && (
+        <div 
+          className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/95 backdrop-blur-md p-4 animate-in fade-in duration-200"
+          onClick={() => setPreviewImage(null)}
+        >
+          {/* Top toolbar */}
+          <div className="w-full max-w-5xl flex items-center justify-between mb-4 px-2 select-none" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2">
+              <Camera className="h-4 w-4 text-emerald-400" />
+              <span className="text-xs font-bold text-slate-300 uppercase tracking-widest">Visualização do Anexo</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <a 
+                href={previewImage} 
+                download="screenshot.png"
+                className="px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-slate-300 font-bold rounded-xl text-[10px] uppercase tracking-wider transition cursor-pointer flex items-center gap-1.5"
+              >
+                Download
+              </a>
+              <button
+                onClick={() => setPreviewImage(null)}
+                className="p-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center"
+                title="Fechar visualização"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+          
+          {/* Main Image frame */}
+          <div className="relative max-w-5xl max-h-[80vh] flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+            <img 
+              src={previewImage} 
+              alt="Visualização ampliada" 
+              className="max-w-full max-h-[80vh] object-contain rounded-2xl border border-neutral-900 shadow-2xl animate-in zoom-in-95 duration-200"
+            />
+          </div>
+
+          <p className="text-[10px] text-slate-500 font-medium uppercase mt-4 select-none">Clique em qualquer lugar fora para fechar</p>
+        </div>
+      )}
+
+      {/* Notification Guide Modal */}
+      <NotificationGuideModal
+        isOpen={isNotificationGuideOpen}
+        onClose={() => setIsNotificationGuideOpen(false)}
+        onRetryPermission={requestDesktopNotificationPermission}
+        onTestNotification={testDesktopNotification}
+        currentPermission={desktopNotificationPermission}
+      />
+
+      {/* Notification Customizer Modal */}
+      <NotificationCustomizerModal
+        isOpen={isNotificationCustomizerOpen}
+        onClose={() => setIsNotificationCustomizerOpen(false)}
+        desktopPermission={desktopNotificationPermission}
+        onRequestDesktopPermission={requestDesktopNotificationPermission}
+        onTriggerTestNotification={(customTitle, customBody) => {
+          showDesktopNotification(
+            customTitle || "⚡ GRAN7 HELP • Alerta de Teste",
+            customBody || "Sua notificação personalizada foi enviada com sucesso!",
+            selectedTicketId || undefined
+          );
+        }}
+      />
+
+      {preloaderJSX}
+    </div>
+  );
+}
