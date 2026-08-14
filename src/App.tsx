@@ -1447,6 +1447,19 @@ export default function App() {
     return new Date(t.slaLimit).getTime() < Date.now();
   }, []);
 
+  // SLA escalation badge: how urgent an open ticket looks based on time since
+  // it was opened, climbing through 24h -> 7 days -> 14 days thresholds.
+  const getSlaEscalation = useCallback((t: Ticket): { label: string; textClass: string } => {
+    if (t.status === "Resolvido" || t.status === "Fechado") {
+      return { label: "CONCLUÍDO", textClass: "text-emerald-400" };
+    }
+    const hoursElapsed = (Date.now() - new Date(t.createdAt).getTime()) / 3600000;
+    if (hoursElapsed >= 24 * 14) return { label: "URGÊNCIA", textClass: "text-rose-400" };
+    if (hoursElapsed >= 24 * 7) return { label: "EM ATRASO", textClass: "text-orange-400" };
+    if (hoursElapsed >= 24) return { label: "ATENÇÃO", textClass: "text-amber-400" };
+    return { label: "DENTRO PRAZO", textClass: "text-emerald-400" };
+  }, []);
+
   // Filtered tickets calculation
   const filteredTickets = useMemo(() => {
     return userVisibleTickets.filter(t => {
@@ -3090,6 +3103,7 @@ export default function App() {
 
                       const assignedTechsList = getAssignedTechs(ticket.assignedTo);
                       const mainTech = assignedTechsList[0] || "Sem Técnico";
+                      const slaEscalation = getSlaEscalation(ticket);
 
                       return (
                         <div
@@ -3171,8 +3185,8 @@ export default function App() {
                             <div className="grid grid-cols-3 gap-1.5 mt-2">
                               <div className="bg-app/90 border border-default/80 rounded-lg p-1.5 sm:p-2 text-left">
                                 <span className="text-[8px] font-extrabold text-muted uppercase tracking-wider block">STATUS SLA</span>
-                                <span className="text-[10px] sm:text-[11px] font-black text-emerald-400 block mt-0.5 truncate">
-                                  {ticket.status === "Resolvido" ? "CONCLUÍDO" : "DENTRO PRAZO"}
+                                <span className={`text-[10px] sm:text-[11px] font-black block mt-0.5 truncate ${slaEscalation.textClass}`}>
+                                  {slaEscalation.label}
                                 </span>
                               </div>
                               <div className="bg-app/90 border border-default/80 rounded-lg p-1.5 sm:p-2 text-left">
