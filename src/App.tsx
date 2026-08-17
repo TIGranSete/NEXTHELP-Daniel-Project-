@@ -1447,16 +1447,27 @@ export default function App() {
     return new Date(t.slaLimit).getTime() < Date.now();
   }, []);
 
-  // SLA escalation badge: how urgent an open ticket looks based on time since
-  // it was opened, climbing through 24h -> 7 days -> 14 days thresholds.
+  // SLA escalation badge: how urgent an open ticket looks based on how much
+  // time remains until its real deadline (projectDeadline or slaLimit).
   const getSlaEscalation = useCallback((t: Ticket): { label: string; textClass: string } => {
     if (t.status === "Resolvido" || t.status === "Fechado") {
       return { label: "CONCLUÍDO", textClass: "text-emerald-400" };
     }
-    const hoursElapsed = (Date.now() - new Date(t.createdAt).getTime()) / 3600000;
-    if (hoursElapsed >= 24 * 14) return { label: "URGÊNCIA", textClass: "text-rose-400" };
-    if (hoursElapsed >= 24 * 7) return { label: "EM ATRASO", textClass: "text-orange-400" };
-    if (hoursElapsed >= 24) return { label: "ATENÇÃO", textClass: "text-amber-400" };
+    const start = new Date(t.createdAt).getTime();
+    let deadline: number;
+    if (t.projectDeadline) {
+      const deadlineDate = new Date(t.projectDeadline);
+      deadlineDate.setHours(23, 59, 59, 999);
+      deadline = deadlineDate.getTime();
+    } else {
+      deadline = new Date(t.slaLimit).getTime();
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return { label: "ATRASADO", textClass: "text-rose-400" };
+    const totalDuration = Math.max(deadline - start, 1);
+    const remainingRatio = remaining / totalDuration;
+    if (remainingRatio <= 0.15) return { label: "URGÊNCIA", textClass: "text-orange-400" };
+    if (remainingRatio <= 0.4) return { label: "ATENÇÃO", textClass: "text-amber-400" };
     return { label: "DENTRO PRAZO", textClass: "text-emerald-400" };
   }, []);
 

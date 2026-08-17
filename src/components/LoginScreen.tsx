@@ -17,9 +17,12 @@ interface LoginScreenProps {
   onLoginSuccess: (session: UserSession) => void;
 }
 
+const REMEMBERED_EMAIL_KEY = "gran7_remembered_email";
+
 export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(() => localStorage.getItem(REMEMBERED_EMAIL_KEY) || "");
   const [password, setPassword] = useState("");
+  const [rememberEmail, setRememberEmail] = useState(() => !!localStorage.getItem(REMEMBERED_EMAIL_KEY));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [logoError, setLogoError] = useState(false);
@@ -50,6 +53,11 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
       if (response.ok && isJson) {
         const user = await response.json();
+        if (rememberEmail) {
+          localStorage.setItem(REMEMBERED_EMAIL_KEY, email.trim());
+        } else {
+          localStorage.removeItem(REMEMBERED_EMAIL_KEY);
+        }
         onLoginSuccess({
           name: user.name,
           department: user.department,
@@ -135,6 +143,8 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 <Mail className="absolute left-3.5 top-2.5 h-4 w-4 text-muted" />
                 <input
                   type="email"
+                  name="username"
+                  autoComplete="username"
                   required
                   placeholder="usuario@gran7.com.br"
                   value={email}
@@ -150,6 +160,8 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 <Lock className="absolute left-3.5 top-2.5 h-4 w-4 text-muted" />
                 <input
                   type="password"
+                  name="current-password"
+                  autoComplete="current-password"
                   required
                   placeholder="Sua senha corporativa"
                   value={password}
@@ -158,6 +170,18 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 />
               </div>
             </div>
+
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={rememberEmail}
+                onChange={(e) => setRememberEmail(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-default accent-emerald-500 cursor-pointer"
+              />
+              <span className="text-[10px] font-semibold text-secondary uppercase tracking-wider">
+                Lembrar meu e-mail neste dispositivo
+              </span>
+            </label>
 
             <button
               type="submit"
