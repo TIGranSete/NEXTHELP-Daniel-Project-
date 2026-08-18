@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useLayoutEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, X, Sparkles } from "lucide-react";
 
 interface WindowsDatePickerProps {
@@ -48,6 +49,37 @@ export default function WindowsDatePicker({
   const [isOpen, setIsOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'days' | 'months' | 'years'>('days');
   const containerRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [popoverPos, setPopoverPos] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  const POPOVER_WIDTH = 320;
+  const VIEWPORT_MARGIN = 8;
+
+  // Compute the popover's fixed viewport position, clamped so it never runs off-screen
+  const updatePopoverPosition = useCallback(() => {
+    const anchor = containerRef.current;
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    const width = Math.min(POPOVER_WIDTH, viewportWidth - VIEWPORT_MARGIN * 2);
+    let left = align === "right" ? rect.right - width : rect.left;
+    left = Math.min(Math.max(left, VIEWPORT_MARGIN), viewportWidth - width - VIEWPORT_MARGIN);
+
+    const estimatedHeight = popoverRef.current?.offsetHeight ?? 420;
+    const gap = 8;
+    let top = rect.bottom + gap;
+    const fitsBelow = top + estimatedHeight <= viewportHeight - VIEWPORT_MARGIN;
+    const fitsAbove = rect.top - estimatedHeight - gap >= VIEWPORT_MARGIN;
+    if (!fitsBelow && fitsAbove) {
+      top = rect.top - estimatedHeight - gap;
+    } else {
+      top = Math.min(top, Math.max(viewportHeight - estimatedHeight - VIEWPORT_MARGIN, VIEWPORT_MARGIN));
+    }
+
+    setPopoverPos({ top, left, width });
+  }, [align]);
 
   // Parse initial date value or default to current date
   const getInitialYearAndMonth = () => {
@@ -75,10 +107,13 @@ export default function WindowsDatePicker({
     setCurrentMonth(month);
   }, [value]);
 
-  // Click outside to close
+  // Click outside to close (popover is portaled, so check both the anchor and the popover itself)
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      const clickedAnchor = containerRef.current?.contains(target);
+      const clickedPopover = popoverRef.current?.contains(target);
+      if (!clickedAnchor && !clickedPopover) {
         setIsOpen(false);
         setViewMode('days');
       }
@@ -90,6 +125,29 @@ export default function WindowsDatePicker({
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [isOpen]);
+
+  // Position the popover relative to the anchor whenever it opens or its content size changes
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      setPopoverPos(null);
+      return;
+    }
+    updatePopoverPosition();
+    // Re-measure on the next frame once the popover has mounted with its real height
+    const raf = requestAnimationFrame(updatePopoverPosition);
+    return () => cancelAnimationFrame(raf);
+  }, [isOpen, viewMode, updatePopoverPosition]);
+
+  // Keep the popover aligned to the anchor on scroll/resize while open
+  useEffect(() => {
+    if (!isOpen) return;
+    window.addEventListener("resize", updatePopoverPosition);
+    window.addEventListener("scroll", updatePopoverPosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePopoverPosition);
+      window.removeEventListener("scroll", updatePopoverPosition, true);
+    };
+  }, [isOpen, updatePopoverPosition]);
 
   // Format date to show to the user (e.g. DD/MM/YYYY)
   const getFormattedDisplayDate = () => {
@@ -266,11 +324,12 @@ export default function WindowsDatePicker({
         )}
       </div>
 
-      {/* Windows 11 Fluent-style Calendar Popover */}
-      {isOpen && (
-        <div 
-          className={`absolute z-50 ${align === "left" ? "left-0" : "right-0"} mt-2 bg-app border border-default shadow-2xl rounded-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 p-4`}
-          style={{ width: "320px", maxWidth: "100vw" }}
+      {/* Windows 11 Fluent-style Calendar Popover, portaled to <body> so it can't be clipped by an ancestor's overflow-hidden/scroll and stays fully inside the viewport */}
+      {isOpen && popoverPos && createPortal(
+        <div
+          ref={popoverRef}
+          className="fixed z-50 bg-app border border-default shadow-2xl rounded-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 p-4"
+          style={{ top: popoverPos.top, left: popoverPos.left, width: popoverPos.width, maxHeight: "calc(100vh - 16px)", overflowY: "auto" }}
         >
           {/* Windows Header Info Panel */}
           <div className="pb-3 mb-3 border-b border-default flex justify-between items-start">
@@ -472,7 +531,8 @@ export default function WindowsDatePicker({
               </button>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
