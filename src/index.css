@@ -1,34 +1,119 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
 @import "tailwindcss";
+
+/* Enables the `dark:` variant based on a `.dark` class on <html>, set by useTheme
+   (instead of Tailwind v4's default of following prefers-color-scheme only). */
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Space Grotesk", sans-serif;
+  --font-display: "Plus Jakarta Sans", sans-serif;
   --font-mono: "JetBrains Mono", monospace;
 
-  /* Overriding standard emerald palette with a super vibrant NEXTHELP Neon Green */
-  --color-emerald-50: #e6fff0;
-  --color-emerald-100: #ccffdd;
-  --color-emerald-200: #99ffbb;
-  --color-emerald-300: #33ff85;
-  --color-emerald-400: #00FF55; /* Pure Neon Green */
-  --color-emerald-500: #00E64D; /* Electric Green */
-  --color-emerald-600: #00cc44;
-  --color-emerald-700: #009933;
-  --color-emerald-800: #006622;
-  --color-emerald-900: #004d1a;
-  --color-emerald-950: #00260d;
+  /* Gran7 Official Brand Green Palette (Matching the "7" icon in Gran7 logo) */
+  --color-emerald-50: #f0fdf2;
+  --color-emerald-100: #dcfce1;
+  --color-emerald-200: #b9f7c1;
+  --color-emerald-300: #7dec89;
+  --color-emerald-400: #4ade52;
+  --color-emerald-500: #34c732;
+  --color-emerald-600: #1d871d; /* texto branco sobre esta cor: 4,6:1 (antes 3,1:1) */
+  --color-emerald-700: #176d1a; /* texto verde sobre fundo verde-claro: ≥ 5,5:1 (antes 4,2:1) */
+  --color-emerald-800: #1a6b1b;
+  --color-emerald-900: #165818;
+  --color-emerald-950: #072f0a;
 
-  /* Custom Neon Shadows */
-  --shadow-neon: 0 0 15px rgba(0, 255, 85, 0.3);
-  --shadow-neon-sm: 0 0 8px rgba(0, 255, 85, 0.2);
-  --shadow-neon-lg: 0 0 30px rgba(0, 255, 85, 0.45);
+  /* Clean subtle corporate shadows */
+  --shadow-neon: 0 1px 3px 0 rgba(0, 0, 0, 0.2), 0 1px 2px -1px rgba(0, 0, 0, 0.2);
+  --shadow-neon-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.15);
+  --shadow-neon-lg: 0 4px 12px 0 rgba(0, 0, 0, 0.25);
+
+  /* Custom breakpoint for the top header nav: logo + pill tabs + role badge +
+     avatar only fit comfortably from ~1440px. Tailwind's stock scale jumps
+     straight from xl (1280px) to 2xl (1536px), and both ends of that gap
+     either overlap or wrap the role badge onto two lines. */
+  --breakpoint-nav: 1460px;
+}
+
+/*
+ * Semantic theme tokens. Every component should use bg-app/bg-surface/etc.
+ * (via the Tailwind utilities generated below) instead of raw grays, so the
+ * same class renders correctly in both light and dark mode.
+ *
+ * Layer scale (dark -> light backgrounds, light -> dark text):
+ *   app       = page background (outermost)
+ *   surface   = cards / panels sitting on the page
+ *   surface-2 = nested panels, inputs, subtle raised blocks
+ *   surface-3 = hover/active states, chips
+ */
+:root {
+  /* Gran7 Help 3.0 — tema claro */
+  --color-bg-app: #f5f7f8;
+  --color-bg-surface: #ffffff;
+  --color-bg-surface-2: #f1f4f6;
+  --color-bg-surface-3: #e6ebef;
+  --color-bg-sidebar: #ffffff;
+
+  --color-border-subtle: #edf1f4;
+  --color-border-default: #e3e8ed;
+  --color-border-sidebar: #e3e8ed;
+
+  --color-text-primary: #18212b;
+  --color-text-secondary: #4a586a; /* ≥ 6:1 sobre os fundos claros */
+  --color-text-muted: #606c79; /* ≥ 4,6:1 sobre surface-2 (antes 3,3:1) */
+
+  --g7-shadow-card: 0 1px 2px rgba(24, 33, 43, 0.05), 0 1px 3px rgba(24, 33, 43, 0.06);
+  --g7-shadow-raised: 0 4px 14px rgba(24, 33, 43, 0.08);
+  --g7-shadow-pop: 0 12px 32px rgba(24, 33, 43, 0.14);
+}
+
+:root.dark {
+  /* Gran7 Help 3.0 — grafite premium */
+  --color-bg-app: #090b0e;
+  --color-bg-surface: #171c22;
+  --color-bg-surface-2: #1d242b;
+  --color-bg-surface-3: #26303a;
+  --color-bg-sidebar: #11151a;
+
+  --color-border-subtle: #232a31;
+  --color-border-default: #2d353d;
+  --color-border-sidebar: #232a31;
+
+  --color-text-primary: #f1f5f9;
+  --color-text-secondary: #9ca8b5;
+  --color-text-muted: #8693a1; /* ≥ 4,9:1 sobre as superfícies escuras (antes 4,2:1) */
+
+  --g7-shadow-card: 0 1px 0 rgba(255, 255, 255, 0.025) inset, 0 1px 2px rgba(0, 0, 0, 0.35);
+  --g7-shadow-raised: 0 6px 18px rgba(0, 0, 0, 0.4);
+  --g7-shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+
+/* Registers the tokens above as real Tailwind color utilities:
+   bg-app, bg-surface, bg-surface-2, bg-surface-3, border-subtle,
+   border-default, text-primary, text-secondary, text-muted (each also
+   works with opacity modifiers, e.g. bg-surface/60). */
+@theme inline {
+  --color-app: var(--color-bg-app);
+  --color-surface: var(--color-bg-surface);
+  --color-surface-2: var(--color-bg-surface-2);
+  --color-surface-3: var(--color-bg-surface-3);
+  --color-subtle: var(--color-border-subtle);
+  --color-default: var(--color-border-default);
+  --color-primary: var(--color-text-primary);
+  --color-secondary: var(--color-text-secondary);
+  --color-muted: var(--color-text-muted);
+  --color-sidebar: var(--color-bg-sidebar);
+  --color-sidebar-line: var(--color-border-sidebar);
+  --shadow-card: var(--g7-shadow-card);
+  --shadow-raised: var(--g7-shadow-raised);
+  --shadow-pop: var(--g7-shadow-pop);
 }
 
 html, body {
   scroll-behavior: smooth;
-  background-color: #030303;
-  color: #f1f5f9;
+  background-color: var(--color-bg-app);
+  color: var(--color-text-primary);
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 /* Ensure smooth scrolling and momentum scroll for all containers with overflow */
@@ -37,30 +122,30 @@ html, body {
   -webkit-overflow-scrolling: touch;
 }
 
-/* Custom scrollbars matching the neon green theme */
+/* Custom scrollbars with neutral dark slate tone */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #020202;
+  background: transparent;
   border-radius: 8px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 255, 85, 0.18);
+  background: rgba(161, 161, 170, 0.2);
   border-radius: 8px;
   transition: background 0.3s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 255, 85, 0.45);
+  background: rgba(161, 161, 170, 0.4);
 }
 
 @keyframes pulse-slow {
-  0%, 100% { opacity: 1; filter: drop-shadow(0 0 2px rgba(0, 255, 85, 0.2)); }
-  50% { opacity: 0.5; filter: drop-shadow(0 0 8px rgba(0, 255, 85, 0.5)); }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
 
 .animate-pulse-slow {
@@ -68,7 +153,7 @@ html, body {
 }
 
 .neon-glow-text {
-  text-shadow: 0 0 10px rgba(0, 255, 85, 0.35);
+  text-shadow: none;
 }
 
 @keyframes loading-slide {
@@ -80,3 +165,56 @@ html, body {
   animation: loading-slide 1.5s infinite ease-in-out;
 }
 
+/* Slow, organic drift for the background gradient blobs (auth screens).
+   Each keyframe wanders to different points so the three blobs never move
+   in sync. Kept slow/subtle to stay corporate rather than "lava lamp". */
+@keyframes blob-drift-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-4%, 5%) scale(1.08); }
+  66% { transform: translate(3%, -4%) scale(0.95); }
+}
+
+@keyframes blob-drift-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(5%, -4%) scale(0.94); }
+  66% { transform: translate(-3%, 4%) scale(1.07); }
+}
+
+@keyframes blob-drift-3 {
+  0%, 100% { transform: translate(-50%, 0) scale(1); }
+  50% { transform: translate(-50%, 6%) scale(1.12); }
+}
+
+.animate-blob-1 { animation: blob-drift-1 20s ease-in-out infinite; }
+.animate-blob-2 { animation: blob-drift-2 24s ease-in-out infinite; }
+.animate-blob-3 { animation: blob-drift-3 17s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-blob-1, .animate-blob-2, .animate-blob-3 {
+    animation: none;
+  }
+}
+
+/* Gran7 Help 3.0 — movimento reduzido só dentro do shell interno (não afeta o login). */
+@media (prefers-reduced-motion: reduce) {
+  .app-shell *, .app-shell *::before, .app-shell *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Foco por teclado consistente nos controles do shell. */
+.app-shell :where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-emerald-500);
+  outline-offset: 2px;
+}
+.app-shell input:focus-visible, .app-shell select:focus-visible, .app-shell textarea:focus-visible {
+  outline-offset: 0;
+}
+
+@keyframes g7-pop {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}

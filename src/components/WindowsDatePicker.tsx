@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useLayoutEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, X, Sparkles } from "lucide-react";
 
 interface WindowsDatePickerProps {
@@ -7,6 +8,7 @@ interface WindowsDatePickerProps {
   disabled?: boolean;
   placeholder?: string;
   headerText?: string;
+  align?: "left" | "right";
 }
 
 const MONTHS_PT = [
@@ -41,11 +43,43 @@ export default function WindowsDatePicker({
   onChange, 
   disabled = false,
   placeholder = "Escolha uma data limite...",
-  headerText = "Data do Projeto"
+  headerText = "Data do Projeto",
+  align = "left"
 }: WindowsDatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'days' | 'months' | 'years'>('days');
   const containerRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [popoverPos, setPopoverPos] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  const POPOVER_WIDTH = 320;
+  const VIEWPORT_MARGIN = 8;
+
+  // Compute the popover's fixed viewport position, clamped so it never runs off-screen
+  const updatePopoverPosition = useCallback(() => {
+    const anchor = containerRef.current;
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    const width = Math.min(POPOVER_WIDTH, viewportWidth - VIEWPORT_MARGIN * 2);
+    let left = align === "right" ? rect.right - width : rect.left;
+    left = Math.min(Math.max(left, VIEWPORT_MARGIN), viewportWidth - width - VIEWPORT_MARGIN);
+
+    const estimatedHeight = popoverRef.current?.offsetHeight ?? 420;
+    const gap = 8;
+    let top = rect.bottom + gap;
+    const fitsBelow = top + estimatedHeight <= viewportHeight - VIEWPORT_MARGIN;
+    const fitsAbove = rect.top - estimatedHeight - gap >= VIEWPORT_MARGIN;
+    if (!fitsBelow && fitsAbove) {
+      top = rect.top - estimatedHeight - gap;
+    } else {
+      top = Math.min(top, Math.max(viewportHeight - estimatedHeight - VIEWPORT_MARGIN, VIEWPORT_MARGIN));
+    }
+
+    setPopoverPos({ top, left, width });
+  }, [align]);
 
   // Parse initial date value or default to current date
   const getInitialYearAndMonth = () => {
@@ -73,10 +107,13 @@ export default function WindowsDatePicker({
     setCurrentMonth(month);
   }, [value]);
 
-  // Click outside to close
+  // Click outside to close (popover is portaled, so check both the anchor and the popover itself)
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      const clickedAnchor = containerRef.current?.contains(target);
+      const clickedPopover = popoverRef.current?.contains(target);
+      if (!clickedAnchor && !clickedPopover) {
         setIsOpen(false);
         setViewMode('days');
       }
@@ -88,6 +125,29 @@ export default function WindowsDatePicker({
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [isOpen]);
+
+  // Position the popover relative to the anchor whenever it opens or its content size changes
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      setPopoverPos(null);
+      return;
+    }
+    updatePopoverPosition();
+    // Re-measure on the next frame once the popover has mounted with its real height
+    const raf = requestAnimationFrame(updatePopoverPosition);
+    return () => cancelAnimationFrame(raf);
+  }, [isOpen, viewMode, updatePopoverPosition]);
+
+  // Keep the popover aligned to the anchor on scroll/resize while open
+  useEffect(() => {
+    if (!isOpen) return;
+    window.addEventListener("resize", updatePopoverPosition);
+    window.addEventListener("scroll", updatePopoverPosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePopoverPosition);
+      window.removeEventListener("scroll", updatePopoverPosition, true);
+    };
+  }, [isOpen, updatePopoverPosition]);
 
   // Format date to show to the user (e.g. DD/MM/YYYY)
   const getFormattedDisplayDate = () => {
@@ -237,7 +297,7 @@ export default function WindowsDatePicker({
           value={getFormattedDisplayDate()}
           onClick={() => !disabled && setIsOpen(!isOpen)}
           placeholder={placeholder}
-          className="w-full bg-black border border-neutral-900 rounded-lg py-2 pl-10 pr-10 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 cursor-pointer select-none transition-all hover:bg-neutral-950"
+          className="w-full bg-app border border-default rounded-lg py-2 pl-10 pr-10 text-xs text-primary placeholder-slate-600 focus:outline-none focus:border-emerald-500 cursor-pointer select-none transition-all hover:bg-app"
         />
         
         {/* Calendar Icon Button */}
@@ -256,7 +316,7 @@ export default function WindowsDatePicker({
           <button
             type="button"
             onClick={handleClear}
-            className="absolute right-3 text-slate-500 hover:text-rose-400 transition-colors cursor-pointer p-0.5"
+            className="absolute right-3 text-muted hover:text-rose-400 transition-colors cursor-pointer p-0.5"
             title="Limpar data"
           >
             <X className="h-3.5 w-3.5" />
@@ -264,19 +324,20 @@ export default function WindowsDatePicker({
         )}
       </div>
 
-      {/* Windows 11 Fluent-style Calendar Popover */}
-      {isOpen && (
-        <div 
-          className="absolute z-50 left-0 right-0 mt-2 bg-neutral-950 border border-neutral-900 shadow-2xl rounded-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 p-4"
-          style={{ width: "320px", maxWidth: "100vw" }}
+      {/* Windows 11 Fluent-style Calendar Popover, portaled to <body> so it can't be clipped by an ancestor's overflow-hidden/scroll and stays fully inside the viewport */}
+      {isOpen && popoverPos && createPortal(
+        <div
+          ref={popoverRef}
+          className="fixed z-50 bg-app border border-default shadow-2xl rounded-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 p-4"
+          style={{ top: popoverPos.top, left: popoverPos.left, width: popoverPos.width, maxHeight: "calc(100vh - 16px)", overflowY: "auto" }}
         >
           {/* Windows Header Info Panel */}
-          <div className="pb-3 mb-3 border-b border-neutral-900 flex justify-between items-start">
+          <div className="pb-3 mb-3 border-b border-default flex justify-between items-start">
             <div>
-              <span className="text-[11px] text-slate-500 uppercase tracking-widest font-bold block mb-1">
+              <span className="text-[11px] text-muted uppercase tracking-widest font-bold block mb-1">
                 {headerText}
               </span>
-              <span className="text-sm font-semibold text-white capitalize">
+              <span className="text-sm font-semibold text-primary capitalize">
                 {getWindowsHeaderDateText()}
               </span>
             </div>
@@ -302,16 +363,16 @@ export default function WindowsDatePicker({
                   <button
                     type="button"
                     onClick={() => setViewMode('months')}
-                    className="text-xs font-bold text-slate-200 hover:text-emerald-400 capitalize hover:bg-neutral-900 px-1.5 py-0.5 rounded transition-all cursor-pointer"
+                    className="text-xs font-bold text-primary hover:text-emerald-400 capitalize hover:bg-surface px-1.5 py-0.5 rounded transition-all cursor-pointer"
                     title="Escolher mês"
                   >
                     {MONTHS_PT[currentMonth]}
                   </button>
-                  <span className="text-xs font-bold text-slate-600">de</span>
+                  <span className="text-xs font-bold text-muted">de</span>
                   <button
                     type="button"
                     onClick={() => setViewMode('years')}
-                    className="text-xs font-bold text-slate-200 hover:text-emerald-400 hover:bg-neutral-900 px-1.5 py-0.5 rounded transition-all cursor-pointer"
+                    className="text-xs font-bold text-primary hover:text-emerald-400 hover:bg-surface px-1.5 py-0.5 rounded transition-all cursor-pointer"
                     title="Escolher ano"
                   >
                     {currentYear}
@@ -322,14 +383,14 @@ export default function WindowsDatePicker({
                 <button
                   type="button"
                   onClick={() => setViewMode('years')}
-                  className="text-xs font-bold text-slate-200 hover:text-emerald-400 hover:bg-neutral-900 px-1.5 py-0.5 rounded transition-all cursor-pointer"
+                  className="text-xs font-bold text-primary hover:text-emerald-400 hover:bg-surface px-1.5 py-0.5 rounded transition-all cursor-pointer"
                   title="Escolher ano"
                 >
                   {currentYear}
                 </button>
               )}
               {viewMode === 'years' && (
-                <span className="text-xs font-bold text-slate-200 px-1.5 py-0.5 select-none">
+                <span className="text-xs font-bold text-primary px-1.5 py-0.5 select-none">
                   {currentYear - 5} - {currentYear + 6}
                 </span>
               )}
@@ -338,7 +399,7 @@ export default function WindowsDatePicker({
               <button
                 type="button"
                 onClick={handlePrev}
-                className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-neutral-900 transition-all cursor-pointer"
+                className="p-1 rounded-md text-secondary hover:text-primary hover:bg-surface transition-all cursor-pointer"
                 title="Voltar"
               >
                 <ChevronLeft className="h-4 w-4" />
@@ -346,7 +407,7 @@ export default function WindowsDatePicker({
               <button
                 type="button"
                 onClick={handleNext}
-                className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-neutral-900 transition-all cursor-pointer"
+                className="p-1 rounded-md text-secondary hover:text-primary hover:bg-surface transition-all cursor-pointer"
                 title="Avançar"
               >
                 <ChevronRight className="h-4 w-4" />
@@ -360,7 +421,7 @@ export default function WindowsDatePicker({
               {/* Weekday headers row (e.g. D, S, T, Q, Q, S, S) */}
               <div className="grid grid-cols-7 gap-1 mb-2 text-center">
                 {WEEKDAYS_PT_SHORT.map((day, idx) => (
-                  <span key={idx} className="text-[10px] font-bold text-slate-500 select-none">
+                  <span key={idx} className="text-[10px] font-bold text-muted select-none">
                     {day}
                   </span>
                 ))}
@@ -379,12 +440,12 @@ export default function WindowsDatePicker({
                       onClick={() => handleSelectDay(cell.dateString)}
                       className={`
                         h-8 w-8 text-xs font-medium rounded-full flex items-center justify-center transition-all relative cursor-pointer
-                        ${cell.isCurrentMonth ? "text-slate-200" : "text-slate-600"}
+                        ${cell.isCurrentMonth ? "text-primary" : "text-muted"}
                         ${isSelected 
-                          ? "bg-emerald-500 text-black font-bold shadow-[0_0_12px_rgba(16,185,129,0.4)] hover:bg-emerald-400" 
+                          ? "bg-emerald-600 text-white font-bold shadow-md hover:bg-emerald-500" 
                           : isCurrentActualDay
                             ? "border border-emerald-500/80 text-emerald-400 hover:bg-emerald-950/40"
-                            : "hover:bg-neutral-900 hover:text-white"
+                            : "hover:bg-surface hover:text-primary"
                         }
                       `}
                     >
@@ -416,8 +477,8 @@ export default function WindowsDatePicker({
                     className={`
                       py-2.5 px-1 text-xs font-medium capitalize rounded-lg transition-all cursor-pointer
                       ${isSelected
-                        ? "bg-emerald-500 text-black font-bold shadow-[0_0_12px_rgba(16,185,129,0.4)]"
-                        : "text-slate-300 hover:bg-neutral-900 hover:text-white"
+                        ? "bg-emerald-600 text-white font-bold shadow-md"
+                        : "text-secondary hover:bg-surface hover:text-primary"
                       }
                     `}
                   >
@@ -443,8 +504,8 @@ export default function WindowsDatePicker({
                     className={`
                       py-2.5 px-1 text-xs font-medium rounded-lg transition-all cursor-pointer
                       ${isSelected
-                        ? "bg-emerald-500 text-black font-bold shadow-[0_0_12px_rgba(16,185,129,0.4)]"
-                        : "text-slate-300 hover:bg-neutral-900 hover:text-white"
+                        ? "bg-emerald-600 text-white font-bold shadow-md"
+                        : "text-secondary hover:bg-surface hover:text-primary"
                       }
                     `}
                   >
@@ -456,8 +517,8 @@ export default function WindowsDatePicker({
           )}
 
           {/* Footer action */}
-          <div className="mt-3 pt-2.5 border-t border-neutral-900 flex justify-between items-center text-[10px]">
-            <span className="text-slate-600">
+          <div className="mt-3 pt-2.5 border-t border-default flex justify-between items-center text-[10px]">
+            <span className="text-muted">
               {value ? "Prazo definido" : "Nenhum prazo selecionado"}
             </span>
             {value && (
@@ -470,7 +531,8 @@ export default function WindowsDatePicker({
               </button>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

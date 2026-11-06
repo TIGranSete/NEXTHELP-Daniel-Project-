@@ -9,12 +9,9 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        'react': path.resolve(__dirname, 'node_modules/react'),
+        'react-dom': path.resolve(__dirname, 'node_modules/react-dom'),
       },
-    },
-    define: {
-      'process.env.SUPABASE_URL': JSON.stringify(process.env.SUPABASE_URL || ''),
-      'process.env.SUPABASE_KEY': JSON.stringify(process.env.SUPABASE_KEY || ''),
-      'process.env.GEMINI_API_KEY': JSON.stringify(process.env.GEMINI_API_KEY || ''),
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

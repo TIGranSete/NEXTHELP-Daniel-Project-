@@ -1,97 +1,87 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import fs from "fs";
-import crypto from "crypto";
 import path from "path";
+import fs from "fs";
+import dotenv from "dotenv";
+import { hashPassword } from "./password-utils";
 
-// Dynamically load initial users configuration for password override at runtime to avoid build errors on Vercel
-let initialUsers: any[] = [];
-try {
-  const usersPath = path.join(process.cwd(), "users-db.json");
-  if (fs.existsSync(usersPath)) {
-    initialUsers = JSON.parse(fs.readFileSync(usersPath, "utf-8"));
+// Load local environment files if not already loaded
+const envFiles = [".env.local", ".env.development", ".env"];
+envFiles.forEach((file) => {
+  const filePath = path.join(process.cwd(), file);
+  if (fs.existsSync(filePath)) {
+    dotenv.config({ path: filePath, override: true });
   }
-} catch (err) {
-  console.warn("Failed to load initial users in supabase-db:", err);
-}
+});
+dotenv.config();
 
-// Load initial users configuration for password override from bundled JSON
-const initialPasswordHashes = new Map<string, string>();
-try {
-  if (Array.isArray(initialUsers)) {
-    initialUsers.forEach((u: any) => {
-      if (u.email && u.password) {
-        initialPasswordHashes.set(u.email.toLowerCase().trim(), u.password);
-      }
-    });
-  }
-} catch (err) {
-  console.error("Failed to load initial password hashes in supabase-db:", err);
-}
-
-// Helper to hash passwords
-function hashPassword(password: string): string {
-  if (!password) return "";
-  if (/^[a-f0-9]{64}$/i.test(password)) {
-    return password;
-  }
-  return crypto.createHash("sha256").update(password).digest("hex");
-}
-
-// Helper to read config from public/config.js on the backend
+// Load configuration for Supabase Database from environment variables
 export function getBackendConfig() {
-  let url = process.env.SUPABASE_URL || "";
-  let key = process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "";
-  let gemini = process.env.GEMINI_API_KEY || "";
-
-  try {
-    const configPath = path.join(process.cwd(), "public", "config.js");
-    if (fs.existsSync(configPath)) {
-      const content = fs.readFileSync(configPath, "utf-8");
-      
-      const urlMatch = content.match(/SUPABASE_URL\s*:\s*["']([^"']+)["']/);
-      const keyMatch = content.match(/SUPABASE_KEY\s*:\s*["']([^"']+)["']/);
-      const geminiMatch = content.match(/GEMINI_API_KEY\s*:\s*["']([^"']+)["']/);
-
-      const parsedUrl = urlMatch ? urlMatch[1].trim() : "";
-      const parsedKey = keyMatch ? keyMatch[1].trim() : "";
-      const parsedGemini = geminiMatch ? geminiMatch[1].trim() : "";
-
-      if (parsedUrl && !parsedUrl.includes("your-selfhosted-")) {
-        url = parsedUrl;
-      }
-      if (parsedKey && !parsedKey.includes("SUA_CHAVE_")) {
-        key = parsedKey;
-      }
-      if (parsedGemini && !parsedGemini.includes("SUA_CHAVE_")) {
-        gemini = parsedGemini;
-      }
-    }
-  } catch (err) {
-    console.warn("Falha ao ler configuração dinâmica do config.js no backend:", err);
-  }
+  const url = cleanConfigValue(
+    process.env.SUPABASE_URL || 
+    process.env.VITE_SUPABASE_URL || 
+    process.env.NEXT_PUBLIC_SUPABASE_URL || 
+    ""
+  );
+  const key = cleanConfigValue(
+    process.env.SUPABASE_KEY || 
+    process.env.SUPABASE_SERVICE_ROLE_KEY || 
+    process.env.SUPABASE_ANON_KEY || 
+    process.env.VITE_SUPABASE_ANON_KEY || 
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
+    ""
+  );
+  const gemini = cleanConfigValue(process.env.GEMINI_API_KEY || "");
 
   return { url, key, gemini };
 }
 
-// Initialize Supabase lazily
-let supabaseInstance: SupabaseClient | null = null;
+// Helper to clean surrounding quotes and whitespace
+function cleanConfigValue(val: string): string {
+  if (!val) return "";
+  let cleaned = val.trim();
+  if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
+    cleaned = cleaned.slice(1, -1).trim();
+  }
+  if (cleaned.startsWith("'") && cleaned.endsWith("'")) {
+    cleaned = cleaned.slice(1, -1).trim();
+  }
+  return cleaned;
+}
+
+// Lazy Supabase Client Initialization
+let clientInstance: SupabaseClient | null = null;
+let lastUsedUrl = "";
+let lastUsedKey = "";
 
 export function getSupabaseClient(): SupabaseClient | null {
-  if (supabaseInstance) return supabaseInstance;
-
   const { url, key } = getBackendConfig();
 
   if (!url || !key) {
+    clientInstance = null;
+    lastUsedUrl = "";
+    lastUsedKey = "";
     return null;
   }
 
+  // If credentials changed, recreate client
+  if (clientInstance && (url !== lastUsedUrl || key !== lastUsedKey)) {
+    console.log("Detectadas novas credenciais do Supabase. Reiniciando cliente...");
+    clientInstance = null;
+    lastConnectionFailureTime = 0; // reset cooldown
+  }
+
+  if (clientInstance) return clientInstance;
+
   try {
-    supabaseInstance = createClient(url, key, {
+    clientInstance = createClient(url, key, {
       auth: {
-        persistSession: false
+        persistSession: false,
+        autoRefreshToken: false
       }
     });
-    return supabaseInstance;
+    lastUsedUrl = url;
+    lastUsedKey = key;
+    return clientInstance;
   } catch (error) {
     console.error("Erro ao inicializar cliente do Supabase:", error);
     return null;
@@ -103,9 +93,44 @@ export function isSupabaseConfigured(): boolean {
   return !!(url && key);
 }
 
+let lastConnectionFailureTime = 0;
+const FAILURE_COOLDOWN_MS = 60000; // 1 minute cooldown
+
+// Helper to enforce timeouts on Supabase queries to avoid hanging requests (e.g., waking up a paused database)
+async function withTimeout<T = any>(promise: any, timeoutMs: number = 4000): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error("TIMEOUT"));
+    }, timeoutMs);
+
+    Promise.resolve(promise)
+      .then((res) => {
+        clearTimeout(timer);
+        resolve(res as T);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
+
+export function markSupabaseUnhealthy() {
+  lastConnectionFailureTime = Date.now();
+}
+
+export function isSupabaseHealthy(): boolean {
+  if (!isSupabaseConfigured()) return false;
+  if (Date.now() - lastConnectionFailureTime < FAILURE_COOLDOWN_MS) {
+    return false;
+  }
+  return true;
+}
+
+// Test Connection with Supabase
 export async function testSupabaseConnection(): Promise<{ connected: boolean; error?: string }> {
   if (!isSupabaseConfigured()) {
-    return { connected: false, error: "Credenciais do Supabase ausentes (.env ou Secrets do AI Studio)" };
+    return { connected: false, error: "Credenciais do Supabase ausentes (.env ou Secrets)" };
   }
 
   const client = getSupabaseClient();
@@ -114,24 +139,26 @@ export async function testSupabaseConnection(): Promise<{ connected: boolean; er
   }
 
   try {
-    // Try querying the users table to verify access and table schema
-    const { error } = await client.from("users").select("id").limit(1);
+    // Attempt a simple ping select or from table with timeout
+    const { data, error } = await withTimeout(client.from("users").select("id").limit(1), 3000);
     if (error) {
-      if (error.code === "PGRST116" || error.message?.includes("does not exist")) {
-        return { 
-          connected: true, 
-          error: "Tabelas ausentes no Supabase. Execute o script SQL no editor de SQL do Supabase." 
-        };
+      // If error is just table missing, we are still connected to Supabase itself!
+      if (error.code === "PGRST116" || error.code === "42P01") {
+        lastConnectionFailureTime = 0; // reset cooldown on successful communication
+        return { connected: true, error: "Conectado, mas as tabelas ainda não foram criadas. Execute o script SQL no Supabase." };
       }
-      return { connected: false, error: error.message };
+      throw error;
     }
+
+    lastConnectionFailureTime = 0; // reset cooldown on success
     return { connected: true };
   } catch (err: any) {
-    return { connected: false, error: err.message || "Erro desconhecido ao testar conexão" };
+    markSupabaseUnhealthy();
+    return { connected: false, error: err.message || "Erro de rede ao conectar ao Supabase" };
   }
 }
 
-// Interfaces identical to server.ts
+// Interfaces identical to types
 export interface User {
   id: string;
   name: string;
@@ -150,13 +177,19 @@ export interface Comment {
   timestamp: string;
 }
 
+export interface Attachment {
+  name: string;
+  url: string;
+  type: string;
+}
+
 export interface Ticket {
   id: string;
   title: string;
   description: string;
   category: "Hardware" | "Software" | "Redes" | "Acesso" | "Sistemas" | "Outros";
   priority: "Baixa" | "Média" | "Alta" | "Urgente";
-  status: "Aberto" | "Em Atendimento" | "Resolvido" | "Fechado";
+  status: "Aberto" | "Pendente" | "Em Atendimento" | "Testando" | "Aguardando Solicitante" | "Resolvido" | "Fechado";
   requesterName: string;
   requesterDepartment: string;
   assignedTo: string | null;
@@ -170,131 +203,175 @@ export interface Ticket {
   comments: Comment[];
   screenshot?: string;
   projectDeadline?: string;
+  attachments?: Attachment[];
+  slaEvents?: any[];
 }
 
-// SQL Script description for user instructions
-export const SUPABASE_SQL_SCHEMA = `-- EXECUTAR ESTE SCRIPT NO EDITOR DE SQL DO SEU SUPABASE:
+export const SUPABASE_SQL_SCHEMA = `-- EXECUTAR ESTE SCRIPT NO SQL EDITOR DO SEU SUPABASE:
 
--- 1. Criar tabela de Usuários (Users)
+-- 1. Criar tabela de Usuários (users)
 CREATE TABLE IF NOT EXISTS public.users (
-    id text PRIMARY KEY,
-    name text NOT NULL,
-    email text UNIQUE NOT NULL,
-    password text NOT NULL,
-    department text NOT NULL,
-    role text NOT NULL,
-    must_change_password boolean DEFAULT true,
-    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    department TEXT NOT NULL,
+    role TEXT NOT NULL,
+    must_change_password BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
--- 2. Criar tabela de Chamados (Tickets)
+-- IMPORTANTE: o navegador acessa o Supabase com a chave "anon" (pública),
+-- então ele NUNCA pode ler ou escrever a coluna "password". Toda autenticação
+-- e escrita de usuários deve passar pelo servidor Express, que usa a chave de
+-- serviço (SUPABASE_KEY nas variáveis de ambiente do servidor) e ignora
+-- RLS/GRANTs. O papel anon só pode ler colunas não sensíveis e não escreve
+-- diretamente na tabela.
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Permitir tudo para todos" ON public.users;
+DROP POLICY IF EXISTS "Leitura publica de colunas seguras" ON public.users;
+CREATE POLICY "Leitura publica de colunas seguras" ON public.users FOR SELECT USING (true);
+
+REVOKE ALL ON public.users FROM anon;
+GRANT SELECT (id, name, email, department, role, must_change_password) ON public.users TO anon;
+
+-- 2. Criar tabela de Chamados (tickets)
 CREATE TABLE IF NOT EXISTS public.tickets (
-    id text PRIMARY KEY,
-    title text NOT NULL,
-    description text NOT NULL,
-    category text NOT NULL,
-    priority text NOT NULL,
-    status text NOT NULL,
-    requester_name text NOT NULL,
-    requester_department text NOT NULL,
-    assigned_to text,
-    created_at text NOT NULL,
-    updated_at text NOT NULL,
-    sla_limit text NOT NULL,
-    ai_category text NOT NULL,
-    ai_priority text NOT NULL,
-    ai_reasoning text NOT NULL,
-    ai_suggestions text NOT NULL,
-    comments jsonb DEFAULT '[]'::jsonb NOT NULL,
-    project_deadline text,
-    inserted_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    category TEXT NOT NULL,
+    priority TEXT NOT NULL,
+    status TEXT NOT NULL,
+    requester_name TEXT NOT NULL,
+    requester_department TEXT NOT NULL,
+    assigned_to TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    sla_limit TEXT NOT NULL,
+    ai_category TEXT NOT NULL,
+    ai_priority TEXT NOT NULL,
+    ai_reasoning TEXT NOT NULL,
+    ai_suggestions TEXT NOT NULL,
+    comments JSONB NOT NULL,
+    project_deadline TEXT,
+    inserted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
--- 3. Inserir Usuários Iniciais Padrão (Deixado em branco para cadastramento manual)
--- Adicione novos colaboradores pela interface de Cadastro do sistema!
+-- Tickets nao contem credenciais, e o app nao usa Supabase Auth para
+-- distinguir usuarios por linha (todo colaborador autenticado no app
+-- compartilha a mesma chave anon do navegador), entao nao ha como uma
+-- policy de RLS restringir "ver so os meus chamados" sem migrar para
+-- Supabase Auth. Mantido aberto para o papel anon de forma deliberada.
+ALTER TABLE public.tickets ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Permitir tudo para todos" ON public.tickets;
+CREATE POLICY "Permitir tudo para todos" ON public.tickets FOR ALL USING (true) WITH CHECK (true);
 `;
 
-// Map database entities to and from Supabase snake_case format
-function mapUserFromSupabase(dbUser: any): User {
-  const emailLower = (dbUser.email || "").toLowerCase().trim();
-  let mustChange = dbUser.must_change_password !== undefined ? dbUser.must_change_password !== false : undefined;
-
-  // Robust override: If the password hash in Supabase is different from the initial seed password, they don't need to reset
-  if (dbUser.password && initialPasswordHashes.has(emailLower)) {
-    const defaultHash = initialPasswordHashes.get(emailLower);
-    if (dbUser.password !== defaultHash) {
-      mustChange = false;
-    }
-  }
-
+// Map User Row from Supabase to Application
+function mapUserFromSupabase(row: any): User {
   return {
-    id: dbUser.id,
-    name: dbUser.name,
-    email: dbUser.email,
-    password: dbUser.password,
-    department: dbUser.department,
-    role: dbUser.role as "colaborador" | "tecnico",
-    mustChangePassword: mustChange
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    password: row.password,
+    department: row.department,
+    role: row.role === "tecnico" ? "tecnico" : "colaborador",
+    mustChangePassword: row.must_change_password !== false
   };
 }
 
-function mapTicketFromSupabase(dbTicket: any): Ticket {
-  let comments: any[] = [];
+// Map Ticket Row from Supabase to Application
+function mapTicketFromSupabase(row: any): Ticket {
+  let comments: Comment[] = [];
   let screenshot: string | undefined = undefined;
-  let projectDeadline: string | undefined = dbTicket.project_deadline || undefined;
+  let projectDeadline: string | undefined = row.project_deadline || undefined;
+  let attachments: any[] = [];
+  let slaEvents: any[] | undefined = undefined;
 
-  if (dbTicket.comments) {
+  if (row.comments) {
     let parsedComments: any[] = [];
-    if (typeof dbTicket.comments === "string") {
+    if (typeof row.comments === "string") {
       try {
-        parsedComments = JSON.parse(dbTicket.comments);
+        parsedComments = JSON.parse(row.comments);
       } catch (e) {
-        console.warn("Falha ao analisar JSON de comentários do chamado:", e);
+        console.warn("Falha ao analisar JSON de comentários no Supabase:", e);
         parsedComments = [];
       }
-    } else if (Array.isArray(dbTicket.comments)) {
-      parsedComments = dbTicket.comments;
+    } else if (Array.isArray(row.comments)) {
+      parsedComments = row.comments;
+    } else if (typeof row.comments === "object" && row.comments !== null) {
+      parsedComments = row.comments as any[];
     }
 
-    // Find and extract screenshot meta comment if exists
+    // Screenshot meta extraction
     const screenshotMeta = parsedComments.find((c: any) => c.id === "screenshot-meta");
     if (screenshotMeta) {
       screenshot = screenshotMeta.content;
     }
 
-    // Find and extract project deadline meta comment if exists
+    // Project deadline meta extraction
     const deadlineMeta = parsedComments.find((c: any) => c.id === "project-deadline-meta");
     if (deadlineMeta) {
       projectDeadline = deadlineMeta.content;
     }
 
-    // Exclude metadata comments from normal comment listings
-    comments = parsedComments.filter((c: any) => c.id !== "screenshot-meta" && c.id !== "project-deadline-meta");
+    // Attachments meta extraction
+    const attachmentsMeta = parsedComments.find((c: any) => c.id === "attachments-meta");
+    if (attachmentsMeta) {
+      try {
+        attachments = JSON.parse(attachmentsMeta.content);
+      } catch (e) {
+        console.warn("Falha ao analisar JSON de anexos no Supabase:", e);
+      }
+    }
+
+    // Trilha de auditoria do SLA (guardada como meta-comentário: sem alterar o schema)
+    const slaMeta = parsedComments.find((c: any) => c.id === "sla-events-meta");
+    if (slaMeta) {
+      try {
+        const parsed = JSON.parse(slaMeta.content);
+        if (Array.isArray(parsed)) slaEvents = parsed;
+      } catch (e) {
+        console.warn("Falha ao analisar eventos de SLA no Supabase:", e);
+      }
+    }
+
+    comments = parsedComments.filter(
+      (c: any) =>
+        c.id !== "screenshot-meta" &&
+        c.id !== "project-deadline-meta" &&
+        c.id !== "attachments-meta" &&
+        c.id !== "sla-events-meta"
+    );
   }
 
   return {
-    id: dbTicket.id || "",
-    title: dbTicket.title || "",
-    description: dbTicket.description || "",
-    category: dbTicket.category || "Outros",
-    priority: dbTicket.priority || "Média",
-    status: dbTicket.status || "Aberto",
-    requesterName: dbTicket.requester_name || "",
-    requesterDepartment: dbTicket.requester_department || "",
-    assignedTo: dbTicket.assigned_to || null,
-    createdAt: dbTicket.created_at || new Date().toISOString(),
-    updatedAt: dbTicket.updated_at || new Date().toISOString(),
-    slaLimit: dbTicket.sla_limit || new Date().toISOString(),
-    aiCategory: dbTicket.ai_category || "",
-    aiPriority: dbTicket.ai_priority || "",
-    aiReasoning: dbTicket.ai_reasoning || "",
-    aiSuggestions: dbTicket.ai_suggestions || "",
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    category: row.category || "Outros",
+    priority: row.priority || "Média",
+    status: row.status || "Aberto",
+    requesterName: row.requester_name || "",
+    requesterDepartment: row.requester_department || "",
+    assignedTo: row.assigned_to || null,
+    createdAt: row.created_at || new Date().toISOString(),
+    updatedAt: row.updated_at || new Date().toISOString(),
+    slaLimit: row.sla_limit || new Date().toISOString(),
+    aiCategory: row.ai_category || "",
+    aiPriority: row.ai_priority || "",
+    aiReasoning: row.ai_reasoning || "",
+    aiSuggestions: row.ai_suggestions || "",
     comments,
     screenshot,
-    projectDeadline
+    projectDeadline,
+    attachments,
+    ...(slaEvents ? { slaEvents } : {})
   };
 }
 
+// Map Ticket to Supabase fields
 function mapTicketToSupabase(ticket: Ticket) {
   const commentsToSave = [...(ticket.comments || [])];
   if (ticket.screenshot) {
@@ -315,6 +392,24 @@ function mapTicketToSupabase(ticket: Ticket) {
       timestamp: new Date().toISOString()
     });
   }
+  if (ticket.attachments && ticket.attachments.length > 0) {
+    commentsToSave.push({
+      id: "attachments-meta",
+      authorName: "Sistema",
+      authorRole: "system",
+      content: JSON.stringify(ticket.attachments),
+      timestamp: new Date().toISOString()
+    });
+  }
+  if (ticket.slaEvents && ticket.slaEvents.length > 0) {
+    commentsToSave.push({
+      id: "sla-events-meta",
+      authorName: "Sistema",
+      authorRole: "system",
+      content: JSON.stringify(ticket.slaEvents),
+      timestamp: new Date().toISOString()
+    });
+  }
 
   return {
     id: ticket.id,
@@ -325,7 +420,7 @@ function mapTicketToSupabase(ticket: Ticket) {
     status: ticket.status,
     requester_name: ticket.requesterName,
     requester_department: ticket.requesterDepartment,
-    assigned_to: ticket.assignedTo,
+    assigned_to: ticket.assignedTo || null,
     created_at: ticket.createdAt,
     updated_at: ticket.updatedAt,
     sla_limit: ticket.slaLimit,
@@ -338,24 +433,60 @@ function mapTicketToSupabase(ticket: Ticket) {
   };
 }
 
-// User Operations
+// Supabase User Operations
 export async function getSupabaseUsers(): Promise<User[] | null> {
   const client = getSupabaseClient();
   if (!client) return null;
 
   try {
-    const { data, error } = await client
-      .from("users")
-      .select("*")
-      .order("name", { ascending: true });
+    const { data, error } = await withTimeout(
+      client
+        .from("users")
+        .select("*")
+        .order("name", { ascending: true }),
+      4000
+    );
 
-    if (error) {
-      console.warn("Aviso ao buscar usuários no Supabase (verifique se a tabela foi criada):", error.message);
-      return null;
-    }
+    if (error) throw error;
     return (data || []).map(mapUserFromSupabase);
-  } catch (err) {
-    console.error("Erro ao ler usuários do Supabase:", err);
+  } catch (err: any) {
+    const isFetchError = err.message?.includes("fetch failed") || err.message?.includes("network") || err.message?.includes("connect") || err.message?.includes("TIMEOUT");
+    if (isFetchError) {
+      console.log("Supabase fora de alcance ou offline ao ler usuários.");
+      markSupabaseUnhealthy();
+    } else {
+      console.error("Erro ao ler usuários do Supabase:", err);
+    }
+    return null;
+  }
+}
+
+export async function getSupabaseUserByEmail(email: string): Promise<User | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  try {
+    const emailLower = email.toLowerCase().trim();
+    const { data, error } = await withTimeout(
+      client
+        .from("users")
+        .select("*")
+        .eq("email", emailLower)
+        .maybeSingle(),
+      4000
+    );
+
+    if (error) throw error;
+    if (!data) return null;
+    return mapUserFromSupabase(data);
+  } catch (err: any) {
+    const isFetchError = err.message?.includes("fetch failed") || err.message?.includes("network") || err.message?.includes("connect") || err.message?.includes("TIMEOUT");
+    if (isFetchError) {
+      console.log(`Supabase fora de alcance ou offline ao ler usuário por e-mail: ${email}`);
+      markSupabaseUnhealthy();
+    } else {
+      console.error(`Erro ao ler usuário por e-mail (${email}) do Supabase:`, err);
+    }
     return null;
   }
 }
@@ -364,40 +495,28 @@ export async function saveSupabaseUser(user: User): Promise<boolean> {
   const client = getSupabaseClient();
   if (!client) return false;
 
-  const rawPassword = user.password || "123";
-  const hashedPassword = hashPassword(rawPassword);
-
   try {
-    const payload: any = {
-      id: user.id,
-      name: user.name,
-      email: user.email.toLowerCase().trim(),
-      password: hashedPassword,
-      department: user.department,
-      role: user.role,
-      must_change_password: user.mustChangePassword !== false
-    };
+    const rawPassword = user.password || "";
+    const hashedPassword = hashPassword(rawPassword);
+    const mustChangeVal = user.mustChangePassword !== false;
 
-    let { error } = await client
-      .from("users")
-      .upsert(payload, { onConflict: "email" });
+    const { error } = await withTimeout(
+      client.from("users").upsert({
+        id: user.id,
+        name: user.name,
+        email: user.email.toLowerCase().trim(),
+        password: hashedPassword,
+        department: user.department,
+        role: user.role,
+        must_change_password: mustChangeVal
+      }),
+      5000
+    );
 
-    if (error && (error.code === "PGRST204" || error.message?.includes("must_change_password") || error.message?.includes("column"))) {
-      console.warn("[Supabase Sync] Coluna 'must_change_password' não encontrada na tabela 'users'. Tentando salvar sem esta coluna.");
-      delete payload.must_change_password;
-      const retryResult = await client
-        .from("users")
-        .upsert(payload, { onConflict: "email" });
-      error = retryResult.error;
-    }
-
-    if (error) {
-      console.error("Erro ao salvar usuário no Supabase:", error.message);
-      return false;
-    }
+    if (error) throw error;
     return true;
   } catch (err) {
-    console.error("Exceção ao salvar usuário no Supabase:", err);
+    console.error("Erro ao salvar usuário no Supabase:", err);
     return false;
   }
 }
@@ -407,39 +526,42 @@ export async function deleteSupabaseUser(id: string): Promise<boolean> {
   if (!client) return false;
 
   try {
-    const { error } = await client
-      .from("users")
-      .delete()
-      .eq("id", id);
-
-    if (error) {
-      console.error("Erro ao deletar usuário no Supabase:", error.message);
-      return false;
-    }
+    const { error } = await withTimeout(
+      client.from("users").delete().eq("id", id),
+      5000
+    );
+    if (error) throw error;
     return true;
   } catch (err) {
-    console.error("Exceção ao deletar usuário no Supabase:", err);
+    console.error("Erro ao deletar usuário no Supabase:", err);
     return false;
   }
 }
 
-// Ticket Operations
+// Supabase Ticket Operations
 export async function getSupabaseTickets(): Promise<Ticket[] | null> {
   const client = getSupabaseClient();
   if (!client) return null;
 
   try {
-    const { data, error } = await client
-      .from("tickets")
-      .select("*");
+    const { data, error } = await withTimeout(
+      client
+        .from("tickets")
+        .select("*")
+        .order("id", { ascending: false }),
+      4000
+    );
 
-    if (error) {
-      console.warn("Aviso ao buscar chamados no Supabase (verifique se a tabela foi criada):", error.message);
-      return null;
-    }
+    if (error) throw error;
     return (data || []).map(mapTicketFromSupabase);
-  } catch (err) {
-    console.error("Erro ao ler chamados do Supabase:", err);
+  } catch (err: any) {
+    const isFetchError = err.message?.includes("fetch failed") || err.message?.includes("network") || err.message?.includes("connect") || err.message?.includes("TIMEOUT");
+    if (isFetchError) {
+      console.log("Supabase fora de alcance ou offline ao ler chamados.");
+      markSupabaseUnhealthy();
+    } else {
+      console.error("Erro ao ler chamados do Supabase:", err);
+    }
     return null;
   }
 }
@@ -449,28 +571,15 @@ export async function saveSupabaseTicket(ticket: Ticket): Promise<boolean> {
   if (!client) return false;
 
   try {
-    const dbData = mapTicketToSupabase(ticket);
-    let { error } = await client
-      .from("tickets")
-      .upsert(dbData);
-
-    if (error && (error.message?.includes("project_deadline") || error.message?.includes("column"))) {
-      console.warn("[Supabase Sync] Coluna 'project_deadline' não encontrada na tabela 'tickets'. Tentando salvar sem esta coluna.");
-      const fallbackDbData = { ...dbData };
-      delete (fallbackDbData as any).project_deadline;
-      const retryResult = await client
-        .from("tickets")
-        .upsert(fallbackDbData);
-      error = retryResult.error;
-    }
-
-    if (error) {
-      console.error("Erro ao salvar chamado no Supabase:", error.message);
-      return false;
-    }
+    const payload = mapTicketToSupabase(ticket);
+    const { error } = await withTimeout(
+      client.from("tickets").upsert(payload),
+      5000
+    );
+    if (error) throw error;
     return true;
   } catch (err) {
-    console.error("Exceção ao salvar chamado no Supabase:", err);
+    console.error("Erro ao salvar chamado no Supabase:", err);
     return false;
   }
 }
@@ -480,18 +589,14 @@ export async function deleteSupabaseTicket(id: string): Promise<boolean> {
   if (!client) return false;
 
   try {
-    const { error } = await client
-      .from("tickets")
-      .delete()
-      .eq("id", id);
-
-    if (error) {
-      console.error("Erro ao deletar chamado no Supabase:", error.message);
-      return false;
-    }
+    const { error } = await withTimeout(
+      client.from("tickets").delete().eq("id", id),
+      5000
+    );
+    if (error) throw error;
     return true;
   } catch (err) {
-    console.error("Exceção ao deletar chamado no Supabase:", err);
+    console.error("Erro ao deletar chamado no Supabase:", err);
     return false;
   }
 }
@@ -502,11 +607,9 @@ export async function seedSupabaseData(users: User[], tickets: Ticket[]): Promis
   if (!client) return false;
 
   try {
-    // Upsert users
     for (const u of users) {
       await saveSupabaseUser(u);
     }
-    // Upsert tickets
     for (const t of tickets) {
       await saveSupabaseTicket(t);
     }

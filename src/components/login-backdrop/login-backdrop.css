@@ -1,0 +1,279 @@
+/*
+ * Login backdrop: a solid, lit, extruded Gran7 "7" + particles.
+ * Tunables (all on .lbd-root):
+ *   --lbd-intro       duration of the spiral entrance
+ *   --lbd-delay       delay before the entrance starts
+ *   --lbd-depth       starting distance in Z (more negative = farther away)
+ *   --lbd-seven-h     height of the 7;  --lbd-final-scale  size once settled
+ *   --lbd-opacity     settled opacity of the whole 7 (applied to the group, so it stays crisp)
+ *   --lbd-peak        opacity while it flies in
+ *   --lbd-x / --lbd-y resting offset from the centre
+ *   --lbd-rest-y/x    resting 3D angle (shows the thickness)
+ *   --lbd-step        gap between extrusion slices (thickness = slices x step)
+ *   --lbd-float       period of the idle float
+ * The 7 is the original PNG stacked as slices (CSS 3D, not true volumetric geometry).
+ */
+.lbd-root {
+  --lbd-green: #71b739;
+  --lbd-green-glow: #9be15d;
+  --lbd-intro: 3s;
+  --lbd-delay: 0.6s;
+  --lbd-float: 14s;
+  --lbd-seven-h: clamp(300px, 74vh, 780px);
+  --lbd-final-scale: 0.9;
+  --lbd-opacity: 0.5;
+  --lbd-peak: 0.95;
+  --lbd-x: 12vw;
+  --lbd-y: -1vh;
+  --lbd-depth: -3400px;
+  --lbd-step: -8px;
+  --lbd-rest-y: -30deg;
+  --lbd-rest-x: 8deg;
+  --lbd-ease: cubic-bezier(0.33, 0.1, 0.17, 1);
+  --mx: 0;
+  --my: 0;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(90% 70% at 85% 10%, rgba(40, 90, 30, 0.22) 0%, transparent 60%),
+    radial-gradient(70% 60% at 0% 100%, rgba(30, 80, 35, 0.2) 0%, transparent 65%),
+    radial-gradient(120% 90% at 50% 0%, #111317 0%, #08090b 60%);
+}
+
+/* ---- ambient light that follows the cursor -------------------------------- */
+.lbd-light {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 70vmax;
+  height: 70vmax;
+  margin: -35vmax 0 0 -35vmax;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(113, 183, 57, 0.2), rgba(113, 183, 57, 0.06) 55%, transparent 80%);
+  transform: translate3d(calc(var(--mx) * 12vmin), calc(var(--my) * 9vmin), 0);
+  opacity: 0;
+  animation: lbd-light-in 1.6s ease-out both, lbd-breathe 9s ease-in-out 1.6s infinite;
+  will-change: transform;
+}
+
+/* ---- subtle tech grid ------------------------------------------------------ */
+.lbd-grid {
+  position: absolute;
+  inset: -2px;
+  background-image:
+    linear-gradient(rgba(113, 183, 57, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(113, 183, 57, 0.06) 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask-image: radial-gradient(ellipse at 50% 50%, #000 0%, transparent 70%);
+  mask-image: radial-gradient(ellipse at 50% 50%, #000 0%, transparent 70%);
+  transform: translate3d(calc(var(--mx) * -8px), calc(var(--my) * -8px), 0);
+  opacity: 0;
+  animation: lbd-fade 2s ease-out 0.3s both;
+}
+
+.lbd-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  animation: lbd-fade 1.4s ease-out 0.4s both;
+}
+
+/* ---- atmosphere: halo, light rays, rings, landing pulse -------------------- */
+.lbd-fx {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  perspective: 1500px;
+  perspective-origin: 50% 45%;
+  transform: translate3d(var(--lbd-x), var(--lbd-y), 0);
+}
+.lbd-fx > * { position: absolute; opacity: 0; }
+
+.lbd-halo {
+  height: calc(var(--lbd-seven-h) * 1.1);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(113, 183, 57, 0.30), rgba(113, 183, 57, 0.08) 55%, transparent 78%);
+  animation: lbd-fade 2s ease-out calc(var(--lbd-delay) + 1.2s) both, lbd-breathe 8s ease-in-out calc(var(--lbd-delay) + 3.4s) infinite;
+}
+.lbd-rays {
+  height: calc(var(--lbd-seven-h) * 2.1);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, rgba(155, 225, 93, 0.16) 0deg 2.2deg, transparent 2.2deg 15deg);
+  -webkit-mask-image: radial-gradient(closest-side, #000 8%, transparent 70%);
+  mask-image: radial-gradient(closest-side, #000 8%, transparent 70%);
+  animation: lbd-rays-in 3s ease-out calc(var(--lbd-delay) + 1.4s) both, lbd-spin 120s linear calc(var(--lbd-delay) + 1.4s) infinite;
+}
+.lbd-ring {
+  height: calc(var(--lbd-seven-h) * 1.0);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px solid rgba(155, 225, 93, 0.22);
+  box-shadow: 0 0 40px rgba(113, 183, 57, 0.08), inset 0 0 30px rgba(113, 183, 57, 0.06);
+  transform: rotateX(70deg) rotateZ(-25deg);
+  animation: lbd-fade 2s ease-out calc(var(--lbd-delay) + 1.6s) both, lbd-ring 26s linear calc(var(--lbd-delay) + 1.6s) infinite;
+}
+.lbd-ring--b {
+  height: calc(var(--lbd-seven-h) * 1.35);
+  border-color: rgba(155, 225, 93, 0.11);
+  transform: rotateX(74deg) rotateZ(38deg);
+  animation-duration: 2s, 38s;
+  animation-direction: normal, reverse;
+}
+/* shockwave when the 7 lands */
+.lbd-pulse {
+  height: calc(var(--lbd-seven-h) * 0.8);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 2px solid rgba(155, 225, 93, 0.55);
+  box-shadow: 0 0 50px rgba(113, 183, 57, 0.35), inset 0 0 40px rgba(113, 183, 57, 0.2);
+  animation: lbd-pulse 1.8s cubic-bezier(0.2, 0.7, 0.2, 1) calc(var(--lbd-delay) + var(--lbd-intro) * 0.82) both;
+}
+@keyframes lbd-spin { to { rotate: 360deg; } }
+@keyframes lbd-ring { to { rotate: 360deg; } }
+@keyframes lbd-rays-in { from { opacity: 0; } to { opacity: 0.55; } }
+@keyframes lbd-pulse {
+  0%   { opacity: 0.9; transform: scale(0.55); }
+  100% { opacity: 0; transform: scale(1.9); }
+}
+
+/* ---- 3D scene --------------------------------------------------------------- */
+/* The stage carries ONE group opacity (so the slices stay opaque and crisp
+   inside it). Never put opacity/filter on anything between stage and the slices. */
+.lbd-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  perspective: 1500px;
+  perspective-origin: 50% 45%;
+  opacity: 0;
+  animation: lbd-stage-in var(--lbd-intro) ease-in-out var(--lbd-delay) both;
+}
+.lbd-anchor {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translate3d(var(--lbd-x), var(--lbd-y), 0);
+}
+.lbd-anchor,
+.lbd-tilt,
+.lbd-rotor,
+.lbd-radius,
+.lbd-float,
+.lbd-seven {
+  transform-style: preserve-3d;
+}
+
+/* resting pose (shows the thickness) + eased mouse tilt written by JS */
+.lbd-tilt {
+  transform: rotateX(calc(var(--lbd-rest-x) + var(--my) * -5deg)) rotateY(calc(var(--lbd-rest-y) + var(--mx) * 9deg));
+  will-change: transform;
+}
+.lbd-rotor  { animation: lbd-rotor  var(--lbd-intro) var(--lbd-ease) var(--lbd-delay) both; }
+.lbd-radius { animation: lbd-radius var(--lbd-intro) var(--lbd-ease) var(--lbd-delay) both; }
+.lbd-float  { animation: lbd-float var(--lbd-float) ease-in-out calc(var(--lbd-delay) + var(--lbd-intro)) infinite; }
+
+.lbd-seven {
+  position: relative;
+  height: var(--lbd-seven-h);
+  aspect-ratio: 914 / 1188;
+  animation: lbd-counter var(--lbd-intro) var(--lbd-ease) var(--lbd-delay) both;
+}
+/* solid slices: front face is bright, the rest darken with depth; each slice
+   shifts a hair with the cursor so the thickness reads as real parallax */
+.lbd-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+  -webkit-user-drag: none;
+  backface-visibility: hidden;
+  transform: translate3d(calc(var(--mx) * var(--i) * -0.9px), calc(var(--my) * var(--i) * -0.7px), calc(var(--i) * var(--lbd-step)));
+  filter: brightness(calc(0.5 - var(--i) * 0.018)) saturate(1.15);
+}
+.lbd-layer:first-child {
+  filter: brightness(1.08) saturate(1.1) drop-shadow(0 0 22px rgba(155, 225, 93, 0.55));
+}
+/* lit face: light gradient + a specular glint sweeping across, both clipped to the 7 */
+.lbd-face {
+  position: absolute;
+  inset: 0;
+  transform: translateZ(1px);
+  -webkit-mask: var(--lbd-7-url) center / 100% 100% no-repeat;
+  mask: var(--lbd-7-url) center / 100% 100% no-repeat;
+  background:
+    linear-gradient(105deg, transparent 38%, rgba(255, 255, 255, 0.6) 50%, transparent 62%) 160% 0 / 260% 100% no-repeat,
+    linear-gradient(135deg, rgba(255, 255, 255, 0.26) 0%, rgba(255, 255, 255, 0) 45%, rgba(0, 20, 0, 0.5) 100%);
+  animation: lbd-sheen 7s ease-in-out calc(var(--lbd-delay) + var(--lbd-intro) * 0.9) infinite;
+}
+
+/* ---- keyframes -------------------------------------------------------------- */
+/* Spiral: rotor sweeps ~1.7 turns while the radius shrinks; counter-rotation keeps
+   the 7 upright so it winds in instead of spinning flat. */
+@keyframes lbd-rotor   { from { transform: rotateZ(-620deg); } to { transform: rotateZ(0deg); } }
+@keyframes lbd-counter { from { transform: rotateZ(620deg); }  to { transform: rotateZ(0deg); } }
+/* Z flight + X/Y tumble through several poses (|rotateY| < 90deg: the back of the
+   plane is never shown), radius shrinks, scale grows then settles. */
+@keyframes lbd-radius {
+  0%   { transform: translate3d(58vmin, -24vmin, var(--lbd-depth)) rotateY(-82deg) rotateX(30deg) scale(0.18); }
+  25%  { transform: translate3d(36vmin, 13vmin, calc(var(--lbd-depth) * 0.45)) rotateY(64deg) rotateX(-22deg) scale(0.42); }
+  50%  { transform: translate3d(19vmin, -10vmin, calc(var(--lbd-depth) * 0.16)) rotateY(-52deg) rotateX(14deg) scale(0.76); }
+  75%  { transform: translate3d(6vmin, 3vmin, 60px) rotateY(28deg) rotateX(-7deg) scale(1.06); }
+  100% { transform: translate3d(0, 0, 0) rotateY(0deg) rotateX(0deg) scale(var(--lbd-final-scale)); }
+}
+@keyframes lbd-float {
+  0%, 100% { transform: translate3d(0, 0, 0) rotateY(0deg) rotateX(0deg); }
+  25%      { transform: translate3d(0.5%, -1.2%, 26px) rotateY(5deg) rotateX(1.2deg); }
+  75%      { transform: translate3d(-0.5%, 1%, -14px) rotateY(-5deg) rotateX(-1.2deg); }
+}
+/* vivid while it flies in, then recedes so the form stays the focus */
+@keyframes lbd-stage-in {
+  0%   { opacity: 0; }
+  28%  { opacity: var(--lbd-peak); }
+  70%  { opacity: calc(var(--lbd-peak) * 0.8); }
+  100% { opacity: var(--lbd-opacity); }
+}
+@keyframes lbd-sheen {
+  0%, 55% { background-position: 160% 0, 0 0; }
+  100%    { background-position: -80% 0, 0 0; }
+}
+@keyframes lbd-light-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes lbd-fade     { from { opacity: 0; } to { opacity: 1; } }
+@keyframes lbd-breathe  { 0%, 100% { opacity: 0.75; } 50% { opacity: 1; } }
+
+/* ---- login card reveal (cosmetic; form is interactive from the first frame) -- */
+.lbd-reveal { animation: lbd-reveal 1.1s var(--lbd-ease, ease-out) 1.2s both; }
+@keyframes lbd-reveal {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ---- guards ------------------------------------------------------------------ */
+.lbd-root[data-paused="true"] *,
+.lbd-root[data-paused="true"] { animation-play-state: paused !important; }
+.lbd-root[data-tier="tablet"] { --lbd-seven-h: clamp(300px, 64vh, 620px); --lbd-x: 5vw; --lbd-step: -9px; }
+.lbd-root[data-tier="mobile"] { --lbd-seven-h: clamp(240px, 58vh, 460px); --lbd-x: 0px; --lbd-y: -4vh; --lbd-depth: -1800px; --lbd-step: -14px; --lbd-opacity: 0.3; --lbd-rest-y: -14deg; }
+.lbd-root[data-tier="mobile"] .lbd-grid,
+.lbd-root[data-tier="mobile"] .lbd-ring,
+.lbd-root[data-tier="mobile"] .lbd-rays { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lbd-root *, .lbd-reveal { animation: none !important; }
+  .lbd-stage { opacity: var(--lbd-opacity); }
+  .lbd-light, .lbd-grid, .lbd-canvas, .lbd-halo, .lbd-ring { opacity: 1; }
+  .lbd-rays { opacity: 0.4; }
+  .lbd-pulse, .lbd-face { display: none; }
+  .lbd-tilt { transform: rotateY(var(--lbd-rest-y)) rotateX(var(--lbd-rest-x)); }
+}

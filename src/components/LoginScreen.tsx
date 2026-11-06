@@ -1,330 +1,32 @@
-import React, { useState, useEffect, useRef } from "react";
-import { UserSession, User } from "../types";
-import { authenticateUser, changeUserPassword, getSupabaseClient } from "../lib/supabase-client-db";
+import React, { useRef, useState } from "react";
+import { UserSession } from "../types";
+import { apiFetch } from "../lib/api";
 import { 
-  Shield, 
   Lock, 
   Mail, 
   ArrowRight, 
   AlertCircle, 
-  RefreshCw,
-  Database,
-  ArrowLeft,
-  CheckCircle2
+  RefreshCw
 } from "lucide-react";
-import loginBg from "../assets/images/WALLPAPER GRAN7 4.jpg";
-import logoImg from "../assets/images/7.png";
+import logoImg from "../assets/images/logo.png";
+import Gran7Brand from "./Gran7Brand";
+import LoginBackdrop from "./login-backdrop/LoginBackdrop";
 
 interface LoginScreenProps {
-  users: User[];
   onLoginSuccess: (session: UserSession) => void;
 }
 
-export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps) {
-  // Login fields
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+const REMEMBERED_EMAIL_KEY = "gran7_remembered_email";
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    let animationFrameId: number;
-    let width = canvas.width = window.innerWidth || 800;
-    let height = canvas.height = window.innerHeight || 600;
-
-    const handleResize = () => {
-      if (!canvas) return;
-      width = canvas.width = window.innerWidth || 800;
-      height = canvas.height = window.innerHeight || 600;
-      initPhysiologySystem();
-    };
-    window.addEventListener("resize", handleResize);
-
-    // 1. Corporate Plant Cells (Hexagonal/Parenchyma Network) & Physiology Nodes
-    interface BioNode {
-      x: number;
-      y: number;
-      baseX: number;
-      baseY: number;
-      radius: number;
-      pulse: number;
-      pulseSpeed: number;
-      label?: string;
-      colorType: "emerald" | "amber" | "sky" | "white";
-    }
-
-    interface BioLink {
-      source: number;
-      target: number;
-      activePulse: number;
-      pulseSpeed: number;
-    }
-
-    interface MicroParticle {
-      x: number;
-      y: number;
-      vx: number;
-      vy: number;
-      radius: number;
-      colorType: "emerald" | "amber" | "sky" | "white";
-      alpha: number;
-      phase: number;
-    }
-
-    const cellNodes: BioNode[] = [];
-    const cellLinks: BioLink[] = [];
-    const microParticles: MicroParticle[] = [];
-
-    // Initialize clean, high-end abstract vascular nodes
-    const initPhysiologySystem = () => {
-      try {
-        cellNodes.length = 0;
-        cellLinks.length = 0;
-        microParticles.length = 0;
-
-        const cols = 6;
-        const rows = 5;
-        const safeWidth = width > 0 ? width : 800;
-        const safeHeight = height > 0 ? height : 600;
-        const spacingX = safeWidth / (cols + 1);
-        const spacingY = safeHeight / (rows + 1);
-
-        // Create highly-structured plant tissue nodes
-        for (let r = 0; r < rows; r++) {
-          for (let c = 0; c < cols; c++) {
-            const organicOffset = (r % 2 === 0 ? spacingX * 0.2 : -spacingX * 0.2);
-            const x = (c + 1) * spacingX + organicOffset + (Math.random() - 0.5) * 10;
-            const y = (r + 1) * spacingY + (Math.random() - 0.5) * 10;
-
-            // Technical nutrient abbreviations for faint high-tech overlay
-            let label: string | undefined;
-            let colorType: "emerald" | "amber" | "sky" | "white" = "emerald";
-
-            if ((r + c) % 4 === 0) {
-              const labels = ["N", "P", "K", "Mg", "Ca", "Fe", "H₂O", "CO₂", "ATP"];
-              label = labels[(r + c) % labels.length];
-              if (label === "ATP" || label === "P") colorType = "amber";
-              else if (label === "H₂O" || label === "Ca") colorType = "sky";
-              else if (label === "Fe") colorType = "white";
-            }
-
-            cellNodes.push({
-              x,
-              y,
-              baseX: x,
-              baseY: y,
-              radius: Math.random() * 1.5 + 1.2,
-              pulse: Math.random() * Math.PI * 2,
-              pulseSpeed: 0.005 + Math.random() * 0.008,
-              label,
-              colorType,
-            });
-          }
-        }
-
-        // Create links mimicking intercellular channels / vascular connectivity
-        for (let i = 0; i < cellNodes.length; i++) {
-          const nodeA = cellNodes[i];
-          const distances = cellNodes
-            .map((nodeB, idx) => ({ idx, dist: Math.hypot(nodeA.x - nodeB.x, nodeA.y - nodeB.y) }))
-            .filter(item => item.idx !== i)
-            .sort((a, b) => a.dist - b.dist)
-            .slice(0, 2); // Connect to 2 closest nodes for a cleaner network
-
-          distances.forEach(({ idx }) => {
-            if (i < idx) {
-              cellLinks.push({
-                source: i,
-                target: idx,
-                activePulse: Math.random(),
-                pulseSpeed: 0.001 + Math.random() * 0.003,
-              });
-            }
-          });
-        }
-
-        // Add elegant, floating micro mineral-nutrients
-        const types: ("emerald" | "amber" | "sky" | "white")[] = ["emerald", "amber", "sky", "white"];
-        for (let i = 0; i < 30; i++) {
-          microParticles.push({
-            x: Math.random() * safeWidth,
-            y: Math.random() * safeHeight,
-            vx: (Math.random() - 0.5) * 0.15,
-            vy: (Math.random() - 0.5) * 0.15,
-            radius: Math.random() * 1.2 + 0.8,
-            colorType: types[i % types.length],
-            alpha: 0.2 + Math.random() * 0.4,
-            phase: Math.random() * Math.PI * 2,
-          });
-        }
-      } catch (err) {
-        console.error("Error initializing physiology wallpaper:", err);
-      }
-    };
-
-    initPhysiologySystem();
-
-    const getColorStr = (type: "emerald" | "amber" | "sky" | "white", alpha: number) => {
-      const a = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
-      if (type === "emerald") return `rgba(16, 185, 129, ${a})`;
-      if (type === "amber") return `rgba(245, 158, 11, ${a})`;
-      if (type === "sky") return `rgba(56, 189, 248, ${a})`;
-      return `rgba(226, 232, 240, ${a})`;
-    };
-
-    const render = () => {
-      try {
-        ctx.clearRect(0, 0, width, height);
-
-        // Deep biological ambient light (photosynthetic energy aura)
-        const safeWidth = width > 0 ? width : 800;
-        const safeHeight = height > 0 ? height : 600;
-        const radGradRadius = Math.max(safeWidth, safeHeight) * 0.8;
-        if (radGradRadius > 0) {
-          const gradBg = ctx.createRadialGradient(
-            safeWidth * 0.5,
-            safeHeight * 0.5,
-            10,
-            safeWidth * 0.5,
-            safeHeight * 0.5,
-            radGradRadius
-          );
-          gradBg.addColorStop(0, "rgba(4, 47, 31, 0.15)"); // Deep emerald green glow
-          gradBg.addColorStop(0.6, "rgba(2, 15, 10, 0.05)"); // Dark teal
-          gradBg.addColorStop(1, "rgba(0, 0, 0, 0)");
-          ctx.fillStyle = gradBg;
-          ctx.fillRect(0, 0, safeWidth, safeHeight);
-        }
-
-        // 1. Draw cellular connections (Plant Cell Walls & Vascular bundles)
-        ctx.strokeStyle = "rgba(16, 185, 129, 0.05)";
-        ctx.lineWidth = 1;
-        cellLinks.forEach((link) => {
-          const s = cellNodes[link.source];
-          const t = cellNodes[link.target];
-          if (!s || !t) return;
-
-          ctx.beginPath();
-          ctx.moveTo(s.x, s.y);
-          ctx.lineTo(t.x, t.y);
-          ctx.stroke();
-
-          // Active sap/nutrient flow pulse along the cellular pathways
-          link.activePulse += link.pulseSpeed;
-          if (link.activePulse > 1) link.activePulse = 0;
-
-          const pulseX = s.x + (t.x - s.x) * link.activePulse;
-          const pulseY = s.y + (t.y - s.y) * link.activePulse;
-
-          ctx.beginPath();
-          ctx.arc(pulseX, pulseY, 1.2, 0, Math.PI * 2);
-          ctx.fillStyle = getColorStr(s.colorType, 0.3);
-          ctx.fill();
-        });
-
-        // 2. Draw Tissue Nodes & Subtle High-tech labels
-        cellNodes.forEach((node) => {
-          node.pulse += node.pulseSpeed;
-          // Slow sway mimicking cell sap circulation
-          const swayX = Math.sin(node.pulse) * 3;
-          const swayY = Math.cos(node.pulse) * 3;
-          node.x = node.baseX + swayX;
-          node.y = node.baseY + swayY;
-
-          ctx.beginPath();
-          ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
-          ctx.fillStyle = getColorStr(node.colorType, 0.12);
-          ctx.fill();
-
-          // Core dot of active metabolism
-          ctx.beginPath();
-          ctx.arc(node.x, node.y, 0.7, 0, Math.PI * 2);
-          ctx.fillStyle = getColorStr(node.colorType, 0.35);
-          ctx.fill();
-
-          // Technical monospace label overlays for corporate telemetry feel
-          if (node.label) {
-            ctx.font = `500 8px "JetBrains Mono", monospace`;
-            ctx.fillStyle = getColorStr(node.colorType, 0.25);
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillText(`[${node.label}]`, node.x, node.y - 7);
-          }
-        });
-
-        // 3. Draw Floating Micro-particles (Nutrients, Water, minerals)
-        microParticles.forEach((p) => {
-          p.x += p.vx;
-          p.y += p.vy;
-
-          // Wrap boundaries
-          if (p.x < 0) p.x = safeWidth;
-          if (p.x > safeWidth) p.x = 0;
-          if (p.y < 0) p.y = safeHeight;
-          if (p.y > safeHeight) p.y = 0;
-
-          p.phase += 0.008;
-          const currentAlpha = p.alpha * (0.6 + Math.sin(p.phase) * 0.4);
-
-          // Ambient micro glow
-          const glowRadius = p.radius * 3;
-          if (glowRadius > 0) {
-            const glowGrad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowRadius);
-            glowGrad.addColorStop(0, getColorStr(p.colorType, currentAlpha * 0.25));
-            glowGrad.addColorStop(1, "rgba(0,0,0,0)");
-            ctx.fillStyle = glowGrad;
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, glowRadius, 0, Math.PI * 2);
-            ctx.fill();
-          }
-
-          // Precise micro core
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.radius * 0.7, 0, Math.PI * 2);
-          ctx.fillStyle = getColorStr(p.colorType, currentAlpha * 0.6);
-          ctx.fill();
-        });
-
-        // Sunlight / Photosynthesis corporate linear beam overlay
-        const beamGrad = ctx.createLinearGradient(0, 0, safeWidth, safeHeight);
-        beamGrad.addColorStop(0, "rgba(16, 185, 129, 0.015)"); // Mint green energy
-        beamGrad.addColorStop(0.4, "rgba(245, 158, 11, 0.008)"); // Golden micro-beam
-        beamGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
-        ctx.fillStyle = beamGrad;
-        ctx.fillRect(0, 0, safeWidth, safeHeight);
-      } catch (err) {
-        console.error("Error drawing biology wallpaper frame:", err);
-      }
-
-      animationFrameId = requestAnimationFrame(render);
-    };
-
-    render();
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      cancelAnimationFrame(animationFrameId);
-    };
-  }, []);
-
-  const [email, setEmail] = useState("");
+export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
+  const [email, setEmail] = useState(() => localStorage.getItem(REMEMBERED_EMAIL_KEY) || "");
   const [password, setPassword] = useState("");
-
+  const [rememberEmail, setRememberEmail] = useState(() => !!localStorage.getItem(REMEMBERED_EMAIL_KEY));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [logoError, setLogoError] = useState(false);
-
-  // Forgot password states
-  const [showForgotPassword, setShowForgotPassword] = useState(false);
-  const [forgotEmail, setForgotEmail] = useState("");
-  const [forgotSuccess, setForgotSuccess] = useState("");
-  const [forgotError, setForgotError] = useState("");
-  const [submittingForgot, setSubmittingForgot] = useState(false);
-  const [forgotStep, setForgotStep] = useState<1 | 2>(1);
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  // Trava síncrona contra envios duplicados (o estado `loading` só reflete no próximo render).
+  const submittingRef = useRef(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -333,351 +35,183 @@ export default function LoginScreen({ users, onLoginSuccess }: LoginScreenProps)
       return;
     }
 
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setLoading(true);
     setError("");
+    let succeeded = false;
 
     try {
-      const session = await authenticateUser(email, password);
-      onLoginSuccess(session);
+      const response = await apiFetch("/api/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        body: JSON.stringify({ email: email.trim(), password })
+      });
+
+      const contentType = response.headers.get("content-type");
+      const isJson = contentType && contentType.includes("application/json");
+
+      if (response.ok && isJson) {
+        const user = await response.json();
+        if (rememberEmail) {
+          localStorage.setItem(REMEMBERED_EMAIL_KEY, email.trim());
+        } else {
+          localStorage.removeItem(REMEMBERED_EMAIL_KEY);
+        }
+        succeeded = true;
+        onLoginSuccess({
+          name: user.name,
+          department: user.department,
+          role: user.role,
+          email: user.email,
+          mustChangePassword: user.mustChangePassword,
+          token: user.token
+        });
+        return;
+      }
+
+      if (isJson) {
+        const errData = await response.json().catch(() => null);
+        if (errData && errData.error) {
+          setError(errData.error);
+          return;
+        }
+      }
+
+      setError("Não foi possível contatar o servidor de autenticação. Tente novamente.");
     } catch (err: any) {
-      console.error("Erro na autenticação:", err);
-      setError(err.message || "Credenciais inválidas. Verifique seu e-mail e senha.");
+      console.warn("Erro na requisição de login para a API:", err);
+      setError("Sem conexão com o servidor. Verifique sua internet e tente novamente.");
     } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleForgotPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setForgotError("");
-    setForgotSuccess("");
-
-    if (forgotStep === 1) {
-      if (!forgotEmail.trim()) {
-        setForgotError("Por favor, digite seu e-mail corporativo.");
-        return;
-      }
-
-      setSubmittingForgot(true);
-      try {
-        const client = getSupabaseClient();
-        if (!client) throw new Error("Conexão com o banco indisponível no momento.");
-
-        // 1. Verificar se o usuário existe
-        const { data: dbUser, error: userError } = await client
-          .from("users")
-          .select("id, name")
-          .eq("email", forgotEmail.trim().toLowerCase())
-          .maybeSingle();
-
-        if (userError || !dbUser) {
-          throw new Error("E-mail corporativo não encontrado ou cadastrado.");
-        }
-
-        // Usuário validado, avança para o passo 2
-        setForgotStep(2);
-        setNewPassword("");
-        setConfirmPassword("");
-      } catch (err: any) {
-        setForgotError(err.message || "Erro ao verificar usuário. Tente novamente.");
-      } finally {
-        setSubmittingForgot(false);
-      }
-    } else {
-      // Passo 2: Alteração direta de senha
-      if (!newPassword || !confirmPassword) {
-        setForgotError("Por favor, preencha os campos de nova senha.");
-        return;
-      }
-      if (newPassword.length < 4) {
-        setForgotError("A nova senha deve possuir pelo menos 4 caracteres.");
-        return;
-      }
-      if (newPassword !== confirmPassword) {
-        setForgotError("As senhas digitadas não coincidem.");
-        return;
-      }
-
-      setSubmittingForgot(true);
-      try {
-        const success = await changeUserPassword(forgotEmail, newPassword);
-        if (!success) {
-          throw new Error("Falha ao salvar a nova senha corporativa.");
-        }
-
-        setForgotSuccess("Sua nova senha foi redefinida com sucesso! Você já pode entrar no sistema com ela.");
-        setForgotStep(1);
-        setForgotEmail("");
-        setNewPassword("");
-        setConfirmPassword("");
-      } catch (err: any) {
-        setForgotError(err.message || "Erro ao atualizar senha. Tente novamente.");
-      } finally {
-        setSubmittingForgot(false);
+      // Em caso de sucesso o botão continua em "Autenticando…" durante a transição de saída.
+      if (!succeeded) {
+        submittingRef.current = false;
+        setLoading(false);
       }
     }
   };
 
   return (
-    <div 
-      id="login_container" 
-      className="min-h-screen bg-black flex flex-col justify-center items-center px-4 py-12 relative overflow-hidden font-sans bg-cover bg-center"
-      style={{ backgroundImage: `url(${loginBg})` }}
+    <div
+      id="login_container"
+      className="min-h-screen bg-[#08090B] flex flex-col justify-center items-center px-4 py-12 relative overflow-hidden font-sans"
     >
-      
-      {/* Background overlay mask for enhanced text contrast */}
-      <div className="absolute inset-0 bg-black/75 z-0 pointer-events-none"></div>
+      {/* Decorative 3D "7" + particles (behind everything, never intercepts input) */}
+      <LoginBackdrop />
 
-      {/* Animated plant nutrition and physiology canvas wallpaper */}
-      <canvas 
-        ref={canvasRef} 
-        className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none opacity-60"
-      />
-
-      <div className="w-full max-w-md space-y-6 z-10 animate-in fade-in duration-500">
+      <div className="w-full max-w-md space-y-6 z-10 relative lbd-reveal">
         
         {/* App Logo & Header */}
-        <div className="text-center space-y-2">
+        <div className="text-center space-y-3 mb-2">
           {!logoError ? (
-            <div className="flex justify-center mb-6">
-              <img 
-                src="/assets/logo.png" 
-                alt="GRAN7 HELP" 
-                className="h-20 w-auto object-contain max-w-full"
+            <div className="flex flex-col items-center justify-center space-y-3">
+              <img
+                src={logoImg}
+                alt="GRAN7 HELP"
+                className="h-16 sm:h-20 w-auto object-contain max-w-full"
                 onError={() => setLogoError(true)}
               />
+              <p className="font-sans font-semibold text-[10px] sm:text-[11px] text-zinc-400 uppercase tracking-[0.2em] flex items-center gap-2 justify-center">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                <span>HELP DESK INTELIGENTE CORPORATIVO</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              </p>
             </div>
           ) : (
-            <>
-              <div className="inline-flex w-16 h-16 items-center justify-center mb-3">
-                <img 
-                  src={logoImg} 
-                  alt="GRAN7" 
-                  className="w-16 h-16 object-contain rounded-2xl shadow-2xl shadow-emerald-500/20 border border-emerald-400/30"
-                />
-              </div>
-              <h1 className="font-display font-extrabold text-3xl tracking-tight text-white">
-                GRAN<span className="text-emerald-400 font-bold italic tracking-wide text-3xl">7</span><span className="text-emerald-400 font-light tracking-widest text-2xl"> HELP</span>
-              </h1>
-            </>
+            <Gran7Brand size="lg" showIcon={true} showSubtitle={true} subtitleText="SISTEMA DE GESTÃO DE CHAMADOS" />
           )}
-          {/* Subtitle removed as requested */}
         </div>
 
         {/* Login Box */}
-        <div className="bg-[#050505] border border-emerald-500/10 hover:border-emerald-500/30 transition-all duration-300 rounded-3xl p-8 shadow-neon-sm hover:shadow-neon space-y-6">
+        <div className="bg-[#111317]/60 backdrop-blur-xl border border-white/10 transition-all duration-300 rounded-2xl p-8 shadow-[0_24px_70px_-12px_rgba(0,0,0,0.8),inset_0_1px_0_rgba(255,255,255,0.05)] space-y-6">
           
-          {!showForgotPassword ? (
-            <>
-              <div className="border-b border-emerald-500/10 pb-3 text-center">
-                <h2 className="text-sm font-bold text-emerald-400 tracking-wide uppercase neon-glow-text">Acessar Conta Corporativa</h2>
-              </div>
+          <div className="border-b border-white/10 pb-3 text-center">
+            <h2 className="text-xs font-bold text-zinc-400 tracking-wider uppercase">Acessar Conta Corporativa</h2>
+          </div>
 
-              {error && (
-                <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-400 font-medium flex items-center gap-2 animate-shake">
-                  <AlertCircle className="h-4 w-4 shrink-0" />
-                  <span>{error}</span>
-                </div>
-              )}
-
-              {/* Form Login */}
-              <form onSubmit={handleLogin} className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">E-mail Corporativo</label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
-                    <input
-                      type="email"
-                      required
-                      placeholder="usuario@gransete.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="w-full bg-black border border-emerald-950/40 rounded-xl py-2.5 pl-10 pr-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/15 transition-all"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <div className="flex justify-between items-center">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Senha de Acesso</label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowForgotPassword(true);
-                        setForgotError("");
-                        setForgotSuccess("");
-                      }}
-                      className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold uppercase tracking-wider cursor-pointer hover:underline focus:outline-none"
-                    >
-                      Esqueceu a senha?
-                    </button>
-                  </div>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
-                    <input
-                      type="password"
-                      required
-                      placeholder="Sua senha corporativa"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full bg-black border border-emerald-950/40 rounded-xl py-2.5 pl-10 pr-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/15 transition-all"
-                    />
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full py-2.5 bg-emerald-400 hover:bg-emerald-300 text-black font-extrabold rounded-xl text-xs transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer shadow-neon hover:shadow-neon-lg disabled:opacity-60"
-                >
-                  {loading ? (
-                    <>
-                      <RefreshCw className="h-3.5 w-3.5 animate-spin text-black" />
-                      Autenticando...
-                    </>
-                  ) : (
-                    <>
-                      Entrar no Sistema
-                      <ArrowRight className="h-4 w-4 text-black" />
-                    </>
-                  )}
-                </button>
-              </form>
-            </>
-          ) : (
-            <>
-              <div className="border-b border-emerald-500/10 pb-3 text-center flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (forgotStep === 2) {
-                      setForgotStep(1);
-                      setForgotError("");
-                    } else {
-                      setShowForgotPassword(false);
-                    }
-                  }}
-                  className="text-slate-400 hover:text-white p-1 hover:bg-neutral-900 rounded-lg cursor-pointer"
-                  title="Voltar"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                </button>
-                <h2 className="text-sm font-bold text-emerald-400 tracking-wide uppercase neon-glow-text mr-6">
-                  {forgotStep === 1 ? "Recuperar Acesso" : "Definir Nova Senha"}
-                </h2>
-                <div className="w-6"></div>
-              </div>
-
-              {forgotError && (
-                <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-400 font-medium flex items-center gap-2 animate-shake">
-                  <AlertCircle className="h-4 w-4 shrink-0" />
-                  <span>{forgotError}</span>
-                </div>
-              )}
-
-              {forgotSuccess && (
-                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-400 font-medium flex items-start gap-2">
-                  <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
-                  <span>{forgotSuccess}</span>
-                </div>
-              )}
-
-              {/* Form Forgot Password */}
-              <form onSubmit={handleForgotPassword} className="space-y-4">
-                {forgotStep === 1 ? (
-                  <div className="space-y-3">
-                    <p className="text-[10px] text-slate-400 leading-relaxed font-medium">
-                      Digite seu e-mail corporativo. O sistema validará se a conta existe para habilitar a troca direta de senha sem precisar de intervenção do setor de TI.
-                    </p>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">E-mail Corporativo</label>
-                      <div className="relative">
-                        <Mail className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
-                        <input
-                          type="email"
-                          required
-                          placeholder="usuario@gransete.com"
-                          value={forgotEmail}
-                          onChange={(e) => setForgotEmail(e.target.value)}
-                          className="w-full bg-black border border-emerald-950/40 rounded-xl py-2.5 pl-10 pr-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/15 transition-all"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <p className="text-[10px] text-slate-400 leading-relaxed font-medium">
-                      Conta validada para: <strong className="text-emerald-400">{forgotEmail}</strong>. Digite sua nova senha de acesso abaixo.
-                    </p>
-                    
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Nova Senha</label>
-                      <div className="relative">
-                        <Lock className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
-                        <input
-                          type="password"
-                          required
-                          placeholder="Nova senha de acesso"
-                          value={newPassword}
-                          onChange={(e) => setNewPassword(e.target.value)}
-                          className="w-full bg-black border border-emerald-950/40 rounded-xl py-2.5 pl-10 pr-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/15 transition-all"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Confirmar Nova Senha</label>
-                      <div className="relative">
-                        <Lock className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
-                        <input
-                          type="password"
-                          required
-                          placeholder="Confirme a nova senha"
-                          value={confirmPassword}
-                          onChange={(e) => setConfirmPassword(e.target.value)}
-                          className="w-full bg-black border border-emerald-950/40 rounded-xl py-2.5 pl-10 pr-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/15 transition-all"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={submittingForgot || !!forgotSuccess}
-                  className="w-full py-2.5 bg-emerald-400 hover:bg-emerald-300 text-black font-extrabold rounded-xl text-xs transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer shadow-neon hover:shadow-neon-lg disabled:opacity-60"
-                >
-                  {submittingForgot ? (
-                    <>
-                      <RefreshCw className="h-3.5 w-3.5 animate-spin text-black" />
-                      Processando...
-                    </>
-                  ) : (
-                    <>
-                      {forgotStep === 1 ? "Validar E-mail Corporativo" : "Redefinir Minha Senha"}
-                      <ArrowRight className="h-4 w-4 text-black" />
-                    </>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowForgotPassword(false);
-                    setForgotStep(1);
-                    setForgotError("");
-                  }}
-                  className="w-full py-2 text-slate-400 hover:text-white font-bold rounded-xl text-[10px] uppercase tracking-wider transition-all duration-200 cursor-pointer text-center hover:bg-neutral-900/50"
-                >
-                  Voltar para tela de login
-                </button>
-              </form>
-            </>
+          {error && (
+            <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-400 font-medium flex items-center gap-2 animate-shake">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{error}</span>
+            </div>
           )}
+
+          {/* Form Login */}
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">E-mail Corporativo</label>
+              <div className="relative">
+                <Mail className="absolute left-3.5 top-2.5 h-4 w-4 text-zinc-500" />
+                <input
+                  type="email"
+                  name="username"
+                  autoComplete="username"
+                  required
+                  placeholder="usuario@gran7.com.br"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full bg-black/30 border border-white/10 rounded-xl py-2.5 pl-10 pr-3 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:bg-black/40 transition-all duration-200"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Senha de Acesso</label>
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-2.5 h-4 w-4 text-zinc-500" />
+                <input
+                  type="password"
+                  name="current-password"
+                  autoComplete="current-password"
+                  required
+                  placeholder="Sua senha corporativa"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full bg-black/30 border border-white/10 rounded-xl py-2.5 pl-10 pr-3 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:bg-black/40 transition-all duration-200"
+                />
+              </div>
+            </div>
+
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={rememberEmail}
+                onChange={(e) => setRememberEmail(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-white/20 accent-emerald-500 cursor-pointer"
+              />
+              <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
+                Lembrar meu e-mail neste dispositivo
+              </span>
+            </label>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 hover:-translate-y-px hover:shadow-[0_8px_24px_-6px_rgba(52,199,50,0.55)] active:translate-y-0 active:scale-[0.98] text-white font-semibold rounded-xl text-xs transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer shadow-sm disabled:opacity-60"
+            >
+              {loading ? (
+                <>
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-white" />
+                  Autenticando...
+                </>
+              ) : (
+                <>
+                  Entrar no Sistema
+                  <ArrowRight className="h-4 w-4 text-white" />
+                </>
+              )}
+            </button>
+          </form>
         </div>
 
-        {/* Info blocks removed as requested */}
-
+        {/* Footer signature */}
+        <div className="flex items-center justify-between text-[10px] text-zinc-500 font-medium pt-2 border-t border-white/10">
+          <span>Gran7 Nutrição e Fisiologia Vegetal</span>
+          <span className="text-zinc-400 font-mono">v2.4</span>
+        </div>
       </div>
     </div>
   );

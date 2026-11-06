@@ -1,22 +1,54 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { AnimatePresence, motion } from "motion/react";
-import { Ticket, Comment, UserSession, UserRole, User } from "./types";
-import {
-  getTickets,
-  saveTicket,
-  deleteTicket,
-  getUsers,
-  saveUser,
-  deleteUser,
-  triageWithGemini,
-  isSupabaseConfigured
-} from "./lib/supabase-client-db";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { Ticket, Comment, UserSession, UserRole, User, Attachment } from "./types";
+import { getApiUrl, apiFetch } from "./lib/api";
+import { 
+  fetchTicketsFromSupabase, 
+  saveTicketToSupabase, 
+  deleteTicketFromSupabase, 
+  fetchUsersFromSupabase, 
+  saveUserToSupabase, 
+  deleteUserFromSupabase,
+  getBrowserSupabaseClient,
+  getSupabaseCredentials,
+  saveSupabaseCredentials
+} from "./lib/supabaseClient";
+import { INITIAL_USERS } from "./data/initialUsers";
 import SlaAnalytics from "./components/SlaAnalytics";
 import LoginScreen from "./components/LoginScreen";
 import ChangePasswordScreen from "./components/ChangePasswordScreen";
+import Gran7Brand from "./components/Gran7Brand";
+import NotificationGuideModal from "./components/NotificationGuideModal";
+import NotificationCustomizerModal, { playCustomNotificationSound, SoundTone, ToastStyle } from "./components/NotificationCustomizerModal";
 import WindowsDatePicker from "./components/WindowsDatePicker";
-import PlantationBackground from "./components/PlantationBackground";
-import logoImg from "./assets/images/7.png";
+import AppLayout from "./components/layout/AppLayout";
+import TicketWorkspace from "./components/ticket/TicketWorkspace";
+import TicketExpandOverlay, { ExpandOrigin } from "./components/transition/TicketExpandOverlay";
+import { REVEAL } from "./components/transition/workspaceReveal";
+import { useTicketRoute, ticketIdFromPath } from "./hooks/useTicketRoute";
+import LoginLayer from "./components/transition/LoginLayer";
+import { TRANSITION_DURATION, resolveAuthFx } from "./components/transition/authTransitionConfig";
+import StatCard from "./components/ui/StatCard";
+import EmptyState from "./components/ui/EmptyState";
+import TicketTable, { TicketTableSkeleton } from "./components/queue/TicketTable";
+import QueueToolbar, { hasActiveFilters } from "./components/queue/QueueToolbar";
+import logoImg from "./assets/images/logo.png";
+import logoBlack from "./assets/images/logo-black.png";
+import { useTheme } from "./hooks/useTheme";
+import { useNow } from "./hooks/useNow";
+import { USER_DEPARTMENTS, canonicalDepartment } from "./lib/departments";
+import { fileToAvatarDataUrl } from "./lib/avatar";
+import { techProfileMetrics } from "./lib/sla/dashboardData";
+import { formatBusinessMinutes } from "./lib/sla/ticketSla";
+import { isSmallSample } from "./lib/quality";
+import Avatar from "./components/ui/Avatar";
+import { PROJECTS_MODULE_ENABLED } from "./components/layout/navigation";
+import CollaboratorsPage from "./components/collaborators/CollaboratorsPage";
+import Drawer from "./components/collaborators/Drawer";
+import { DEFAULT_COLLAB_FILTERS, presenceOf, roleLabel } from "./lib/collaborators";
+import { computeSlaMetrics } from "./lib/sla/metrics";
+import { getSlaEscalation as engineSlaEscalation, isReopened as engineIsReopened, isTicketOverdue as engineIsOverdue, resolutionDueAt } from "./lib/sla/compat";
+import logoMin from "./assets/images/7.png";
 import { 
   Shield, 
   Users, 
@@ -56,7 +88,28 @@ import {
   Terminal,
   Columns,
   Briefcase,
-  FolderKanban
+  FolderKanban,
+  ArrowLeft,
+  Menu,
+  X,
+  Bell,
+  BellOff,
+  BellRing,
+  HelpCircle,
+  Laptop,
+  Mail,
+  Building,
+  Activity,
+  Inbox,
+  SearchX,
+  ServerCrash,
+  Hourglass,
+  Wrench,
+  Flame,
+  AlertTriangle,
+  CheckCircle2,
+  Gauge,
+  ListTodo
 } from "lucide-react";
 
 const USER_PROFILES: UserSession[] = [];
@@ -145,7 +198,10 @@ interface AppNotification {
   commentAuthor?: string;
 }
 
+// Sectors available when creating/editing a collaborator.
 export default function App() {
+  const { resolvedTheme } = useTheme();
+
   // Session management
   const [currentSession, setCurrentSession] = useState<UserSession | null>(() => {
     const saved = localStorage.getItem("gran7_session");
@@ -158,13 +214,27 @@ export default function App() {
     }
     return null;
   });
+
+  const isTechUser = !!(
+    currentSession &&
+    (currentSession.role === "tecnico" ||
+      (currentSession.role as string) === "ti" ||
+      currentSession.department?.toLowerCase().includes("ti") ||
+      currentSession.department?.toLowerCase().includes("tecnologia"))
+  );
   
   // Navigation tabs (Only available for IT team)
   const [activeTab, setActiveTab] = useState<"painel" | "projetos" | "sla" | "colaboradores" | "banco_dados">("painel");
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [modulesCollapsed, setModulesCollapsed] = useState<boolean>(false);
-  const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState<boolean>(false);
+  const [isMobileModulesOpen, setIsMobileModulesOpen] = useState<boolean>(false);
+  const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState<boolean>(true);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [projectViewMode, setProjectViewMode] = useState<"bento" | "kanban" | "timeline">("bento");
+  const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
+  const [draggedOverColumn, setDraggedOverColumn] = useState<string | null>(null);
+
 
   // Database status and synchronization states
   const [dbStatus, setDbStatus] = useState<{ configured: boolean; connected: boolean; error: string | null } | null>(null);
@@ -176,48 +246,70 @@ export default function App() {
 
   // App states
   const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<User[]>(INITIAL_USERS);
   const [loading, setLoading] = useState<boolean>(true);
+  const [ticketsError, setTicketsError] = useState<boolean>(false);
+
+  // Transição visual Login → Interface (só visual). null = ociosa; objeto = rodando (variáveis CSS).
+  const [authFx, setAuthFx] = useState<React.CSSProperties | null>(null);
+  useEffect(() => {
+    if (!authFx) return;
+    const t = window.setTimeout(() => setAuthFx(null), TRANSITION_DURATION);
+    return () => window.clearTimeout(t);
+  }, [authFx]);
   const [isPolling, setIsPolling] = useState<boolean>(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [logoError, setLogoError] = useState<boolean>(false);
   const [showPreloader, setShowPreloader] = useState<boolean>(true);
   const [preloaderFadeOut, setPreloaderFadeOut] = useState<boolean>(false);
   const [preloaderProgress, setPreloaderProgress] = useState<number>(0);
+  const [minTimeElapsed, setMinTimeElapsed] = useState<boolean>(false);
 
   useEffect(() => {
-    let currentProgress = 0;
+    const timer = setTimeout(() => {
+      setMinTimeElapsed(true);
+    }, 250); // Ultra-fast minimum display time (250ms)
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    // Eases toward 99% and self-clears once it gets there, instead of hard-stopping
+    // at a fixed number and sitting dead while the real data is still loading.
     const interval = setInterval(() => {
-      if (currentProgress < 30) {
-        currentProgress += Math.floor(Math.random() * 8) + 4; // faster initially
-      } else if (currentProgress < 70) {
-        currentProgress += Math.floor(Math.random() * 6) + 2;
-      } else if (currentProgress < 95) {
-        currentProgress += Math.floor(Math.random() * 3) + 1; // slow down near completion
-      } else if (currentProgress < 100) {
-        currentProgress += 1;
-      } else {
-        clearInterval(interval);
-      }
-      setPreloaderProgress(Math.min(currentProgress, 100));
-    }, 45);
-
-    // Start fade transition after 2.1 seconds (giving ample time for progress bar to finish)
-    const fadeTimer = setTimeout(() => {
-      setPreloaderFadeOut(true);
-    }, 2100);
-
-    // Completely unmount the preloader after 2.6 seconds (giving 500ms for transition)
-    const unmountTimer = setTimeout(() => {
-      setShowPreloader(false);
-    }, 2600);
+      setPreloaderProgress((prev) => {
+        if (prev >= 99) {
+          clearInterval(interval);
+          return prev;
+        }
+        const step = prev < 70 ? Math.random() * 14 + 10 : Math.max(0.5, (99 - prev) * 0.15);
+        return Math.min(99, prev + step);
+      });
+    }, 50);
 
     return () => {
       clearInterval(interval);
-      clearTimeout(fadeTimer);
-      clearTimeout(unmountTimer);
     };
   }, []);
+
+  // Sync preloader completion with real database loading completion & minimum timer elapsed
+  useEffect(() => {
+    if (!loading && minTimeElapsed && showPreloader) {
+      setPreloaderProgress(100);
+      
+      const fadeTimer = setTimeout(() => {
+        setPreloaderFadeOut(true);
+      }, 80);
+
+      const unmountTimer = setTimeout(() => {
+        setShowPreloader(false);
+      }, 280);
+
+      return () => {
+        clearTimeout(fadeTimer);
+        clearTimeout(unmountTimer);
+      };
+    }
+  }, [loading, minTimeElapsed, showPreloader]);
   
   // Notifications states
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -260,9 +352,144 @@ export default function App() {
       window.removeEventListener("touchstart", unlockAudio);
     };
   }, []);
+
+  // Desktop Notifications State
+  const [desktopNotificationPermission, setDesktopNotificationPermission] = useState<NotificationPermission>(
+    typeof window !== "undefined" && "Notification" in window ? Notification.permission : "default"
+  );
+  const [isNotificationGuideOpen, setIsNotificationGuideOpen] = useState<boolean>(false);
+  const [isNotificationCustomizerOpen, setIsNotificationCustomizerOpen] = useState<boolean>(false);
+
+  // Register Service Worker on mount and listen to messages
+  useEffect(() => {
+    if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js")
+        .then((reg) => {
+          console.log("Service Worker registrado com sucesso:", reg.scope);
+        })
+        .catch((err) => {
+          console.warn("Falha ao registrar Service Worker:", err);
+        });
+
+      // Listen for SELECT_TICKET messages from Service Worker
+      const handleMessage = (event: MessageEvent) => {
+        if (event.data && event.data.type === "SELECT_TICKET") {
+          setSelectedTicketId(event.data.ticketId);
+        }
+      };
+      navigator.serviceWorker.addEventListener("message", handleMessage);
+      return () => navigator.serviceWorker.removeEventListener("message", handleMessage);
+    }
+  }, []);
+
+  // Check URL parameter for ticket pre-selection on load
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const ticketId = params.get("ticket");
+      if (ticketId) {
+        setSelectedTicketId(ticketId);
+      }
+    }
+  }, []);
+
+  const requestDesktopNotificationPermission = async () => {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      console.warn("Este navegador não suporta notificações de área de trabalho.");
+      return "default";
+    }
+    try {
+      const permission = await Notification.requestPermission();
+      setDesktopNotificationPermission(permission);
+      return permission;
+    } catch (e) {
+      console.error("Erro ao solicitar permissão de notificações:", e);
+      return "default";
+    }
+  };
+
+  const fallbackNotification = (title: string, options: NotificationOptions, ticketId?: string) => {
+    try {
+      const fullIconUrl = typeof window !== "undefined" ? `${window.location.origin}/icon.png` : "/icon.png";
+      const notification = new Notification(title, {
+        ...options,
+        icon: fullIconUrl,
+        badge: fullIconUrl
+      });
+      if (ticketId) {
+        notification.onclick = () => {
+          window.focus();
+          setSelectedTicketId(ticketId);
+        };
+      }
+    } catch (e) {
+      console.warn("Falha no fallback de notificação de área de trabalho:", e);
+    }
+  };
+
+  const showDesktopNotification = (title: string, body: string, ticketId?: string) => {
+    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+      const fullIconUrl = `${window.location.origin}/icon.png`;
+      const options: NotificationOptions & { data?: any; actions?: any[]; renotify?: boolean; vibrate?: number[] } = {
+        body,
+        icon: fullIconUrl,
+        badge: fullIconUrl,
+        tag: ticketId ? `ticket-${ticketId}` : "gran7-alert",
+        renotify: true,
+        requireInteraction: true,
+        vibrate: [200, 100, 200, 100, 200],
+        data: ticketId ? { ticketId } : undefined,
+        actions: [
+          { action: "open_ticket", title: "💬 Abrir Chamado no Helpdesk" }
+        ]
+      };
+
+      // Try service worker notification first (essential for background/desktop notifications)
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.ready.then((registration) => {
+          registration.showNotification(title, options)
+            .catch((err) => {
+              console.warn("Service worker falhou em exibir notificação, usando fallback:", err);
+              fallbackNotification(title, options, ticketId);
+            });
+        }).catch(() => {
+          fallbackNotification(title, options, ticketId);
+        });
+      } else {
+        fallbackNotification(title, options, ticketId);
+      }
+    }
+  };
+
+  const testDesktopNotification = async () => {
+    let perm = desktopNotificationPermission;
+    if (perm !== "granted") {
+      perm = await requestDesktopNotificationPermission();
+    }
+    if (perm === "granted") {
+      showDesktopNotification(
+        "⚡ GRAN7 HELP • Notificações do Sistema",
+        "Sucesso! Permissão ativa no Google Chrome. Notificações nativas configuradas com ícone e atalho para o chat.",
+        selectedTicketId || undefined
+      );
+      playNotificationSound();
+    } else if (perm === "denied") {
+      setIsNotificationGuideOpen(true);
+    }
+  };
+
+  // Auto request permission once logged in
+  useEffect(() => {
+    if (currentSession && typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
+      const timer = setTimeout(() => {
+        requestDesktopNotificationPermission();
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [currentSession]);
   
   // Selection/Detail states
-  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(() => ticketIdFromPath());
   const [newCommentText, setNewCommentText] = useState<string>("");
   const [commentAttachment, setCommentAttachment] = useState<string | null>(null);
   const [commentAttachmentName, setCommentAttachmentName] = useState<string>("");
@@ -283,11 +510,18 @@ export default function App() {
   // Creation state (tickets)
   const [isNewTicketModalOpen, setIsNewTicketModalOpen] = useState<boolean>(false);
   const [isSubmittingTicket, setIsSubmittingTicket] = useState<boolean>(false);
-  const [newTicketForm, setNewTicketForm] = useState({
+  const [newTicketForm, setNewTicketForm] = useState<{
+    title: string;
+    description: string;
+    screenshot: string;
+    projectDeadline: string;
+    attachments: Attachment[];
+  }>({
     title: "",
     description: "",
     screenshot: "",
-    projectDeadline: ""
+    projectDeadline: "",
+    attachments: []
   });
   const [selectedRequesterName, setSelectedRequesterName] = useState<string>("");
   const [selectedRequesterDepartment, setSelectedRequesterDepartment] = useState<string>("");
@@ -298,10 +532,19 @@ export default function App() {
   const [myTicketsViewMode, setMyTicketsViewMode] = useState<"created" | "resolved">("created");
   const [selectedTechProfile, setSelectedTechProfile] = useState<User | null>(null);
   const [isTechProfileModalOpen, setIsTechProfileModalOpen] = useState<boolean>(false);
+  // Botão que abriu o perfil: o foco volta para ele ao fechar o painel lateral.
+  const profileOpenerRef = useRef<HTMLElement | null>(null);
+  // Foto de perfil: só contas Técnico (TI/Admin) podem adicionar, trocar ou remover (o servidor também exige).
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const [photoBusy, setPhotoBusy] = useState<boolean>(false);
+  const [photoError, setPhotoError] = useState<string>("");
+  const [profileModalTab, setProfileModalTab] = useState<"overview" | "tickets" | "metrics" | "activity">("overview");
+  const [profileTicketsFilter, setProfileTicketsFilter] = useState<"all" | "active" | "resolved" | "projects">("all");
   const [isConfirmingDeleteTicket, setIsConfirmingDeleteTicket] = useState<string | null>(null);
 
   // User management states
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [isUserModalOpen, setIsUserModalOpen] = useState<boolean>(false);
   const [deletingUser, setDeletingUser] = useState<User | null>(null);
 
   // Creation state (users/collaborators)
@@ -324,29 +567,128 @@ export default function App() {
     }
   }, [isNewTicketModalOpen, currentSession]);
 
-  // Fetch tickets helper
+  const handleGoToHome = () => {
+    setActiveTab("painel");
+    setSelectedTicketId(null);
+    setSelectedTechProfile(null);
+    setIsTechProfileModalOpen(false);
+    setIsMyTicketsModalOpen(false);
+    setIsNewTicketModalOpen(false);
+    setMobileMenuOpen(false);
+  };
+
+  // Fetch tickets helper with multi-tier fallback (API Express -> Direct Supabase Browser -> Local Cache)
   const fetchTickets = async (showQuietly = false) => {
-    if (!showQuietly) setLoading(true);
-    setIsPolling(true);
-    try {
-      const data = await getTickets();
-      setTickets(data);
-      setLastUpdated(new Date());
-    } catch (error) {
-      console.error("Erro ao sincronizar chamados:", error);
-    } finally {
-      setLoading(false);
-      setIsPolling(false);
+    if (!showQuietly) {
+      // Hydrate instantly from the local cache on first load so the preloader
+      // isn't blocked on the network round-trip; the fetch below still runs
+      // to refresh with live data once it lands.
+      let hydratedFromCache = false;
+      if (tickets.length === 0) {
+        try {
+          const cached = localStorage.getItem("gran7_tickets_cache");
+          const cachedTickets = cached ? JSON.parse(cached) : null;
+          if (Array.isArray(cachedTickets) && cachedTickets.length > 0) {
+            setTickets(cachedTickets);
+            setLoading(false);
+            hydratedFromCache = true;
+          }
+        } catch (e) {}
+      }
+      if (!hydratedFromCache) setLoading(true);
     }
+    setIsPolling(true);
+    let loadedTickets: Ticket[] | null = null;
+
+    try {
+      const response = await apiFetch("/api/tickets");
+      if (response.ok) {
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          loadedTickets = await response.json();
+        }
+      }
+    } catch (error) {
+      console.warn("API de chamados indisponível via HTTP, buscando via Supabase Direto/Cache local:", error);
+    }
+
+    // Tier 2: Try direct browser Supabase client if server returned HTML or failed
+    if (!loadedTickets || !Array.isArray(loadedTickets)) {
+      const supabaseData = await fetchTicketsFromSupabase();
+      if (supabaseData && Array.isArray(supabaseData) && supabaseData.length > 0) {
+        loadedTickets = supabaseData;
+      }
+    }
+
+    // Tier 3: Load from localStorage cache
+    if (!loadedTickets || !Array.isArray(loadedTickets)) {
+      try {
+        const cached = localStorage.getItem("gran7_tickets_cache");
+        if (cached) {
+          loadedTickets = JSON.parse(cached);
+        }
+      } catch (e) {
+        console.warn("Falha ao ler cache local de chamados:", e);
+      }
+    }
+
+    setTicketsError(!(loadedTickets && Array.isArray(loadedTickets)));
+    if (loadedTickets && Array.isArray(loadedTickets)) {
+      setTickets(loadedTickets);
+      setLastUpdated(new Date());
+      try {
+        localStorage.setItem("gran7_tickets_cache", JSON.stringify(loadedTickets));
+      } catch (e) {}
+    }
+
+    setLoading(false);
+    setIsPolling(false);
   };
 
   // Fetch users helper
   const fetchUsers = async () => {
+    let loadedUsers: User[] | null = null;
+
     try {
-      const data = await getUsers();
-      setUsers(data);
+      const response = await apiFetch("/api/users");
+      if (response.ok) {
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          loadedUsers = await response.json();
+        }
+      }
     } catch (error) {
-      console.error("Erro ao carregar colaboradores:", error);
+      console.warn("API de colaboradores indisponível via HTTP, buscando via Supabase Direto/Cache local:", error);
+    }
+
+    // Tier 2: Try direct browser Supabase client
+    if (!loadedUsers || !Array.isArray(loadedUsers)) {
+      const supabaseUsers = await fetchUsersFromSupabase();
+      if (supabaseUsers && Array.isArray(supabaseUsers) && supabaseUsers.length > 0) {
+        loadedUsers = supabaseUsers;
+      }
+    }
+
+    // Tier 3: Load from localStorage cache
+    if (!loadedUsers || !Array.isArray(loadedUsers)) {
+      try {
+        const cached = localStorage.getItem("gran7_users_cache");
+        if (cached) {
+          loadedUsers = JSON.parse(cached);
+        }
+      } catch (e) {}
+    }
+
+    // Tier 4: Fall back to INITIAL_USERS
+    if (!loadedUsers || !Array.isArray(loadedUsers) || loadedUsers.length === 0) {
+      loadedUsers = INITIAL_USERS;
+    }
+
+    if (loadedUsers && Array.isArray(loadedUsers)) {
+      setUsers(loadedUsers);
+      try {
+        localStorage.setItem("gran7_users_cache", JSON.stringify(loadedUsers));
+      } catch (e) {}
     }
   };
 
@@ -354,12 +696,11 @@ export default function App() {
   const fetchDbStatus = async () => {
     setDbChecking(true);
     try {
-      const isConfigured = isSupabaseConfigured();
-      setDbStatus({
-        configured: isConfigured,
-        connected: isConfigured,
-        error: isConfigured ? null : "Credenciais do Supabase ausentes (.env ou Secrets do AI Studio). Usando armazenamento local."
-      });
+      const response = await apiFetch("/api/supabase/status");
+      if (response.ok) {
+        const data = await response.json();
+        setDbStatus(data);
+      }
     } catch (e) {
       console.error("Erro ao carregar status do banco de dados:", e);
     } finally {
@@ -369,137 +710,151 @@ export default function App() {
 
   // Fetch database SQL Schema instructions
   const fetchDbSchema = async () => {
-    const schemaSql = `-- EXECUTAR ESTE SCRIPT NO EDITOR DE SQL DO SEU SUPABASE:
-
--- 1. Criar tabela de Usuários (Users)
-CREATE TABLE IF NOT EXISTS public.users (
-    id text PRIMARY KEY,
-    name text NOT NULL,
-    email text UNIQUE NOT NULL,
-    password text NOT NULL,
-    department text NOT NULL,
-    role text NOT NULL,
-    must_change_password boolean DEFAULT true,
-    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
--- 2. Criar tabela de Chamados (Tickets)
-CREATE TABLE IF NOT EXISTS public.tickets (
-    id text PRIMARY KEY,
-    title text NOT NULL,
-    description text NOT NULL,
-    category text NOT NULL,
-    priority text NOT NULL,
-    status text NOT NULL,
-    requester_name text NOT NULL,
-    requester_department text NOT NULL,
-    assigned_to text,
-    created_at text NOT NULL,
-    updated_at text NOT NULL,
-    sla_limit text NOT NULL,
-    ai_category text NOT NULL,
-    ai_priority text NOT NULL,
-    ai_reasoning text NOT NULL,
-    ai_suggestions text NOT NULL,
-    comments jsonb DEFAULT '[]'::jsonb NOT NULL,
-    project_deadline text,
-    inserted_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
-);`;
-    setDbSqlSchema(schemaSql);
+    try {
+      const response = await apiFetch("/api/supabase/sql");
+      if (response.ok) {
+        const data = await response.text();
+        setDbSqlSchema(data);
+      }
+    } catch (e) {
+      console.error("Erro ao buscar schema SQL:", e);
+    }
   };
 
-  // Push local cache data to cloud Supabase
+  // Push local cache data to Supabase DB
   const handlePushSync = async () => {
     setSyncingDb("push");
-    setTimeout(() => {
-      setSyncingDb("success");
-      fetchDbStatus();
-      setTimeout(() => setSyncingDb("idle"), 2000);
-    }, 500);
+    setSyncDbError(null);
+    try {
+      const response = await apiFetch("/api/supabase/sync", { method: "POST" });
+      if (response.ok) {
+        setSyncingDb("success");
+        await fetchTickets();
+        await fetchUsers();
+        fetchDbStatus();
+        setTimeout(() => setSyncingDb("idle"), 3000);
+      } else {
+        const errData = await response.json();
+        setSyncDbError(errData.error || "Erro desconhecido ao enviar dados.");
+        setSyncingDb("error");
+      }
+    } catch (e: any) {
+      setSyncDbError(e.message || "Erro de rede ao conectar à API.");
+      setSyncingDb("error");
+    }
   };
 
-  // Pull cloud Supabase data into local cache files
+  // Pull Supabase DB data into local cache files
   const handlePullSync = async () => {
     setSyncingDb("pull");
-    setTimeout(() => {
-      setSyncingDb("success");
-      fetchDbStatus();
-      alert("Seu aplicativo está conectado diretamente ao Supabase em tempo real! Todos os dados já estão sincronizados e atualizados instantaneamente no seu navegador.");
-      setTimeout(() => setSyncingDb("idle"), 2000);
-    }, 500);
+    setSyncDbError(null);
+    try {
+      const response = await apiFetch("/api/supabase/pull", { method: "POST" });
+      if (response.ok) {
+        const data = await response.json();
+        setSyncingDb("success");
+        await fetchTickets();
+        await fetchUsers();
+        fetchDbStatus();
+        alert(`Sincronização concluída com sucesso! ${data.ticketsCount} chamados e ${data.usersCount} colaboradores foram importados do Supabase e salvos localmente.`);
+        setTimeout(() => setSyncingDb("idle"), 3000);
+      } else {
+        const errData = await response.json();
+        setSyncDbError(errData.error || "Erro desconhecido ao puxar dados.");
+        setSyncingDb("error");
+      }
+    } catch (e: any) {
+      setSyncDbError(e.message || "Erro de rede ao conectar à API.");
+      setSyncingDb("error");
+    }
   };
 
   // Pull database schema and status on technician session mount
   useEffect(() => {
-    if (currentSession?.role === "tecnico") {
+    if (isTechUser) {
       fetchDbStatus();
       fetchDbSchema();
     }
-  }, [currentSession]);
+  }, [currentSession, isTechUser]);
 
   // Force non-technicians to stay on the main tickets queue ('painel')
   useEffect(() => {
-    if (currentSession && currentSession.role !== "tecnico") {
-      if (activeTab !== "painel") {
+    if (currentSession && !isTechUser) {
+      if (activeTab !== "painel" && activeTab !== "chamados") {
         setActiveTab("painel");
       }
     }
-  }, [currentSession, activeTab]);
+  }, [currentSession, activeTab, isTechUser]);
 
   // Poll tickets and users every 15 seconds for real-time fidelity with low egress overhead
-  // Poll tickets and users every 15 seconds for real-time fidelity
   useEffect(() => {
     fetchTickets();
     fetchUsers();
 
+    // Send a heartbeat ping to the server to register online presence
+    const sendHeartbeat = () => {
+      if (currentSession?.email || currentSession?.name) {
+        apiFetch("/api/heartbeat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: currentSession.email,
+            name: currentSession.name
+          })
+        })
+          .then(() => fetchUsers())
+          .catch((err) => {
+            console.warn("Falha ao enviar heartbeat:", err);
+          });
+      }
+    };
+
+    sendHeartbeat();
+
     const interval = setInterval(() => {
       fetchTickets(true);
       fetchUsers();
-    }, 15000);
+      sendHeartbeat();
+    }, 10000);
     return () => clearInterval(interval);
-  }, [currentSession?.email]);
+  }, [currentSession?.email, currentSession?.name]);
+
+  // Tell the server presence should clear right away instead of waiting for
+  // the heartbeat to time out, whenever the tab is actually closing.
+  // sendBeacon (not fetch) is used because it's guaranteed to fire during unload.
+  const sendOfflineBeacon = (session?: { email?: string; name?: string; token?: string } | null) => {
+    const s = session || currentSessionRef.current;
+    if (!s || (!s.email && !s.name)) return;
+    try {
+      // Aviso de PRESENÇA apenas: não encerra a sessão (F5, navegação e fechar aba também disparam este evento).
+      // sendBeacon não envia cabeçalhos, então o token vai no corpo só para o servidor confirmar quem está saindo.
+      const blob = new Blob([JSON.stringify({ email: s.email, name: s.name, token: s.token })], { type: "application/json" });
+      navigator.sendBeacon(getApiUrl("/api/offline"), blob);
+    } catch (e) {}
+  };
+
+  const currentSessionRef = useRef(currentSession);
+  useEffect(() => {
+    currentSessionRef.current = currentSession;
+  }, [currentSession]);
+
+  useEffect(() => {
+    const handler = () => sendOfflineBeacon();
+    window.addEventListener("beforeunload", handler);
+    window.addEventListener("pagehide", handler);
+    return () => {
+      window.removeEventListener("beforeunload", handler);
+      window.removeEventListener("pagehide", handler);
+    };
+  }, []);
 
   // Audio notification helper using Web Audio API for maximum reliability
   const playNotificationSound = () => {
     try {
-      let ctx = audioContextRef.current;
-      
-      // Fallback: If not unlocked or created yet, try creating it now
-      if (!ctx) {
-        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioContextClass) return;
-        ctx = new AudioContextClass();
-        audioContextRef.current = ctx;
-      }
-      
-      if (ctx.state === "suspended") {
-        ctx.resume();
-      }
-      
-      const now = ctx.currentTime;
-      
-      // Gentle synthesizer double chime/bell sound (C5 -> E5)
-      const osc1 = ctx.createOscillator();
-      const gain1 = ctx.createGain();
-      osc1.type = "sine";
-      osc1.frequency.setValueAtTime(523.25, now); // C5
-      gain1.gain.setValueAtTime(0.12, now);
-      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
-      osc1.connect(gain1);
-      gain1.connect(ctx.destination);
-      osc1.start(now);
-      osc1.stop(now + 0.4);
-      
-      const osc2 = ctx.createOscillator();
-      const gain2 = ctx.createGain();
-      osc2.type = "sine";
-      osc2.frequency.setValueAtTime(659.25, now + 0.12); // E5
-      gain2.gain.setValueAtTime(0.12, now + 0.12);
-      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.52);
-      osc2.connect(gain2);
-      gain2.connect(ctx.destination);
-      osc2.start(now + 0.12);
-      osc2.stop(now + 0.52);
+      const tone = (localStorage.getItem("gran7_notif_sound_tone") as SoundTone) || "gran7";
+      const volStr = localStorage.getItem("gran7_notif_volume");
+      const volume = volStr !== null ? parseFloat(volStr) : 0.8;
+      playCustomNotificationSound(tone, volume);
     } catch (error) {
       console.warn("Navegador bloqueou a reprodução automática de som de notificação:", error);
     }
@@ -535,9 +890,16 @@ CREATE TABLE IF NOT EXISTS public.tickets (
           shouldPlaySound = true;
         }
 
-        // Visual notifications (on-screen pop-ups) only appear for the IT team (technicians)
-        if (currentSession?.role === "tecnico") {
+        // Visual notifications (on-screen pop-ups): technicians see every new
+        // ticket; collaborators only see ones they opened themselves (e.g.
+        // when a technician opens it on their behalf).
+        if (currentSession?.role === "tecnico" || t.requesterName === currentSession?.name) {
           hasNewNotification = true;
+          showDesktopNotification(
+            `🔔 Novo Chamado #${t.id} • ${t.title}`,
+            `Solicitante: ${t.requesterName} (${t.requesterDepartment || "TI"}) | Prioridade: ${t.priority.toUpperCase()}`,
+            t.id
+          );
           const newNotif: AppNotification = {
             id: `notif-${Date.now()}-${t.id}`,
             ticketId: t.id,
@@ -568,6 +930,12 @@ CREATE TABLE IF NOT EXISTS public.tickets (
           if (isUserRelevant) {
             shouldPlaySound = true;
             hasNewNotification = true;
+
+            showDesktopNotification(
+              `💬 Chat HelpDesk • ${t.title}`,
+              `${c.authorName}: ${c.content}`,
+              t.id
+            );
 
             const newNotif: AppNotification = {
               id: `notif-${Date.now()}-${c.id}`,
@@ -630,6 +998,13 @@ CREATE TABLE IF NOT EXISTS public.tickets (
   };
 
   const handleLogout = () => {
+    // Logout EXPLÍCITO: revoga o token no servidor (e limpa a presença). `keepalive` garante o envio mesmo
+    // que a página recarregue em seguida. fetch direto (não apiFetch) para um 401 não provocar novo reload.
+    const token = currentSession?.token;
+    if (token) {
+      fetch(getApiUrl("/api/logout"), { method: "POST", headers: { Authorization: `Bearer ${token}` }, keepalive: true }).catch(() => {});
+    }
+    sendOfflineBeacon(currentSession);
     setCurrentSession(null);
     localStorage.removeItem("gran7_session");
     setSelectedTicketId(null);
@@ -640,15 +1015,15 @@ CREATE TABLE IF NOT EXISTS public.tickets (
   };
 
   const handleResetData = async () => {
-    if (confirm("Deseja realmente redefinir o banco de dados local?")) {
+    if (confirm("Deseja realmente redefinir o banco de dados para os dados padrão?")) {
       try {
-        localStorage.removeItem("gran7_tickets_backup");
-        localStorage.removeItem("gran7_users_backup");
-        localStorage.removeItem("gran7_session");
-        setTickets([]);
-        setUsers([]);
-        setSelectedTicketId(null);
-        handleLogout();
+        const response = await apiFetch("/api/reset", { method: "POST" });
+        if (response.ok) {
+          await fetchTickets();
+          await fetchUsers();
+          setSelectedTicketId(null);
+          handleLogout();
+        }
       } catch (error) {
         console.error("Erro ao resetar dados:", error);
       }
@@ -663,19 +1038,77 @@ CREATE TABLE IF NOT EXISTS public.tickets (
       alert("Apenas um dos técnicos responsáveis por este chamado pode excluí-lo.");
       return;
     }
-    
+
+    // Confirm with the server before touching local state/Supabase — it's
+    // the only place that verifies the deletion is actually authorized.
     try {
-      const isSuccess = await deleteTicket(ticketId);
-      if (isSuccess) {
-        setIsConfirmingDeleteTicket(null);
-        setSelectedTicketId(null);
-        await fetchTickets();
-      } else {
-        alert("Erro ao excluir o chamado do banco de dados.");
+      const response = await apiFetch(`/api/tickets/${ticketId}`, { method: "DELETE" });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        alert(errData?.error || "Não foi possível excluir o chamado.");
+        return;
       }
     } catch (error) {
-      console.error("Erro ao excluir chamado:", error);
+      console.warn("Erro ao enviar exclusão para API server:", error);
+      alert("Sem conexão com o servidor. Não foi possível excluir o chamado.");
+      return;
     }
+
+    setTickets(prev => prev.filter(t => t.id !== ticketId));
+    setIsConfirmingDeleteTicket(null);
+    setSelectedTicketId(null);
+
+    deleteTicketFromSupabase(ticketId).catch(e => console.warn("Erro ao excluir no Supabase pelo navegador:", e));
+  };
+
+  const handleAddFiles = (files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    fileArray.forEach((file) => {
+      if (file.type.startsWith("image/")) {
+        compressImage(file)
+          .then((compressedUrl) => {
+            setNewTicketForm((prev) => {
+              const newAttachments = [...prev.attachments, { name: file.name, url: compressedUrl, type: file.type }];
+              const firstImage = newAttachments.find(a => a.type.startsWith("image/"))?.url || "";
+              return {
+                ...prev,
+                attachments: newAttachments,
+                screenshot: prev.screenshot || firstImage
+              };
+            });
+          })
+          .catch(() => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const resultUrl = reader.result as string;
+              setNewTicketForm((prev) => {
+                const newAttachments = [...prev.attachments, { name: file.name, url: resultUrl, type: file.type }];
+                const firstImage = newAttachments.find(a => a.type.startsWith("image/"))?.url || "";
+                return {
+                  ...prev,
+                  attachments: newAttachments,
+                  screenshot: prev.screenshot || firstImage
+                };
+              });
+            };
+            reader.readAsDataURL(file);
+          });
+      } else {
+        // PDF or other documents
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const resultUrl = reader.result as string;
+          setNewTicketForm((prev) => {
+            const newAttachments = [...prev.attachments, { name: file.name, url: resultUrl, type: file.type }];
+            return {
+              ...prev,
+              attachments: newAttachments
+            };
+          });
+        };
+        reader.readAsDataURL(file);
+      }
+    });
   };
 
   const handleCreateTicket = async (e: React.FormEvent) => {
@@ -684,83 +1117,136 @@ CREATE TABLE IF NOT EXISTS public.tickets (
     if (!newTicketForm.title.trim() || !newTicketForm.description.trim()) return;
 
     setIsSubmittingTicket(true);
+    let createdTicket: Ticket | null = null;
+
     try {
-      // Analyze with Gemini client-side directly
-      const triage = await triageWithGemini(
-        newTicketForm.title,
-        newTicketForm.description,
-        newTicketForm.screenshot || undefined
-      );
+      const response = await apiFetch("/api/tickets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newTicketForm.title,
+          description: newTicketForm.description,
+          requesterName: (currentSession.role === "tecnico" && selectedRequesterName) ? selectedRequesterName : currentSession.name,
+          requesterDepartment: (currentSession.role === "tecnico" && selectedRequesterDepartment) ? selectedRequesterDepartment : currentSession.department,
+          screenshot: newTicketForm.screenshot || undefined,
+          projectDeadline: newTicketForm.projectDeadline || undefined,
+          attachments: newTicketForm.attachments
+        })
+      });
 
-      let hoursToAdd = 48; // Baixa
-      if (triage.priority === "Urgente") hoursToAdd = 2;
-      else if (triage.priority === "Alta") hoursToAdd = 8;
-      else if (triage.priority === "Média") hoursToAdd = 24;
+      if (response.ok) {
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          createdTicket = await response.json();
+        }
+      }
+    } catch (error) {
+      console.warn("Erro ao enviar chamado para API, criando localmente com sincronização Supabase:", error);
+    }
 
-      const slaLimit = new Date();
-      slaLimit.setHours(slaLimit.getHours() + hoursToAdd);
-
-      const maxId = tickets.reduce((max, t) => {
-        if (!t || !t.id) return max;
-        const idNum = parseInt(t.id);
-        return isNaN(idNum) ? max : Math.max(max, idNum);
-      }, 1000);
-      const nextId = (maxId + 1).toString();
-
-      const newTicket: Ticket = {
+    // Fallback if API returned HTML or failed
+    if (!createdTicket) {
+      const now = new Date();
+      const nextId = String(Date.now()).slice(-4);
+      createdTicket = {
         id: nextId,
         title: newTicketForm.title,
         description: newTicketForm.description,
-        category: triage.category as Ticket["category"],
-        priority: triage.priority as Ticket["priority"],
+        category: "Outros",
+        priority: "Média",
         status: "Aberto",
         requesterName: (currentSession.role === "tecnico" && selectedRequesterName) ? selectedRequesterName : currentSession.name,
         requesterDepartment: (currentSession.role === "tecnico" && selectedRequesterDepartment) ? selectedRequesterDepartment : currentSession.department,
         assignedTo: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        slaLimit: slaLimit.toISOString(),
-        aiCategory: triage.category,
-        aiPriority: triage.priority,
-        aiReasoning: triage.reasoning,
-        aiSuggestions: triage.suggestions,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        slaLimit: new Date(now.getTime() + 24 * 3600000).toISOString(),
+        aiCategory: "Aguardando Triagem",
+        aiPriority: "Média",
+        aiReasoning: "Abertura enviada com sucesso.",
+        aiSuggestions: "Aguardando atendimento técnico.",
         comments: [],
         screenshot: newTicketForm.screenshot || undefined,
-        projectDeadline: newTicketForm.projectDeadline || undefined
+        projectDeadline: newTicketForm.projectDeadline || undefined,
+        attachments: newTicketForm.attachments
       };
+    }
 
-      // Add triage comment
-      newTicket.comments.push({
-        id: "ai-triage-sys-comment-" + Date.now(),
-        authorName: "Assistente de Triagem",
-        authorRole: "ai",
-        content: `Chamado classificado automaticamente pelo Gemini.\n\n**Justificativa:** ${triage.reasoning}`,
-        timestamp: new Date().toISOString()
-      });
+    // Save directly to Supabase DB from browser
+    saveTicketToSupabase(createdTicket).catch(e => console.warn("Erro ao salvar no Supabase pelo navegador:", e));
 
-      const isSuccess = await saveTicket(newTicket);
-      if (isSuccess) {
-        setIsNewTicketModalOpen(false);
-        setNewTicketForm({ title: "", description: "", screenshot: "", projectDeadline: "" });
-        await fetchTickets();
-        setSelectedTicketId(newTicket.id);
-      } else {
-        alert("Erro ao gravar chamado no banco de dados.");
+    setIsNewTicketModalOpen(false);
+    setNewTicketForm({ title: "", description: "", screenshot: "", projectDeadline: "", attachments: [] });
+
+    const finalTicket = createdTicket;
+    setTickets(prev => [finalTicket, ...prev.filter(t => t.id !== finalTicket.id)]);
+    setSelectedTicketId(finalTicket.id);
+    setIsSubmittingTicket(false);
+  };
+
+  // Esc fecha o formulário de cadastro/edição mesmo quando o foco não está dentro dele.
+  useEffect(() => {
+    if (!isUserModalOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setIsUserModalOpen(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [isUserModalOpen]);
+
+  const applyUserPhoto = (id: string, photo: string | null) => {
+    setUsers(prev => prev.map(u => (u.id === id ? { ...u, photo } : u)));
+    setSelectedTechProfile(prev => (prev && prev.id === id ? { ...prev, photo } : prev));
+  };
+
+  const handlePhotoPicked = async (file: File | undefined) => {
+    const target = selectedTechProfile;
+    if (!file || !target) return;
+    setPhotoError("");
+    setPhotoBusy(true);
+    try {
+      const photo = await fileToAvatarDataUrl(file);
+      const res = await apiFetch(`/api/users/${target.id}/photo`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ photo }) });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || "Não foi possível salvar a foto.");
       }
-    } catch (error) {
-      console.error("Erro ao abrir chamado:", error);
+      applyUserPhoto(target.id, photo);
+    } catch (e: any) {
+      setPhotoError(e?.message || "Não foi possível salvar a foto.");
     } finally {
-      setIsSubmittingTicket(false);
+      setPhotoBusy(false);
+      if (photoInputRef.current) photoInputRef.current.value = "";
+    }
+  };
+
+  const handleRemovePhoto = async () => {
+    const target = selectedTechProfile;
+    if (!target) return;
+    setPhotoError("");
+    setPhotoBusy(true);
+    try {
+      const res = await apiFetch(`/api/users/${target.id}/photo`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || "Não foi possível remover a foto.");
+      }
+      applyUserPhoto(target.id, null);
+    } catch (e: any) {
+      setPhotoError(e?.message || "Não foi possível remover a foto.");
+    } finally {
+      setPhotoBusy(false);
     }
   };
 
   const handleStartEditUser = (user: User) => {
     setEditingUserId(user.id);
+    // Map legacy spellings (e.g. "Contabil") onto the canonical sector list.
+    const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+    const canonicalDept = USER_DEPARTMENTS.find(d => norm(d) === norm(user.department || "")) || user.department;
     setNewUserForm({
       name: user.name,
       email: user.email,
       password: user.password || "",
-      department: user.department,
+      department: canonicalDept,
       role: user.role
     });
     setUserFormError("");
@@ -792,50 +1278,74 @@ CREATE TABLE IF NOT EXISTS public.tickets (
     }
 
     setIsSubmittingUser(true);
+    let savedUser: User | null = null;
+    let apiSucceeded = false;
+
     try {
-      const uId = editingUserId || Date.now().toString();
-      
-      let finalPassword = newUserForm.password;
-      if (isEdit) {
-        const existing = users.find(u => u.id === editingUserId);
-        finalPassword = newUserForm.password || existing?.password || "123";
-      }
+      const url = editingUserId ? `/api/users/${editingUserId}` : "/api/users";
+      const method = editingUserId ? "PUT" : "POST";
 
-      const userToSave: User = {
-        id: uId,
-        name: newUserForm.name,
-        email: newUserForm.email.toLowerCase().trim(),
-        password: finalPassword,
-        department: newUserForm.department,
-        role: newUserForm.role,
-        mustChangePassword: isEdit ? false : true
-      };
+      const response = await apiFetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newUserForm)
+      });
 
-      const isSuccess = await saveUser(userToSave);
-      if (isSuccess) {
-        if (editingUserId) {
-          setUserFormSuccess(`Colaborador ${userToSave.name} atualizado com sucesso!`);
-          handleCancelEditUser();
-        } else {
-          setUserFormSuccess(`Colaborador ${userToSave.name} cadastrado com sucesso!`);
-          setNewUserForm({
-            name: "",
-            email: "",
-            password: "",
-            department: "Financeiro",
-            role: "colaborador"
-          });
+      if (response.ok) {
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          savedUser = await response.json();
+          apiSucceeded = true;
         }
-        await fetchUsers(); // Update in real-time
-      } else {
-        setUserFormError("Erro ao gravar dados do colaborador.");
+      } else if (response.status >= 400 && response.status < 500) {
+        // Server explicitly rejected the change (validation, permission, duplicate e-mail…):
+        // show the reason instead of pretending it was saved locally.
+        const errData = await response.json().catch(() => null);
+        setUserFormError(errData?.error || "Não foi possível salvar o colaborador.");
+        setIsSubmittingUser(false);
+        return;
       }
-    } catch (error: any) {
-      console.error("Erro ao salvar colaborador:", error);
-      setUserFormError("Erro ao salvar colaborador: " + (error.message || error));
-    } finally {
-      setIsSubmittingUser(false);
+    } catch (error) {
+      console.warn("Erro ao salvar colaborador na API, salvando via Supabase/Local:", error);
     }
+
+    if (!savedUser) {
+      savedUser = {
+        id: editingUserId || String(1000 + Math.floor(Math.random() * 9000)),
+        name: newUserForm.name.trim(),
+        email: newUserForm.email.trim().toLowerCase(),
+        password: newUserForm.password.trim(),
+        department: newUserForm.department,
+        role: newUserForm.role as "colaborador" | "tecnico",
+        mustChangePassword: false
+      };
+    }
+
+    // Direct browser Supabase save: only needed as a fallback when the API call
+    // itself failed. When the API succeeds, the server already syncs Supabase on
+    // its own — and it never returns the password hash to the client, so re-sending
+    // savedUser here would upsert an empty password and lock the user out.
+    if (!apiSucceeded && savedUser.password) {
+      saveUserToSupabase(savedUser).catch(e => console.warn("Erro ao salvar usuário no Supabase pelo navegador:", e));
+    }
+
+    if (editingUserId) {
+      handleCancelEditUser();
+      setIsUserModalOpen(false);
+    } else {
+      setIsUserModalOpen(false);
+      setNewUserForm({
+        name: "",
+        email: "",
+        password: "",
+        department: "Financeiro",
+        role: "colaborador"
+      });
+    }
+
+    const finalUser = savedUser;
+    setUsers(prev => [finalUser, ...prev.filter(u => u.id !== finalUser.id)]);
+    setIsSubmittingUser(false);
   };
 
   const handleDeleteUserClick = (user: User) => {
@@ -844,86 +1354,123 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
   const handleConfirmDeleteUser = async () => {
     if (!deletingUser) return;
-    
+    const deletedId = deletingUser.id;
+    const emailDeleted = deletingUser.email;
+    setDeletingUser(null);
+
     try {
-      const isSuccess = await deleteUser(deletingUser.id);
-      if (isSuccess) {
-        const emailDeleted = deletingUser.email;
-        setDeletingUser(null);
-        await fetchUsers();
-        
-        // If logged in as deleted user, log out immediately
-        if (currentSession?.email === emailDeleted) {
-          handleLogout();
-        }
-      } else {
-        alert("Erro ao excluir o colaborador.");
-        setDeletingUser(null);
+      const response = await apiFetch(`/api/users/${deletedId}`, { method: "DELETE" });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        alert(errData?.error || "Não foi possível remover o colaborador.");
+        return;
       }
     } catch (error) {
-      console.error("Erro ao deletar:", error);
-      alert("Erro ao excluir colaborador.");
-      setDeletingUser(null);
+      console.warn("Erro ao enviar deleção para API:", error);
+      alert("Sem conexão com o servidor. Não foi possível remover o colaborador.");
+      return;
+    }
+
+    setUsers(prev => prev.filter(u => u.id !== deletedId));
+    deleteUserFromSupabase(deletedId).catch(e => console.warn("Erro ao excluir usuário no Supabase pelo navegador:", e));
+
+    if (currentSession?.email === emailDeleted) {
+      handleLogout();
     }
   };
 
   const handleUpdateTicketMeta = async (ticketId: string, fields: Partial<Ticket>) => {
+    const targetTicket = tickets.find(t => t.id === ticketId);
+    if (!targetTicket) return;
+
+    // Ask the server first — it's the only place that actually knows whether
+    // this requester is allowed to touch an already-assigned ticket. Only
+    // apply the change locally/to Supabase once the server has confirmed it,
+    // so a rejected request can't be forced through via the optimistic
+    // update or the direct-to-Supabase fallback.
+    let serverTicket: Ticket | null = null;
     try {
-      const ticket = tickets.find(t => t.id === ticketId);
-      if (!ticket) return;
-
-      const updatedTicket: Ticket = {
-        ...ticket,
+      const payload = {
         ...fields,
-        updatedAt: new Date().toISOString()
+        requesterUser: currentSession?.name || null
       };
+      const response = await apiFetch(`/api/tickets/${ticketId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
 
-      const isSuccess = await saveTicket(updatedTicket);
-      if (isSuccess) {
-        setTickets(prev => prev.map(t => t.id === ticketId ? updatedTicket : t));
-      } else {
-        alert("Erro ao atualizar chamado.");
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        alert(errData?.error || "Não foi possível atualizar o chamado.");
+        return;
       }
+      serverTicket = await response.json().catch(() => null);
     } catch (error) {
-      console.error("Erro ao atualizar chamado:", error);
+      console.warn("Erro ao atualizar chamado na API:", error);
+      alert("Sem conexão com o servidor. Não foi possível atualizar o chamado.");
+      return;
     }
+
+    // O servidor é a fonte oficial de status, comentários do sistema e trilha de SLA (pausas).
+    // Adotar a resposta evita que o salvamento direto do navegador sobrescreva esses campos.
+    const updatedTicket: Ticket = serverTicket && serverTicket.id === ticketId
+      ? serverTicket
+      : { ...targetTicket, ...fields, updatedAt: new Date().toISOString() };
+
+    setTickets(prev => prev.map(t => t.id === ticketId ? updatedTicket : t));
+    saveTicketToSupabase(updatedTicket).catch(e => console.warn("Erro ao salvar chamado no Supabase pelo navegador:", e));
   };
 
   const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedTicketId || (!newCommentText.trim() && !commentAttachment)) return;
 
+    const targetTicket = tickets.find(t => t.id === selectedTicketId);
+    if (!targetTicket) return;
+
+    const newComment: Comment = {
+      id: String(Date.now()),
+      authorName: currentSession.name,
+      authorRole: currentSession.role,
+      content: newCommentText.trim() || `[Anexo: ${commentAttachmentName || 'Documento/Imagem'}]`,
+      timestamp: new Date().toISOString()
+    };
+
+    const updatedTicket: Ticket = {
+      ...targetTicket,
+      comments: [...targetTicket.comments, newComment],
+      updatedAt: new Date().toISOString()
+    };
+
+    setTickets(prev => prev.map(t => t.id === selectedTicketId ? updatedTicket : t));
+    setNewCommentText("");
+    setCommentAttachment(null);
+    setCommentAttachmentName("");
+
+    saveTicketToSupabase(updatedTicket).catch(e => console.warn("Erro ao salvar comentário no Supabase pelo navegador:", e));
+
     try {
-      const ticket = tickets.find(t => t.id === selectedTicketId);
-      if (!ticket) return;
-
-      const newComment: Comment = {
-        id: "comment-" + Date.now(),
-        authorName: currentSession.name,
-        authorRole: currentSession.role,
-        content: newCommentText.trim() || `[Anexo: ${commentAttachmentName || 'Documento/Imagem'}]`,
-        timestamp: new Date().toISOString(),
-        attachmentUrl: commentAttachment || undefined,
-        attachmentName: commentAttachmentName || undefined
-      };
-
-      const updatedTicket: Ticket = {
-        ...ticket,
-        comments: [...(ticket.comments || []), newComment],
-        updatedAt: new Date().toISOString()
-      };
-
-      const isSuccess = await saveTicket(updatedTicket);
-      if (isSuccess) {
-        setTickets(prev => prev.map(t => t.id === selectedTicketId ? updatedTicket : t));
-        setNewCommentText("");
-        setCommentAttachment(null);
-        setCommentAttachmentName("");
-      } else {
-        alert("Erro ao adicionar comentário.");
+      const res = await apiFetch(`/api/tickets/${selectedTicketId}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          authorName: currentSession.name,
+          authorRole: currentSession.role,
+          content: newCommentText.trim() || `[Anexo: ${commentAttachmentName || 'Documento/Imagem'}]`,
+          attachmentUrl: commentAttachment || undefined,
+          attachmentName: commentAttachmentName || undefined
+        })
+      });
+      // Estado oficial do servidor (ex.: SLA retomado quando o solicitante responde).
+      const data = res.ok ? await res.json().catch(() => null) : null;
+      if (data?.ticket?.id === targetTicket.id) {
+        const official: Ticket = data.ticket;
+        setTickets(prev => prev.map(t => t.id === official.id ? official : t));
+        saveTicketToSupabase(official).catch(e => console.warn("Erro ao salvar chamado no Supabase pelo navegador:", e));
       }
     } catch (error) {
-      console.error("Erro ao adicionar comentário:", error);
+      console.warn("Erro ao enviar comentário para API:", error);
     }
   };
 
@@ -948,94 +1495,138 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
   const preloaderJSX = showPreloader ? (
     <div
-      className={`fixed inset-0 z-[9999] bg-[#030303] flex flex-col items-center justify-center font-sans overflow-hidden transition-all duration-700 ease-in-out ${
-        preloaderFadeOut ? "opacity-0 scale-105 pointer-events-none" : "opacity-100 scale-100"
+      className={`fixed inset-0 z-[9999] bg-app flex flex-col items-center justify-center font-sans overflow-hidden transition-all duration-200 ease-in-out ${
+        preloaderFadeOut ? "opacity-0 scale-95 pointer-events-none" : "opacity-100 scale-100"
       }`}
     >
-      {/* Subtle high-tech background grid overlay */}
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(16,185,129,0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgba(16,185,129,0.03)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none" />
-
-      {/* Ambient glowing blobs */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-emerald-500/[0.03] rounded-full blur-[130px] pointer-events-none" />
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-emerald-400/[0.04] rounded-full blur-[80px] pointer-events-none" />
-
-      {/* Main Glassmorphic Card */}
-      <div className="relative z-10 max-w-sm w-full mx-4 border border-emerald-500/10 bg-neutral-950/50 backdrop-blur-md rounded-3xl p-8 shadow-[0_0_80px_rgba(16,185,129,0.05),inset_0_1px_1px_rgba(255,255,255,0.05)] text-center flex flex-col items-center gap-7 overflow-hidden">
-        {/* Futuristic HUD corner brackets */}
-        <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-emerald-500/30" />
-        <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-emerald-500/30" />
-        <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-emerald-500/30" />
-        <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-emerald-500/30" />
-
-        {/* Top HUD Tag */}
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/20 border border-emerald-500/10 text-[8px] font-mono font-bold tracking-wider text-emerald-400 uppercase">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          <span>SISTEMA ATIVO // SECURE GATEWAY</span>
+      {/* Clean Corporate Card */}
+      <div className="relative z-10 max-w-[340px] w-full mx-4 border border-default bg-surface rounded-2xl p-6 sm:p-8 shadow-2xl text-center flex flex-col items-center gap-6">
+        {/* Top Status Badge */}
+        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface border border-default text-[10px] font-bold tracking-wider text-secondary uppercase">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          <span>PORTAL DE ATENDIMENTO CORPORATIVO</span>
         </div>
 
-        {/* Logo Area with dynamic rings */}
-        <div className="relative w-28 h-28 flex items-center justify-center mt-2">
-          {/* Dashed outer spinner */}
-          <div className="absolute inset-0 rounded-full border border-dashed border-emerald-500/20 animate-[spin_12s_linear_infinite]" />
-          {/* Glowing ring */}
-          <div className="absolute -inset-1 rounded-full border border-emerald-500/10 animate-pulse-slow" />
-          {/* Pulse flare */}
-          <div className="absolute -inset-2 rounded-full border border-emerald-400/5 animate-ping [animation-duration:4s]" />
-          
-          {/* Deep glow underlogo */}
-          <div className="absolute inset-4 bg-emerald-500/10 rounded-full blur-xl" />
-
+        {/* Clean Logo */}
+        <div className="w-16 h-16 flex items-center justify-center my-1">
           <img
-            src={logoImg}
+            src={logoMin}
             alt="GRAN7"
-            className="w-16 h-16 object-contain relative z-10 filter drop-shadow-[0_0_12px_rgba(16,185,129,0.35)] transition-all duration-300"
+            className="w-14 h-14 object-contain"
           />
         </div>
 
         {/* Text Area */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-center gap-1.5">
-            <span className="font-display font-black text-2xl tracking-tight text-white">GRAN</span>
-            <span className="font-display font-black text-2xl italic text-emerald-400 px-1 bg-emerald-500/10 rounded-md border border-emerald-500/20">7</span>
-            <span className="font-display font-light text-xl tracking-[0.2em] text-emerald-400/90 ml-1">HELP</span>
-          </div>
-          <p className="text-[10px] uppercase tracking-[0.25em] text-slate-500 font-extrabold">Help Desk inteligente corporativo</p>
+        <div className="text-center">
+          <Gran7Brand size="lg" showSubtitle={true} subtitleText="SISTEMA DE GESTÃO DE CHAMADOS" />
         </div>
 
-        {/* Detailed Progress Loading Section */}
+        {/* Progress Section */}
         <div className="w-full space-y-2 mt-2">
-          {/* Percentage & Status Label Row */}
-          <div className="flex justify-between items-center text-[10px] font-mono font-bold tracking-wider text-slate-400 px-0.5">
-            <div className="flex items-center gap-1.5 text-emerald-400/90">
-              <StatusIcon className="h-3.5 w-3.5 animate-pulse text-emerald-400" />
-              <span className="uppercase text-[9px] font-mono tracking-widest text-slate-400 truncate max-w-[200px]">
-                {statusText}
-              </span>
-            </div>
-            <span className="text-emerald-400 font-mono font-extrabold">{preloaderProgress}%</span>
+          <div className="flex justify-between items-center text-[10px] font-bold text-secondary px-0.5">
+            <span className="uppercase text-[10px] tracking-wider text-secondary truncate">
+              {statusText}
+            </span>
+            <span className="text-emerald-400 font-mono font-bold">{Math.round(preloaderProgress)}%</span>
           </div>
-          {/* Progress Bar Container */}
-          <div className="w-full h-2 bg-neutral-950/80 rounded-full border border-neutral-900 overflow-hidden p-[1px]">
-            <div 
-              className="h-full bg-gradient-to-r from-emerald-500 to-emerald-300 rounded-full shadow-[0_0_12px_rgba(16,185,129,0.6)] transition-all duration-100 ease-out"
+          <div className="w-full h-1.5 bg-surface rounded-full border border-default/80 overflow-hidden">
+            <div
+              className={`h-full bg-emerald-600 rounded-full transition-all duration-150 ease-out ${
+                preloaderProgress >= 99 && preloaderProgress < 100 ? "animate-pulse" : ""
+              }`}
               style={{ width: `${preloaderProgress}%` }}
             />
           </div>
         </div>
 
-        {/* Small HUD style metadata footer */}
-        <div className="flex items-center justify-between w-full border-t border-neutral-900/50 pt-4 text-[8px] font-mono text-slate-600 uppercase tracking-widest mt-1">
-          <span>SSL SECURE CONNECTION</span>
-          <span className="text-emerald-500/50 font-bold">READY v2.4.0</span>
+        <div className="flex items-center justify-between w-full border-t border-default/60 pt-3 text-[9px] text-muted font-medium">
+          <span>GRAN7 NUTRITION &amp; BIOTECHNOLOGY</span>
+          <span className="text-secondary font-mono">v2.4</span>
         </div>
       </div>
     </div>
   ) : null;
 
   // Selected ticket calculation
+  // Técnicos veem qualquer chamado; colaboradores apenas os próprios (vale também para acesso direto por URL).
   const selectedTicket = useMemo(() => {
-    return tickets.find(t => t.id === selectedTicketId) || null;
-  }, [tickets, selectedTicketId]);
+    const t = tickets.find(x => x.id === selectedTicketId);
+    if (!t || !currentSession) return null;
+    return currentSession.role === "tecnico" || t.requesterName === currentSession.name ? t : null;
+  }, [tickets, selectedTicketId, currentSession]);
+
+  // ── Workspace do chamado: rota /chamados/:id, transição e retorno ──
+  const closeTicket = useTicketRoute(selectedTicketId, setSelectedTicketId);
+  const reduceMotion = useReducedMotion() ?? false;
+  const contentRef = useRef<HTMLDivElement>(null);
+  const queueScrollRef = useRef(0);
+  const pressTimerRef = useRef<number | undefined>(undefined);
+  const [pressedTicketId, setPressedTicketId] = useState<string | null>(null);
+  const [expandOrigin, setExpandOrigin] = useState<ExpandOrigin | null>(null);
+
+  useEffect(() => () => window.clearTimeout(pressTimerRef.current), []);
+
+  const openTicket = useCallback((id: string, origin?: DOMRect) => {
+    if (pressTimerRef.current) return; // ignora duplo clique durante a transição
+    queueScrollRef.current = contentRef.current?.scrollTop ?? 0;
+    if (reduceMotion || !origin) {
+      setSelectedTicketId(id);
+      return;
+    }
+    const title = tickets.find(t => t.id === id)?.title ?? "";
+    setPressedTicketId(id);
+    pressTimerRef.current = window.setTimeout(() => {
+      pressTimerRef.current = undefined;
+      setPressedTicketId(null);
+      setExpandOrigin({ id, title, rect: { top: origin.top, left: origin.left, width: origin.width, height: origin.height } });
+      setSelectedTicketId(id);
+    }, REVEAL.pressMs);
+  }, [reduceMotion, tickets]);
+
+  // Esc volta para a fila (sem interferir em campos de texto nem na pré-visualização de imagem)
+  useEffect(() => {
+    if (!selectedTicketId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || previewImage) return;
+      const el = e.target as HTMLElement | null;
+      if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+      closeTicket();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedTicketId, previewImage, closeTicket]);
+
+  // Mesma lógica de leitura/compressão usada antes pelo modal (seleção de arquivo e colagem de imagem)
+  const attachFileToComment = (file: File, fallbackName = "anexo") => {
+    const name = file.name || fallbackName;
+    const readPlain = () => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setCommentAttachment(reader.result as string);
+        setCommentAttachmentName(name);
+      };
+      reader.readAsDataURL(file);
+    };
+    if (file.type.startsWith("image/")) {
+      compressImage(file)
+        .then((url) => {
+          setCommentAttachment(url);
+          setCommentAttachmentName(name);
+        })
+        .catch(readPlain);
+    } else {
+      readPlain();
+    }
+  };
+
+  const toggleDesktopNotifications = async () => {
+    if (desktopNotificationPermission === "granted") {
+      testDesktopNotification();
+    } else {
+      const res = await requestDesktopNotificationPermission();
+      if (res === "granted") testDesktopNotification();
+    }
+  };
 
   const isAssignedToOther = useMemo(() => {
     return !!(selectedTicket && currentSession && currentSession.role === "tecnico" && selectedTicket.assignedTo && !getAssignedTechs(selectedTicket.assignedTo).includes(currentSession.name));
@@ -1049,29 +1640,30 @@ CREATE TABLE IF NOT EXISTS public.tickets (
     );
   }, [tickets, currentSession]);
 
-  // Helper function to check if a ticket/project is overdue
-  const isTicketOverdue = useCallback((t: Ticket) => {
-    if (t.status === "Resolvido" || t.status === "Fechado") return false;
-    if (t.projectDeadline) {
-      const deadlineDate = new Date(t.projectDeadline);
-      deadlineDate.setHours(23, 59, 59, 999);
-      return deadlineDate.getTime() < Date.now();
-    }
-    return new Date(t.slaLimit).getTime() < Date.now();
-  }, []);
+  // Todos os prazos/vencimentos vêm do motor único (src/lib/sla), em horas úteis. O campo legado
+  // `slaLimit` (horas corridas) não decide mais atraso, urgência nem vencimento exibido.
+  // `nowMs` se atualiza a cada minuto para os selos refletirem o tempo útil decorrido.
+  const nowMs = useNow(60_000);
+  const isTicketOverdue = useCallback((t: Ticket) => engineIsOverdue(t, nowMs), [nowMs]);
+  const getSlaEscalation = useCallback((t: Ticket) => engineSlaEscalation(t, nowMs), [nowMs]);
 
   // Filtered tickets calculation
   const filteredTickets = useMemo(() => {
-    const filtered = userVisibleTickets.filter(t => {
+    const byNewest = (a: Ticket, b: Ticket) => {
+      const ta = new Date(a.createdAt).getTime() || 0;
+      const tb = new Date(b.createdAt).getTime() || 0;
+      return tb - ta;
+    };
+    return [...userVisibleTickets].sort(byNewest).filter(t => {
       // Tab filtering: hide active projects from normal ticket queue and vice versa
       if (activeTab === "painel") {
         // "Fila de Chamados" hides active projects
-        if (t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado") {
+        if (PROJECTS_MODULE_ENABLED && t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado") {
           return false;
         }
       } else if (activeTab === "projetos") {
-        // "Projetos em Andamento" shows only active projects
-        if (!t.projectDeadline || t.status === "Resolvido" || t.status === "Fechado") {
+        // "Projetos em Andamento" shows all projects
+        if (!t.projectDeadline) {
           return false;
         }
       }
@@ -1087,29 +1679,9 @@ CREATE TABLE IF NOT EXISTS public.tickets (
       const matchesPriority = selectedPriority === "All" || t.priority === selectedPriority;
       const matchesStatus = 
         selectedStatus === "All" || 
-        (selectedStatus === "Active" ? (t.status === "Aberto" || t.status === "Em Atendimento") : t.status === selectedStatus);
+        (selectedStatus === "Active" ? (t.status === "Aberto" || t.status === "Em Atendimento" || t.status === "Aguardando Solicitante") : t.status === selectedStatus);
 
       return matchesSearch && matchesCategory && matchesPriority && matchesStatus;
-    });
-
-    // Ordenação da fila de chamados:
-    // 1. Status ativo (Aberto/Em Atendimento) no topo antes de Resolvido/Fechado.
-    // 2. Maior prioridade primeiro (Urgente > Alta > Média > Baixa).
-    // 3. Mais recentes primeiro (data de criação decrescente).
-    return filtered.sort((a, b) => {
-      const aIsActive = a.status === "Aberto" || a.status === "Em Atendimento";
-      const bIsActive = b.status === "Aberto" || b.status === "Em Atendimento";
-      if (aIsActive && !bIsActive) return -1;
-      if (!aIsActive && bIsActive) return 1;
-
-      const priorityWeights: Record<string, number> = { Urgente: 4, Alta: 3, Média: 2, Baixa: 1 };
-      const aWeight = priorityWeights[a.priority] || 0;
-      const bWeight = priorityWeights[b.priority] || 0;
-      if (aWeight !== bWeight) {
-        return bWeight - aWeight;
-      }
-
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
   }, [userVisibleTickets, activeTab, searchTerm, selectedCategory, selectedPriority, selectedStatus]);
 
@@ -1117,7 +1689,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
   const totalTickets = userVisibleTickets.length;
   // Fila Ativa excludes active projects with long dates
   const activeTickets = useMemo(() => {
-    return userVisibleTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado" && !t.projectDeadline);
+    return userVisibleTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado" && (!PROJECTS_MODULE_ENABLED || !t.projectDeadline));
   }, [userVisibleTickets]);
 
   const activeProjects = useMemo(() => {
@@ -1141,9 +1713,17 @@ CREATE TABLE IF NOT EXISTS public.tickets (
     return allActiveTickets.filter(t => isTicketOverdue(t));
   }, [allActiveTickets, isTicketOverdue]);
 
-  const slaCompliance = useMemo(() => {
-    return totalTickets > 0 ? Math.round(((totalTickets - overdueTickets.length) / totalTickets) * 100) : 100;
-  }, [totalTickets, overdueTickets]);
+  // Eficiência do SLA = resolvidos dentro do prazo / resolvidos avaliáveis (horas úteis).
+  // Sem chamados avaliáveis o resultado é `null` ("sem dados"), nunca 100%.
+  const slaMetrics = useMemo(() => computeSlaMetrics(userVisibleTickets, nowMs), [userVisibleTickets, nowMs]);
+  // SLA e TMA do técnico no perfil: resolvidos no prazo ÷ resolvidos avaliáveis (SLA original, horas úteis) e
+  // tempo útil médio até a primeira resolução. Mesmo motor e mesma regra de responsável da tabela
+  // "Desempenho por Técnico"; sem dados ⇒ null (nunca 100%).
+  const profileTechSla = useMemo(() => {
+    if (!isTechProfileModalOpen || !selectedTechProfile) return null;
+    return techProfileMetrics(tickets, selectedTechProfile.name, nowMs);
+  }, [isTechProfileModalOpen, selectedTechProfile?.name, tickets, nowMs]);
+  const slaCompliance = slaMetrics.resolution.pct;
 
   // Category counts
   const catStats = useMemo(() => {
@@ -1159,16 +1739,34 @@ CREATE TABLE IF NOT EXISTS public.tickets (
     return stats;
   }, [userVisibleTickets]);
 
+  // Chamado só após a autenticação ter sido confirmada pelo servidor (LoginScreen); não refaz o login.
+  const handleLoginSuccess = (session: UserSession) => {
+    // Sem animação quando precisa trocar a senha (outra tela) ou com movimento reduzido.
+    const fx = session.mustChangePassword ? null : resolveAuthFx();
+    if (fx) setAuthFx(fx);
+    setCurrentSession(session);
+    localStorage.setItem("gran7_session", JSON.stringify(session));
+    if (session.email || session.name) {
+      apiFetch("/api/heartbeat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: session.email, name: session.name })
+      }).then(() => fetchUsers()).catch(() => {});
+    }
+  };
+
+  // A tela de login permanece montada (mesma posição na árvore) enquanto a transição roda.
+  const loginLayer = (!currentSession || authFx) ? (
+    <LoginLayer exiting={!!authFx && !!currentSession} vars={authFx}>
+      <LoginScreen onLoginSuccess={handleLoginSuccess} />
+    </LoginLayer>
+  ) : null;
+
   if (!currentSession) {
     return (
       <>
-        <LoginScreen 
-          users={users} 
-          onLoginSuccess={(session) => {
-            setCurrentSession(session);
-            localStorage.setItem("gran7_session", JSON.stringify(session));
-          }} 
-        />
+        {null}
+        {loginLayer}
         {preloaderJSX}
       </>
     );
@@ -1193,434 +1791,160 @@ CREATE TABLE IF NOT EXISTS public.tickets (
     );
   }
 
+  const isQueueTab = activeTab !== "projetos" && activeTab !== "sla" && activeTab !== "colaboradores" && activeTab !== "banco_dados";
+
   return (
-    <div className="min-h-screen bg-black text-slate-100 flex flex-col md:flex-row font-sans relative">
-      <PlantationBackground />
-      
-      {/* Sidebar - Bento Style */}
-      <aside className={`w-full ${sidebarCollapsed ? "md:w-20" : "md:w-80"} bg-[#060606] border-b md:border-b-0 md:border-r border-emerald-950/20 flex flex-col shrink-0 transition-all duration-300 relative`}>
-        <div className={`p-4 flex transition-all border-b border-emerald-950/20 ${
-          sidebarCollapsed 
-            ? "md:flex-col md:p-3 md:py-4 gap-3 items-center justify-center" 
-            : "md:p-6 items-center justify-between"
-        }`}>
-          {(!sidebarCollapsed || logoError) ? (
-            <div className={`${sidebarCollapsed ? "md:hidden" : "block"} transition-all duration-200`}>
-              {!logoError ? (
-                <img 
-                  src="/assets/logo.png" 
-                  alt="GRAN7 HELP" 
-                  className="h-12 w-auto object-contain max-w-full"
-                  onError={() => setLogoError(true)}
-                />
-              ) : (
-                <div className="flex items-center gap-3 w-full">
-                  <img 
-                    src={logoImg} 
-                    alt="GRAN7" 
-                    className="w-10 h-10 object-contain rounded-xl shadow-lg border border-emerald-400/25 shrink-0"
-                  />
-                  <div>
-                    <h1 className="font-display font-extrabold text-white tracking-tight text-lg">
-                      GRAN<span className="text-emerald-400 font-bold italic tracking-wide text-lg">7</span><span className="text-emerald-400 font-light tracking-widest text-sm"> HELP</span>
-                    </h1>
-                    <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Help Desk inteligente</p>
-                  </div>
-                </div>
-              )}
+    <>
+    <div
+      className={`bg-app text-primary font-sans relative${authFx ? " g7-enter" : ""}`}
+      style={authFx ?? undefined}
+    >
+      <AppLayout
+        activeTab={activeTab}
+        contentRef={contentRef}
+        onNavigate={(tab) => { if (selectedTicketId) closeTicket(); setActiveTab(tab); }}
+        onGoHome={() => { if (selectedTicketId) closeTicket(); handleGoToHome(); }}
+        isTechUser={isTechUser}
+        user={{ name: currentSession.name, department: currentSession.department, photo: users.find(u => u.email && currentSession.email && u.email.toLowerCase() === currentSession.email.toLowerCase())?.photo ?? null }}
+        logoSrc={resolvedTheme === "light" ? logoBlack : logoImg}
+        markSrc={logoMin}
+        searchTerm={searchTerm}
+        onSearchChange={(value) => {
+          if (selectedTicketId) closeTicket();
+          setSearchTerm(value);
+          if (activeTab !== "painel" && activeTab !== "projetos") setActiveTab("painel");
+        }}
+        techStatus={users
+          .filter(u => u.role === "tecnico")
+          .map((u, idx) => ({
+            key: u.id || String(idx),
+            name: u.name,
+            isOnline: !!(u.isOnline || (currentSession && (
+              (u.email && currentSession.email && u.email.toLowerCase() === currentSession.email.toLowerCase()) ||
+              (u.name && currentSession.name && u.name.toLowerCase() === currentSession.name.toLowerCase())
+            ))),
+          }))
+          .sort((a, b) => (b.isOnline ? 1 : 0) - (a.isOnline ? 1 : 0))}
+        notificationPermission={typeof window !== "undefined" && "Notification" in window ? desktopNotificationPermission : "unsupported"}
+        onRequestNotifications={() => { requestDesktopNotificationPermission(); }}
+        onOpenNotificationGuide={() => setIsNotificationGuideOpen(true)}
+        onTestNotification={() => { testDesktopNotification(); }}
+        onLogout={() => { setSelectedTicketId(null); handleLogout(); }}
+        onOpenProfile={() => {
+          const myProfile = users.find(u => u.name === currentSession.name || (u.email && currentSession.email && u.email.toLowerCase() === currentSession.email.toLowerCase())) || {
+            id: "self",
+            name: currentSession.name,
+            email: currentSession.email || `${currentSession.name.toLowerCase().replace(/s+/g, ".")}@gran7.com.br`,
+            role: currentSession.role,
+            department: currentSession.department || "Geral",
+            isOnline: true
+          };
+          setSelectedTechProfile(myProfile);
+          setProfileModalTab("overview");
+          setProfileTicketsFilter("all");
+          setIsTechProfileModalOpen(true);
+        }}
+      >
+      {/* Main Full-Width Content Container */}
+      <AnimatePresence mode="wait" initial={false}>
+      {selectedTicketId ? (
+        <motion.div
+          key="ticket-workspace"
+          className="md:h-full"
+          initial={false}
+          exit={reduceMotion ? { opacity: 0, transition: { duration: 0.01 } } : { opacity: 0, scale: REVEAL.exit.scale, transition: { duration: REVEAL.exit.duration, ease: REVEAL.ease } }}
+        >
+          {selectedTicket ? (
+            <TicketWorkspace
+              ticket={selectedTicket}
+              currentSession={currentSession}
+              users={users}
+              isTechUser={isTechUser}
+              isAssignedToOther={isAssignedToOther}
+              isOverdue={isTicketOverdue(selectedTicket)}
+              slaLabel={getSlaEscalation(selectedTicket).label}
+              getAssignedTechs={getAssignedTechs}
+              getFirstAssignedTech={getFirstAssignedTech}
+              onUpdateMeta={handleUpdateTicketMeta}
+              onDelete={handleDeleteTicket}
+              confirmingDeleteId={isConfirmingDeleteTicket}
+              setConfirmingDeleteId={setIsConfirmingDeleteTicket}
+              notificationPermission={typeof window !== "undefined" && "Notification" in window ? desktopNotificationPermission : "unsupported"}
+              onToggleNotifications={toggleDesktopNotifications}
+              onPreviewImage={setPreviewImage}
+              commentText={newCommentText}
+              setCommentText={setNewCommentText}
+              commentAttachment={commentAttachment}
+              commentAttachmentName={commentAttachmentName}
+              onClearAttachment={() => { setCommentAttachment(null); setCommentAttachmentName(""); }}
+              onAttachFile={attachFileToComment}
+              onSubmitComment={handleAddComment}
+              onBack={closeTicket}
+              reduceMotion={reduceMotion}
+            />
+          ) : loading ? (
+            <div className="p-6 max-w-[1800px] mx-auto" aria-busy="true" aria-label="Carregando chamado">
+              <div className="h-16 rounded-xl bg-surface border border-default motion-safe:animate-pulse" />
+              <div className="mt-4 grid grid-cols-1 xl:grid-cols-[28fr_45fr_27fr] gap-4">
+                {[0, 1, 2].map(i => <div key={i} className="h-80 rounded-xl bg-surface border border-default motion-safe:animate-pulse" />)}
+              </div>
             </div>
-          ) : null}
-
-          {sidebarCollapsed && !logoError && (
-            <div className="hidden md:flex items-center justify-center transition-all duration-200">
-              <img 
-                src={logoImg} 
-                alt="GRAN7" 
-                className="w-9 h-9 object-contain rounded-lg border border-emerald-400/20 shadow-md shrink-0"
-                onError={() => setLogoError(true)}
-              />
-            </div>
+          ) : (
+            <EmptyState
+              icon={SearchX}
+              title="Chamado não encontrado"
+              description="Ele pode ter sido removido ou você não tem permissão para visualizá-lo."
+              secondaryAction={{ label: "Voltar para a fila", onClick: closeTicket }}
+            />
           )}
-
-          <button
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="p-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-850 border border-neutral-800 text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center"
-            title={sidebarCollapsed ? "Expandir menu lateral" : "Recolher menu lateral"}
-          >
-            {sidebarCollapsed ? (
-              <ChevronRight className="h-4 w-4 text-emerald-400" />
-            ) : (
-              <ChevronLeft className="h-4 w-4" />
-            )}
-          </button>
-        </div>
-
-        {sidebarCollapsed ? (
-          /* Collapsed Mini-Sidebar (Only visible on desktop md:flex, hidden on mobile) */
-          <div className="hidden md:flex flex-col items-center flex-1 py-4 justify-between animate-in fade-in duration-300">
-            <div className="space-y-6 flex flex-col items-center w-full">
-              {/* User Avatar Badge with click to show My Tickets */}
-              <button 
-                onClick={() => {
-                  if (currentSession?.role === "tecnico") {
-                    setMyTicketsViewMode("resolved");
-                  } else {
-                    setMyTicketsViewMode("created");
-                  }
-                  setMyTicketsTab("all");
-                  setIsMyTicketsModalOpen(true);
-                }}
-                className="w-10 h-10 rounded-full bg-neutral-950 border border-neutral-900 flex items-center justify-center text-xs font-bold text-emerald-400 hover:border-emerald-400/40 hover:bg-emerald-500/10 transition-all cursor-pointer shadow-md group relative"
-                title={`Ver chamados de ${currentSession?.name || ""}`}
-              >
-                {(currentSession?.name || "User").split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
-                <span className="absolute -bottom-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-black"></span>
-              </button>
-
-              {/* Quick Metrics Icons */}
-              <div className="flex flex-col gap-3 items-center w-full px-2">
-                <button 
-                  onClick={() => {
-                    setActiveTab("painel");
-                    setSelectedStatus("Active");
-                  }}
-                  className={`p-2 bg-neutral-950/50 hover:bg-emerald-500/5 hover:border-emerald-500/30 rounded-xl border flex items-center justify-center transition-all cursor-pointer relative group ${
-                    activeTab === "painel" && selectedStatus === "Active" ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400" : "border-neutral-900 text-slate-400"
-                  }`}
-                  title={`Fila Ativa: ${activeTickets.length} (Clique para filtrar)`}
-                >
-                  <Layers className="h-4 w-4" />
-                  <span className="absolute -top-1.5 -right-1.5 bg-emerald-500 text-black text-[8px] font-black h-4 w-4 rounded-full flex items-center justify-center scale-90 border border-black">{activeTickets.length}</span>
-                </button>
-
-                {currentSession?.role === "tecnico" && (
-                  <>
-                    <button 
-                      onClick={() => {
-                        setActiveTab("projetos");
-                      }}
-                      className={`p-2 bg-neutral-950/50 hover:bg-emerald-500/5 hover:border-emerald-500/30 rounded-xl border flex items-center justify-center transition-all cursor-pointer relative group ${
-                        activeTab === "projetos" ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400" : "border-neutral-900 text-slate-400"
-                      }`}
-                      title={`Projetos em Andamento: ${activeProjects.length} (Clique para filtrar)`}
-                    >
-                      <Briefcase className="h-4 w-4" />
-                      <span className="absolute -top-1.5 -right-1.5 bg-emerald-500 text-black text-[8px] font-black h-4 w-4 rounded-full flex items-center justify-center scale-90 border border-black">{activeProjects.length}</span>
-                    </button>
-
-                    <button 
-                      onClick={() => setActiveTab("sla")}
-                      className={`p-2 bg-neutral-950/50 hover:bg-emerald-500/5 hover:border-emerald-500/30 rounded-xl border flex items-center justify-center transition-all cursor-pointer ${
-                        activeTab === "sla" ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400" : "border-neutral-900 text-slate-400"
-                      }`}
-                      title={`SLA Geral: ${slaCompliance}% (Clique para gerenciar)`}
-                    >
-                      <Clock className="h-4 w-4" />
-                    </button>
-                  </>
-                )}
-              </div>
-
-              {/* Category mini dots */}
-              <div className="flex flex-col gap-2.5 pt-4 border-t border-neutral-900/60 w-full items-center">
-                {Object.entries(catStats).map(([cat, count]) => (
-                  <button
-                    key={cat}
-                    onClick={() => setSelectedCategory(selectedCategory === cat ? "All" : cat)}
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${
-                      selectedCategory === cat 
-                        ? "bg-emerald-500/10 border border-emerald-400/45 text-emerald-400" 
-                        : "bg-transparent border border-transparent hover:bg-neutral-900/40 text-slate-500 hover:text-white"
-                    }`}
-                    title={`${cat}: ${count} chamados`}
-                  >
-                    <span className={`w-2 h-2 rounded-full ${
-                      cat === 'Acesso' ? 'bg-rose-400' :
-                      cat === 'Redes' ? 'bg-emerald-400' :
-                      cat === 'Hardware' ? 'bg-amber-400' :
-                      cat === 'Software' ? 'bg-emerald-400 shadow-neon-sm' :
-                      cat === 'Sistemas' ? 'bg-emerald-500 shadow-neon-sm' : 'bg-neutral-500'
-                    }`} />
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Logout button at the bottom */}
-            <button
-              onClick={handleLogout}
-              className="p-2 bg-rose-500/5 hover:bg-rose-500/15 border border-rose-500/10 hover:border-rose-500/25 text-rose-400 rounded-xl transition cursor-pointer"
-              title="Sair da Conta"
-            >
-              <LogOut className="h-4 w-4" />
-            </button>
-          </div>
-        ) : (
-          /* Normal Expanded Sidebar (Visible on desktop & mobile when open) */
-          <div className="flex flex-col flex-1 overflow-y-auto animate-in fade-in duration-200">
-            {/* Current user session switcher badge */}
-            <div className="p-4 mx-4 my-4 bg-[#0a0a0a] rounded-2xl border border-emerald-950/35 shadow-xl shadow-black/40">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">Identidade de Acesso</span>
-                <span className={`text-[9px] px-2.5 py-0.5 rounded-full font-bold uppercase ${currentSession.role === "tecnico" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-emerald-600/5 text-emerald-300 border border-emerald-500/10"}`}>
-                  {currentSession.role === "tecnico" ? "Técnico" : "Colaborador"}
-                </span>
-              </div>
-
-              <div 
-                onClick={() => setIsMyTicketsModalOpen(true)}
-                className="flex items-center gap-3 p-2 rounded-xl bg-black hover:bg-[#050505] border border-neutral-900 hover:border-emerald-400/30 cursor-pointer transition-all duration-200 group relative"
-                title="Clique para ver seus chamados"
-              >
-                <div className="w-9 h-9 rounded-full bg-[#050505] border border-neutral-800 flex items-center justify-center text-sm font-bold text-emerald-400 group-hover:bg-emerald-400/10 group-hover:border-emerald-400/30 transition-all">
-                  {(currentSession?.name || "User").split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
-                </div>
-                <div className="overflow-hidden flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors truncate">{currentSession?.name || ""}</p>
-                    <Layers className="h-3 w-3 text-neutral-500 group-hover:text-emerald-400 transition-colors flex-shrink-0" />
-                  </div>
-                  <p className="text-[10px] text-neutral-400 group-hover:text-neutral-300 transition-colors truncate">{currentSession?.department || ""}</p>
-                </div>
-                <span className="text-[9px] text-neutral-500 group-hover:text-emerald-400 font-medium transition-colors pr-1">Ver</span>
-              </div>
-
-              <div className="mt-4 flex flex-col gap-2">
-                <button
-                  onClick={() => {
-                    if (currentSession?.role === "tecnico") {
-                      setMyTicketsViewMode("resolved");
-                    } else {
-                      setMyTicketsViewMode("created");
-                    }
-                    setMyTicketsTab("all");
-                    setIsMyTicketsModalOpen(true);
-                  }}
-                  className="w-full py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 border border-emerald-500/20 cursor-pointer shadow-sm"
-                >
-                  <Layers className="h-3.5 w-3.5" />
-                  Ver Meus Chamados
-                </button>
-
-                <button
-                  onClick={handleLogout}
-                  className="w-full py-1.5 px-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 border border-rose-500/20 cursor-pointer"
-                >
-                  <LogOut className="h-3.5 w-3.5" />
-                  Sair da Conta
-                </button>
-              </div>
-            </div>
-
-            {/* Quick Help Desk Statistics / Bento Mini Blocks */}
-            <div className="px-6 py-2 flex-1 space-y-4">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-                {currentSession.role === "tecnico" ? "Métricas Globais" : "Minhas Métricas"}
-              </span>
-              
-              <div className={`grid ${currentSession.role === "tecnico" ? "grid-cols-3" : "grid-cols-1"} gap-2`}>
-                <button
-                  onClick={() => {
-                    setActiveTab("painel");
-                    setSelectedStatus("Active");
-                  }}
-                  className={`p-2.5 rounded-xl border text-left transition-all hover:bg-emerald-500/5 hover:border-emerald-500/30 cursor-pointer ${
-                    activeTab === "painel" && selectedStatus === "Active" ? "border-emerald-500/40 bg-emerald-500/10" : "bg-black/50 border-neutral-900"
-                  }`}
-                  title="Filtrar por fila ativa"
-                >
-                  <p className="text-[9px] font-medium text-slate-500 leading-tight">
-                    {currentSession.role === "tecnico" ? "Fila Ativa" : "Meus Ativos"}
-                  </p>
-                  <p className="text-lg font-bold text-white mt-1">{activeTickets.length}</p>
-                </button>
-                
-                {currentSession.role === "tecnico" && (
-                  <>
-                    <button
-                      onClick={() => {
-                        setActiveTab("projetos");
-                      }}
-                      className={`p-2.5 rounded-xl border text-left transition-all hover:bg-emerald-500/5 hover:border-emerald-500/30 cursor-pointer ${
-                        activeTab === "projetos" ? "border-emerald-500/40 bg-emerald-500/10" : "bg-black/50 border-neutral-900"
-                      }`}
-                      title="Filtrar por projetos em andamento"
-                    >
-                      <p className="text-[9px] font-medium text-slate-500 leading-tight">
-                        Projetos
-                      </p>
-                      <p className="text-lg font-bold text-white mt-1">{activeProjects.length}</p>
-                    </button>
-                    <button
-                      onClick={() => setActiveTab("sla")}
-                      className={`p-2.5 rounded-xl border text-left transition-all hover:bg-emerald-500/5 hover:border-emerald-500/30 cursor-pointer ${
-                        activeTab === "sla" ? "border-emerald-500/40 bg-emerald-500/10" : "bg-black/50 border-neutral-900"
-                      }`}
-                      title="Ver painel de SLA"
-                    >
-                      <p className="text-[9px] font-medium text-slate-500 leading-tight">
-                        SLA Geral
-                      </p>
-                      <p className={`text-lg font-bold mt-1 ${activeTab === "sla" ? "text-emerald-400" : "text-emerald-500"}`}>{slaCompliance}%</p>
-                    </button>
-                  </>
-                )}
-              </div>
-
-              {/* Quick Filter Counters list */}
-              <div className="space-y-1.5 pt-2">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-2">
-                  {currentSession.role === "tecnico" ? "Monitoramento por Categorias" : "Minhas Categorias"}
-                </span>
-                {Object.entries(catStats).map(([cat, count]) => (
-                  <button
-                    key={cat}
-                    onClick={() => setSelectedCategory(selectedCategory === cat ? "All" : cat)}
-                    className={`w-full flex items-center justify-between text-xs px-3 py-1.5 rounded-lg transition-all ${selectedCategory === cat ? "bg-emerald-500/10 text-emerald-400 border border-emerald-400/30 shadow-neon-sm font-semibold" : "text-slate-400 hover:bg-[#111]/40 hover:text-white"}`}
-                  >
-                    <span className="flex items-center gap-2">
-                      <span className={`w-1.5 h-1.5 rounded-full ${
-                        cat === 'Acesso' ? 'bg-rose-400' :
-                        cat === 'Redes' ? 'bg-emerald-400' :
-                        cat === 'Hardware' ? 'bg-amber-400' :
-                        cat === 'Software' ? 'bg-emerald-400 shadow-neon-sm' :
-                        cat === 'Sistemas' ? 'bg-emerald-500 shadow-neon-sm' : 'bg-neutral-500'
-                      }`} />
-                      {cat}
-                    </span>
-                    <span className="bg-[#111] px-1.5 py-0.5 rounded text-[10px] font-bold text-neutral-400 font-mono">{count}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Footer info & resetting data */}
-            <div className="p-4 border-t border-neutral-900 mt-auto">
-              <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
-                <span className="flex items-center gap-1">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  GRAN7 HELP Online <span className="text-neutral-600 font-bold ml-0.5">v2.4.0</span>
-                </span>
-                {currentSession?.name?.toLowerCase() === "daniel kevin" && (
-                  <span 
-                    onClick={() => setActiveTab("banco_dados")}
-                    className={`flex items-center gap-1.5 cursor-pointer transition ${dbStatus?.connected ? "text-emerald-400 hover:text-emerald-300 font-bold" : "text-amber-500 hover:text-amber-400"}`}
-                    title={dbStatus?.connected ? "Conectado ao Supabase (Clique para gerenciar)" : "Modo Cache Local Ativo (Clique para gerenciar)"}
-                  >
-                    <span className={`h-1.5 w-1.5 rounded-full ${dbStatus?.connected ? "bg-emerald-400 animate-pulse" : "bg-amber-500"}`} />
-                    {dbStatus?.connected ? "DB: Nuvem" : "DB: Local"}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </aside>
-
-      {/* Main Content Pane */}
-      <main className="flex-1 p-4 md:p-6 flex flex-col gap-6 overflow-x-hidden">
+        </motion.div>
+      ) : (
+      <motion.div
+        key="queue-view"
+        initial={reduceMotion ? false : { opacity: 0, y: REVEAL.queueIn.y }}
+        animate={{ opacity: 1, y: 0, transition: { duration: reduceMotion ? 0 : REVEAL.queueIn.duration, ease: REVEAL.ease } }}
+        exit={{ opacity: 0, transition: { duration: 0.01 } }}
+        onAnimationStart={() => {
+          if (queueScrollRef.current && contentRef.current) contentRef.current.scrollTop = queueScrollRef.current;
+        }}
+      >
+      <main className="w-full max-w-[1800px] mx-auto p-4 sm:p-6 lg:p-8 flex flex-col gap-6">
         
-        {/* Top Header Controls */}
-        <header className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-          <div>
-            <h2 className="text-xl md:text-2xl font-display font-extrabold text-white tracking-tight">
-              {currentSession.role === "tecnico" ? "Central de Atendimento em Tempo Real" : "Meu Portal de Suporte"}
-            </h2>
-            <div className="flex items-center gap-2 text-xs text-slate-400 mt-1">
-              <span>{currentSession.role === "tecnico" ? "GRAN7 HELP Monitoramento" : `Bem-vindo, ${currentSession.name}`}</span>
-              <span>•</span>
-              <div className="flex items-center gap-1 text-slate-300">
-                <RefreshCw className={`h-3 w-3 ${isPolling ? "animate-spin text-emerald-400" : ""}`} />
-                <span>Atualizado: {lastUpdated ? lastUpdated.toLocaleTimeString("pt-BR") : "--:--:--"}</span>
-              </div>
+        {/* Cabeçalho da página — somente no módulo Fila de Chamados */}
+        {isQueueTab && (
+          <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+            <div className="min-w-0">
+              <h2 className="font-display text-2xl font-bold tracking-tight text-primary">Fila de Chamados</h2>
+              <p className="mt-1.5 text-sm text-secondary">Acompanhe, priorize e atenda os chamados abertos pela empresa.</p>
             </div>
-          </div>
-
-          <div className="flex flex-col items-stretch md:items-end gap-2.5 shrink-0">
-            {/* First Row: Modules Navigation (Upper right corner) */}
-            {currentSession.role === "tecnico" && (
-              <div className="flex items-center gap-2 justify-end w-full md:w-auto">
-                <button
-                  onClick={() => setModulesCollapsed(!modulesCollapsed)}
-                  className="p-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-850 border border-neutral-800 text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center h-9 shrink-0"
-                  title={modulesCollapsed ? "Expandir módulos de atendimento" : "Recolher módulos de atendimento"}
-                >
-                  {modulesCollapsed ? (
-                    <ChevronRight className="h-4 w-4 text-emerald-400" />
-                  ) : (
-                    <ChevronLeft className="h-4 w-4" />
-                  )}
-                </button>
-
-                <div 
-                  className={`flex items-center transition-all duration-300 ease-in-out bg-black rounded-xl shadow-sm ${
-                    modulesCollapsed 
-                      ? "max-w-0 opacity-0 border-transparent p-0 gap-0 pointer-events-none overflow-hidden" 
-                      : "max-w-full md:max-w-[1000px] opacity-100 border border-neutral-900 p-1 gap-1.5 overflow-x-auto scrollbar-none"
-                  }`}
-                >
-                  <button
-                    onClick={() => setActiveTab("painel")}
-                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${activeTab === "painel" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
-                  >
-                    Fila de Chamados
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("projetos")}
-                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${activeTab === "projetos" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
-                  >
-                    Projetos em Andamento
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("sla")}
-                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${activeTab === "sla" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
-                  >
-                    Análise de SLA
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("colaboradores")}
-                    className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${activeTab === "colaboradores" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
-                  >
-                    Gestão de Colaboradores
-                  </button>
-                  {currentSession?.name?.toLowerCase() === "daniel kevin" && (
-                    <button
-                      onClick={() => {
-                        setActiveTab("banco_dados");
-                        fetchDbStatus();
-                      }}
-                      className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 ${activeTab === "banco_dados" ? "bg-emerald-400 text-black font-extrabold shadow-neon" : "text-slate-400 hover:text-white"}`}
-                    >
-                      Banco de Dados
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Second Row: Page Actions (Aligned nicely underneath) */}
-            <div className="flex items-center gap-2.5 justify-end w-full">
-              {(activeTab === "painel" || activeTab === "projetos") && (
-                <button
-                  onClick={() => setRightSidebarCollapsed(!rightSidebarCollapsed)}
-                  className="px-4 py-2 bg-neutral-900 hover:bg-neutral-850 border border-neutral-800 text-slate-400 hover:text-white rounded-xl transition-all duration-200 flex items-center justify-center gap-2 text-xs cursor-pointer h-9 shrink-0 font-medium"
-                  title={rightSidebarCollapsed ? "Mostrar painel lateral direito" : "Esconder painel lateral direito"}
-                >
-                  <Columns className={`h-4 w-4 ${rightSidebarCollapsed ? "text-emerald-400" : ""}`} />
-                  <span>{rightSidebarCollapsed ? "Mostrar Painel" : "Recolher Painel"}</span>
-                </button>
-              )}
-
+            <div className="flex items-center gap-2">
               <button
-                onClick={() => setIsNewTicketModalOpen(true)}
-                className="px-4 py-2 bg-emerald-400 hover:bg-emerald-300 text-black font-extrabold rounded-xl transition-all duration-200 flex items-center justify-center gap-2 text-xs shadow-neon hover:shadow-neon-lg cursor-pointer h-9 shrink-0"
+                type="button"
+                onClick={() => fetchTickets(true)}
+                disabled={isPolling}
+                title="Atualizar lista"
+                className="h-9 px-3 inline-flex items-center gap-2 rounded-lg border border-default bg-surface hover:bg-surface-2 text-[13px] text-secondary hover:text-primary transition-colors duration-150 cursor-pointer disabled:opacity-70"
+              >
+                <RefreshCw className={`h-4 w-4 ${isPolling ? "motion-safe:animate-spin text-emerald-500" : ""}`} />
+                <span className="hidden lg:inline tabular-nums whitespace-nowrap">
+                  {lastUpdated ? `Atualizado às ${lastUpdated.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : "Atualizar"}
+                </span>
+                <span className="md:hidden sr-only">Atualizar</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setNewTicketForm((f) => ({ ...f, projectDeadline: "" }));
+                  setIsNewTicketModalOpen(true);
+                }}
+                className="h-9 px-4 inline-flex items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-sm font-semibold shadow-card transition-colors duration-150 cursor-pointer"
               >
                 <PlusCircle className="h-4 w-4" />
-                <span>Abrir Novo Chamado</span>
+                Novo Chamado
               </button>
             </div>
-          </div>
-        </header>
+          </header>
+        )}
 
         {/* Dynamic Bento Grid Layout */}
         <AnimatePresence mode="wait">
@@ -1635,9 +1959,17 @@ CREATE TABLE IF NOT EXISTS public.tickets (
               <SlaAnalytics 
                 tickets={tickets} 
                 users={users} 
+                loading={loading}
+                error={ticketsError}
+                refreshing={isPolling}
+                onRefresh={() => fetchTickets(true)}
                 onViewUserProfile={(user) => {
                   setSelectedTechProfile(user);
                   setIsTechProfileModalOpen(true);
+                }}
+                onSelectTicket={(ticketId) => {
+                  setSelectedTicketId(ticketId);
+                  setActiveTab("chamados");
                 }}
               />
             </motion.div>
@@ -1648,313 +1980,38 @@ CREATE TABLE IF NOT EXISTS public.tickets (
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -15 }}
               transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-              className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start"
+              className="w-full"
             >
-            
-            {/* Top Stat row taking full width */}
-            <div className="xl:col-span-12 grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-[#0a0a0a] border border-emerald-500/10 rounded-2xl p-4 flex flex-col justify-between min-h-[110px]">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Total de Contas Sincronizadas</p>
-                <div className="flex items-end justify-between mt-2">
-                  <span className="text-3xl font-black text-white">{(users.length > 0 ? users : USER_PROFILES).length}</span>
-                  <span className="text-emerald-400 text-[9px] font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                    Live Database
-                  </span>
-                </div>
-              </div>
-              <div className="bg-[#0a0a0a] border border-emerald-500/10 rounded-2xl p-4 flex flex-col justify-between min-h-[110px]">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Equipe de TI</p>
-                <span className="text-3xl font-black text-emerald-400 mt-2">
-                  {(users.length > 0 ? users : USER_PROFILES).filter(u => u.role === "tecnico").length}
-                </span>
-              </div>
-              <div className="bg-[#0a0a0a] border border-emerald-500/10 rounded-2xl p-4 flex flex-col justify-between min-h-[110px]">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Colaboradores</p>
-                <span className="text-3xl font-black text-emerald-500 mt-2">
-                  {(users.length > 0 ? users : USER_PROFILES).filter(u => u.role === "colaborador").length}
-                </span>
-              </div>
-            </div>
-
-            {/* Left Panel: List (Full Width) */}
-            <div className="xl:col-span-12 space-y-6">
-              {/* Collaborators List Card */}
-              <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl overflow-hidden shadow-lg">
-                {(() => {
-                  const allColabs = users.length > 0 ? users : USER_PROFILES;
-                  const colabDepartments = Array.from(new Set(
-                    allColabs.map(u => u.department).filter(Boolean)
-                  )).sort();
-
-                  // Pre-calculate ticket counts to avoid filtering full tickets array inside .sort comparator (O(N log N) -> O(N))
-                  const ticketsCreatedMap = new Map();
-                  const ticketsSolvedMap = new Map();
-                  
-                  tickets.forEach(t => {
-                    if (t.requesterName) {
-                      ticketsCreatedMap.set(t.requesterName, (ticketsCreatedMap.get(t.requesterName) || 0) + 1);
-                    }
-                    if (t.assignedTo && (t.status === "Resolvido" || t.status === "Fechado")) {
-                      const techs = getAssignedTechs(t.assignedTo);
-                      techs.forEach(tech => {
-                        ticketsSolvedMap.set(tech, (ticketsSolvedMap.get(tech) || 0) + 1);
-                      });
-                    }
-                  });
-
-                  const filteredAndSortedUsers = allColabs
-                    .filter(u => {
-                      // 1. Search filter
-                      const term = colabSearchTerm.toLowerCase();
-                      const matchesSearch = 
-                        u.name.toLowerCase().includes(term) || 
-                        (u.email && u.email.toLowerCase().includes(term)) || 
-                        (u.department && u.department.toLowerCase().includes(term));
-                      if (!matchesSearch) return false;
-
-                      // 2. Sector filter
-                      if (colabSectorFilter !== "All" && u.department !== colabSectorFilter) {
-                        return false;
-                      }
-
-                      // 3. Role filter
-                      if (colabRoleFilter !== "All") {
-                        const isTech = u.role === "tecnico";
-                        if (colabRoleFilter === "tecnico" && !isTech) return false;
-                        if (colabRoleFilter === "colaborador" && isTech) return false;
-                      }
-
-                      // 4. Online status filter
-                      const isOnline = !!(u.isOnline || (currentSession && (
-                        (u.email && currentSession.email && u.email.toLowerCase() === currentSession.email.toLowerCase()) ||
-                        (u.name && currentSession.name && u.name.toLowerCase() === currentSession.name.toLowerCase())
-                      )));
-                      if (colabStatusFilter !== "All") {
-                        if (colabStatusFilter === "online" && !isOnline) return false;
-                        if (colabStatusFilter === "offline" && isOnline) return false;
-                      }
-
-                      return true;
-                    })
-                    .sort((a, b) => {
-                      const aTicketsCreated = ticketsCreatedMap.get(a.name) || 0;
-                      const bTicketsCreated = ticketsCreatedMap.get(b.name) || 0;
-                      const aTicketsSolved = ticketsSolvedMap.get(a.name) || 0;
-                      const bTicketsSolved = ticketsSolvedMap.get(b.name) || 0;
-
-                      if (colabSortBy === "tickets_created") {
-                        return bTicketsCreated - aTicketsCreated; // Descending
-                      } else if (colabSortBy === "tickets_resolved") {
-                        return bTicketsSolved - aTicketsSolved; // Descending
-                      } else {
-                        // Default sort: online first, then alphabetical
-                        const aOnline = !!(a.isOnline || (currentSession && (
-                          (a.email && currentSession.email && a.email.toLowerCase() === currentSession.email.toLowerCase()) ||
-                          (a.name && currentSession.name && a.name.toLowerCase() === currentSession.name.toLowerCase())
-                        )));
-                        const bOnline = !!(b.isOnline || (currentSession && (
-                          (b.email && currentSession.email && b.email.toLowerCase() === currentSession.email.toLowerCase()) ||
-                          (b.name && currentSession.name && b.name.toLowerCase() === currentSession.name.toLowerCase())
-                        )));
-                        if (aOnline && !bOnline) return -1;
-                        if (!aOnline && bOnline) return 1;
-                        return a.name.localeCompare(b.name);
-                      }
-                    });
-
-                  return (
-                    <>
-                      {/* Search & Advanced Filters Bar */}
-                      <div className="p-5 border-b border-neutral-900 bg-black/50 space-y-4">
-                        {/* Top Row: Title & Search */}
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                          <div>
-                            <h3 className="font-display font-extrabold text-white text-sm flex items-center gap-2">
-                              <Users className="h-4 w-4 text-emerald-400" />
-                              Diretório de Colaboradores
-                            </h3>
-                            <p className="text-[10px] text-slate-400">Visualização em tempo real das contas ativas e métricas de chamados</p>
-                          </div>
-                          <div className="relative w-full md:w-80">
-                            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-500" />
-                            <input
-                              type="text"
-                              placeholder="Buscar por nome, email ou setor..."
-                              value={colabSearchTerm}
-                              onChange={(e) => setColabSearchTerm(e.target.value)}
-                              className="w-full bg-black border border-neutral-900 rounded-xl py-1.5 pl-9 pr-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Bottom Row: Quick filters dropdowns */}
-                        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 pt-3 border-t border-neutral-900/40">
-                          {/* Sector Filter */}
-                          <div className="flex flex-col gap-1">
-                            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Setor / Departamento</label>
-                            <select
-                              value={colabSectorFilter}
-                              onChange={(e) => setColabSectorFilter(e.target.value)}
-                              className="bg-black border border-neutral-900 rounded-lg p-1.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
-                            >
-                              <option value="All">Todos os Setores</option>
-                              {colabDepartments.map(dept => (
-                                <option key={dept} value={dept}>{dept}</option>
-                              ))}
-                            </select>
-                          </div>
-
-                          {/* Role Filter */}
-                          <div className="flex flex-col gap-1">
-                            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Nível de Acesso</label>
-                            <select
-                              value={colabRoleFilter}
-                              onChange={(e) => setColabRoleFilter(e.target.value)}
-                              className="bg-black border border-neutral-900 rounded-lg p-1.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
-                            >
-                              <option value="All">Todos os Acessos</option>
-                              <option value="tecnico">Técnicos (TI)</option>
-                              <option value="colaborador">Colaboradores</option>
-                            </select>
-                          </div>
-
-                          {/* Connection Status Filter */}
-                          <div className="flex flex-col gap-1">
-                            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Status</label>
-                            <select
-                              value={colabStatusFilter}
-                              onChange={(e) => setColabStatusFilter(e.target.value)}
-                              className="bg-black border border-neutral-900 rounded-lg p-1.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
-                            >
-                              <option value="All">Todos os Status</option>
-                              <option value="online">Online</option>
-                              <option value="offline">Offline</option>
-                            </select>
-                          </div>
-
-                          {/* Sorting */}
-                          <div className="flex flex-col gap-1">
-                            <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Ordenar por</label>
-                            <select
-                              value={colabSortBy}
-                              onChange={(e) => setColabSortBy(e.target.value)}
-                              className="bg-black border border-neutral-900 rounded-lg p-1.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
-                            >
-                              <option value="name">Nome (A-Z)</option>
-                              <option value="tickets_created">Mais Chamados Criados</option>
-                              <option value="tickets_resolved">Mais Chamados Resolvidos (TI)</option>
-                            </select>
-                          </div>
-
-                          {/* Reset Filters */}
-                          <div className="flex items-end">
-                            <button
-                              onClick={() => {
-                                setColabSearchTerm("");
-                                setColabSectorFilter("All");
-                                setColabRoleFilter("All");
-                                setColabStatusFilter("All");
-                                setColabSortBy("name");
-                              }}
-                              disabled={
-                                colabSearchTerm === "" &&
-                                colabSectorFilter === "All" &&
-                                colabRoleFilter === "All" &&
-                                colabStatusFilter === "All" &&
-                                colabSortBy === "name"
-                              }
-                              className="w-full h-[32px] bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-30 disabled:hover:bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:border-emerald-400/40 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
-                            >
-                              <Filter className="h-3.5 w-3.5" />
-                              Limpar Filtros
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="divide-y divide-neutral-900 max-h-[500px] overflow-y-auto">
-                        {filteredAndSortedUsers.length === 0 ? (
-                          <div className="p-8 text-center text-slate-500 text-xs">
-                            Nenhum colaborador ou técnico atende aos filtros aplicados.
-                          </div>
-                        ) : (
-                          filteredAndSortedUsers.map((user, index) => {
-                            const isTech = user.role === "tecnico";
-                            const isOnline = !!(user.isOnline || (currentSession && (
-                              (user.email && currentSession.email && user.email.toLowerCase() === currentSession.email.toLowerCase()) ||
-                              (user.name && currentSession.name && user.name.toLowerCase() === currentSession.name.toLowerCase())
-                            )));
-
-                            // Calculate ticket stats
-                            const uCreatedCount = tickets.filter(t => t.requesterName === user.name).length;
-                            const uActiveCount = tickets.filter(t => t.requesterName === user.name && t.status !== "Resolvido" && t.status !== "Fechado").length;
-                            const uResolvedCount = tickets.filter(t => getAssignedTechs(t.assignedTo).includes(user.name) && (t.status === "Resolvido" || t.status === "Fechado")).length;
-
-                            return (
-                              <div
-                                key={user.id || index}
-                                onClick={() => {
-                                  setSelectedTechProfile(user);
-                                  setIsTechProfileModalOpen(true);
-                                }}
-                                className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#080808]/50 transition cursor-pointer group/tech"
-                              >
-                                <div className="flex items-center gap-3">
-                                  <div className="relative shrink-0">
-                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 group-hover/tech:border-emerald-400/40 transition`}>
-                                      {user.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
-                                    </div>
-                                    {isOnline ? (
-                                      <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-black animate-pulse" title="Ativo / Online"></span>
-                                    ) : (
-                                      <span className="absolute bottom-0 right-0 w-3 h-3 bg-neutral-700 rounded-full border-2 border-black" title="Inativo"></span>
-                                    )}
-                                  </div>
-                                  <div>
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <span className="text-xs font-bold text-white group-hover/tech:text-emerald-400 transition-colors">{user.name}</span>
-                                      <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold bg-emerald-950/40 text-emerald-300 border border-emerald-500/20`}>
-                                        {isTech ? "TI" : "User"}
-                                      </span>
-                                      {isOnline && (
-                                        <span className="text-[8.5px] font-bold text-emerald-400 uppercase tracking-widest bg-emerald-500/10 border border-emerald-500/25 px-1 py-0.2 rounded">
-                                          Online
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div className="flex flex-col sm:flex-row sm:items-center gap-x-3 gap-y-1.5 mt-1">
-                                      <p className="text-[10px] text-slate-400">{user.email}</p>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-4 text-right justify-between sm:justify-end w-full sm:w-auto">
-                                  <div className="text-left sm:text-right">
-                                    <span className="text-[10px] text-slate-500 block">Departamento</span>
-                                    <span className="text-[11px] font-semibold text-slate-300">{user.department}</span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <div className="bg-black border border-emerald-950/20 px-2.5 py-1 rounded-lg text-[11px] font-mono flex items-center gap-1.5 text-emerald-300">
-                                      <span className="text-slate-500">Acesso:</span>
-                                      <span className="text-white font-bold">{isTech ? "Técnico de TI" : "Colaborador"}</span>
-                                    </div>
-                                    <span className="text-[9px] font-bold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 px-2 py-1 rounded-lg transition-all group-hover/tech:shadow-neon-sm">
-                                      Ver Perfil
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-            </div>
+            <CollaboratorsPage
+              users={users.length > 0 ? users : (USER_PROFILES as unknown as User[])}
+              tickets={tickets}
+              session={currentSession}
+              getAssignedTechs={getAssignedTechs}
+              filters={{ search: colabSearchTerm, sector: colabSectorFilter, role: colabRoleFilter, status: colabStatusFilter, sort: colabSortBy }}
+              onFilters={(patch) => {
+                if (patch.search !== undefined) setColabSearchTerm(patch.search);
+                if (patch.sector !== undefined) setColabSectorFilter(patch.sector);
+                if (patch.role !== undefined) setColabRoleFilter(patch.role);
+                if (patch.status !== undefined) setColabStatusFilter(patch.status);
+                if (patch.sort !== undefined) setColabSortBy(patch.sort);
+              }}
+              onClearFilters={() => {
+                setColabSearchTerm(DEFAULT_COLLAB_FILTERS.search);
+                setColabSectorFilter(DEFAULT_COLLAB_FILTERS.sector);
+                setColabRoleFilter(DEFAULT_COLLAB_FILTERS.role);
+                setColabStatusFilter(DEFAULT_COLLAB_FILTERS.status);
+                setColabSortBy(DEFAULT_COLLAB_FILTERS.sort);
+              }}
+              onAdd={() => { handleCancelEditUser(); setIsUserModalOpen(true); }}
+              onEdit={(user) => { handleStartEditUser(user); setIsUserModalOpen(true); }}
+              onViewProfile={(user, opener) => {
+                profileOpenerRef.current = opener;
+                setSelectedTechProfile(user);
+                setIsTechProfileModalOpen(true);
+              }}
+            />
           </motion.div>
-        ) : activeTab === "banco_dados" && currentSession?.name?.toLowerCase() === "daniel kevin" ? (
+        ) : activeTab === "banco_dados" && currentSession?.role === "tecnico" ? (
           <motion.div
             key="banco_dados"
             initial={{ opacity: 0, y: 15 }}
@@ -1965,16 +2022,16 @@ CREATE TABLE IF NOT EXISTS public.tickets (
           >
             
             {/* Header / Intro banner */}
-            <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-6 shadow-lg relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="bg-app border border-default rounded-2xl p-6 shadow-lg relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6">
               <div className="space-y-2 max-w-2xl">
                 <div className="flex items-center gap-2">
                   <span className="p-1.5 bg-emerald-500/10 text-emerald-400 rounded-lg border border-emerald-500/20">
                     <Database className="h-5 w-5" />
                   </span>
-                  <h3 className="text-base font-bold text-white uppercase tracking-wider">Central de Sincronização do Banco de Dados</h3>
+                  <h3 className="text-base font-bold text-primary uppercase tracking-wider">Central de Sincronização do Banco de Dados</h3>
                 </div>
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  Gerencie o fluxo de dados em nuvem via <strong className="text-white">Supabase</strong> com fallback automático para <strong className="text-white">Armazenamento Local Autônomo</strong>. Nosso sistema de redundância garante que o suporte nunca pare, mesmo que a nuvem esteja indisponível.
+                <p className="text-xs text-secondary leading-relaxed">
+                  Gerencie o fluxo de dados em nuvem via <strong className="text-primary">Supabase</strong> com fallback automático para <strong className="text-primary">Armazenamento Local Autônomo</strong>. Nosso sistema de redundância garante que o suporte nunca pare, mesmo que a nuvem esteja indisponível.
                 </p>
               </div>
               <div className="shrink-0 flex items-center gap-2.5">
@@ -1985,7 +2042,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                     fetchUsers();
                   }}
                   disabled={dbChecking}
-                  className="px-4 py-2 bg-[#151515] hover:bg-[#202020] text-slate-300 hover:text-white font-bold rounded-xl text-xs border border-neutral-900 transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  className="px-4 py-2 bg-surface hover:bg-surface-2 text-secondary hover:text-primary font-bold rounded-xl text-xs border border-default transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
                 >
                   <RefreshCw className={`h-3.5 w-3.5 ${dbChecking ? "animate-spin" : ""}`} />
                   Recarregar Tudo
@@ -1994,13 +2051,13 @@ CREATE TABLE IF NOT EXISTS public.tickets (
             </div>
 
             {/* Bento Grid Analytics Row */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               
               {/* Card 1: Connection Status */}
-              <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-5 flex flex-col justify-between min-h-[160px] shadow-lg">
+              <div className="bg-app border border-default rounded-2xl p-5 flex flex-col justify-between min-h-[160px] shadow-lg">
                 <div>
                   <div className="flex items-center justify-between">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Status da Conexão</p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-secondary">Status da Conexão</p>
                     {dbStatus?.connected ? (
                       <span className="flex h-2 w-2 relative">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -2015,31 +2072,31 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                   
                   <div className="mt-3">
                     {dbStatus?.connected ? (
-                      <div>
-                        <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded uppercase tracking-wider">
+                       <div>
+                         <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded uppercase tracking-wider">
                           Nuvem Online
-                        </span>
-                        <p className="text-[11px] text-slate-300 mt-2.5 leading-relaxed">
+                         </span>
+                         <p className="text-[11px] text-secondary mt-2.5 leading-relaxed">
                           Conectado com sucesso ao banco de dados Supabase. Leituras e escritas estão ativas e sendo persistidas em nuvem em tempo real.
-                        </p>
-                      </div>
-                    ) : (
-                      <div>
-                        <span className="text-xs font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded uppercase tracking-wider">
-                          Modo Redundante / Local
-                        </span>
-                        <p className="text-[11px] text-slate-400 mt-2.5 leading-relaxed">
-                          {dbStatus?.configured 
+                         </p>
+                       </div>
+                     ) : (
+                       <div>
+                         <span className="text-xs font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded uppercase tracking-wider">
+                           Modo Redundante / Local
+                         </span>
+                         <p className="text-[11px] text-secondary mt-2.5 leading-relaxed">
+                           {dbStatus?.configured 
                             ? "Não foi possível conectar ao Supabase. Operando em modo de redundância local segura." 
                             : "Credenciais do Supabase ausentes no painel Secrets do AI Studio. Usando banco local."}
-                        </p>
-                      </div>
-                    )}
+                         </p>
+                       </div>
+                     )}
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-neutral-900/50 mt-4 flex items-center justify-between">
-                  <span className="text-[9px] font-mono text-slate-500">
+                <div className="pt-4 border-t border-default/50 mt-4 flex items-center justify-between">
+                  <span className="text-[9px] font-mono text-muted">
                     Host: {dbStatus?.connected ? "supabase.co" : "cache local"}
                   </span>
                   <button
@@ -2047,56 +2104,40 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                     disabled={dbChecking}
                     className="text-[10px] font-bold text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
                   >
-                    {dbChecking ? "Testando..." : "Testar Conexão ÔåÆ"}
+                    {dbChecking ? "Testando..." : "Testar Conexão →"}
                   </button>
                 </div>
               </div>
 
               {/* Card 2: Cache Inventory */}
-              <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-5 flex flex-col justify-between min-h-[160px] shadow-lg">
+              <div className="bg-app border border-default rounded-2xl p-5 flex flex-col justify-between min-h-[160px] shadow-lg">
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Inventário de Registros Locais</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-secondary">Inventário de Registros Locais</p>
                   
                   <div className="grid grid-cols-2 gap-4 mt-4">
-                    <div className="bg-black/40 border border-neutral-900 p-3 rounded-xl">
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 block">Chamados</span>
-                      <span className="text-xl font-black text-white font-mono mt-0.5 block">{tickets.length}</span>
+                    <div className="bg-app/40 border border-default p-3 rounded-xl">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-muted block">Chamados</span>
+                      <span className="text-xl font-black text-primary font-mono mt-0.5 block">{tickets.length}</span>
                     </div>
-                    <div className="bg-black/40 border border-neutral-900 p-3 rounded-xl">
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 block">Colaboradores</span>
-                      <span className="text-xl font-black text-white font-mono mt-0.5 block">{users.length}</span>
+                    <div className="bg-app/40 border border-default p-3 rounded-xl">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-muted block">Colaboradores</span>
+                      <span className="text-xl font-black text-primary font-mono mt-0.5 block">{users.length}</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-neutral-900/50 mt-4 text-[10px] text-slate-400 leading-tight">
+                <div className="pt-4 border-t border-default/50 mt-4 text-[10px] text-secondary leading-tight">
                   Os arquivos <code className="text-emerald-400 font-mono">tickets-db.json</code> e <code className="text-emerald-400 font-mono">users-db.json</code> mantêm seus dados seguros no servidor.
-                </div>
-              </div>
-
-              {/* Card 3: Redundancy Details */}
-              <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-5 flex flex-col justify-between min-h-[160px] shadow-lg">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Garantia de Redundância</p>
-                  
-                  <p className="text-[11px] text-slate-300 mt-3 leading-relaxed">
-                    A arquitetura foi projetada para realizar <strong className="text-white">auto-cura</strong>: se o banco de dados falhar no login ou abertura de chamados, os dados são salvos localmente e podem ser sincronizados posteriormente.
-                  </p>
-                </div>
-
-                <div className="bg-emerald-950/20 border border-emerald-500/10 p-2 rounded-lg text-[9px] text-emerald-400 flex items-start gap-1.5 mt-3 leading-snug">
-                  <Shield className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                  <span>Segurança operacional máxima ativada. Suas operações são resilientes a falhas de API de terceiros.</span>
                 </div>
               </div>
 
             </div>
 
             {/* Sync Control Center */}
-            <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-6 shadow-lg space-y-6">
+            <div className="bg-app border border-default rounded-2xl p-6 shadow-lg space-y-6">
               <div className="space-y-1">
-                <h4 className="text-sm font-bold text-white uppercase tracking-wider">Painel de Sincronização Bidirecional</h4>
-                <p className="text-[11px] text-slate-400">Escolha o fluxo de sincronização para reconciliar dados entre a nuvem e o cache do servidor local.</p>
+                <h4 className="text-sm font-bold text-primary uppercase tracking-wider">Painel de Sincronização Bidirecional</h4>
+                <p className="text-[11px] text-secondary">Escolha o fluxo de sincronização para reconciliar dados entre a nuvem e o cache do servidor local.</p>
               </div>
 
               {syncingDb === "success" && (
@@ -2113,7 +2154,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                     <span className="font-bold">A sincronização falhou</span>
                   </div>
                   <p className="text-[11px] text-rose-300/90 leading-relaxed pl-6">
-                    {syncDbError}. Certifique-se de que as tabelas existem no Supabase (use as instruções SQL abaixo para criá-las).
+                    {syncDbError}. Certifique-se de que as tabelas existem no Supabase (use as instruções SQL abaixo no SQL Editor para criá-las).
                   </p>
                 </div>
               )}
@@ -2121,15 +2162,15 @@ CREATE TABLE IF NOT EXISTS public.tickets (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 
                 {/* Push Sync Card */}
-                <div className="bg-black/50 border border-neutral-900 rounded-2xl p-5 hover:border-emerald-500/20 transition duration-350 flex flex-col justify-between">
+                <div className="bg-app/50 border border-default rounded-2xl p-5 hover:border-emerald-500/20 transition duration-350 flex flex-col justify-between">
                   <div className="space-y-3">
                     <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
                       <Upload className="h-5 w-5" />
                     </div>
                     <div>
-                      <h5 className="text-xs font-bold text-white uppercase tracking-wider">Exportar Local ÔåÆ Supabase (Push)</h5>
-                      <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
-                        Envia todos os chamados e colaboradores salvos localmente para o banco de dados Supabase na nuvem. Use após configurar um novo banco ou resolver quedas de conexão.
+                      <h5 className="text-xs font-bold text-primary uppercase tracking-wider">Exportar Local → Supabase (Push)</h5>
+                      <p className="text-[11px] text-secondary mt-1.5 leading-relaxed">
+                        Envia todos os chamados e colaboradores salvos localmente para o banco de dados do Supabase. Use após configurar um novo banco ou resolver quedas de conexão.
                       </p>
                     </div>
                   </div>
@@ -2138,7 +2179,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                     <button
                       onClick={handlePushSync}
                       disabled={syncingDb === "push" || syncingDb === "pull" || !dbStatus?.configured}
-                      className="w-full py-2 bg-emerald-400 hover:bg-emerald-300 text-black font-extrabold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40 shadow-neon"
+                      className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40 shadow-sm"
                     >
                       {syncingDb === "push" ? (
                         <>
@@ -2148,27 +2189,27 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                       ) : (
                         <>
                           <Upload className="h-3.5 w-3.5" />
-                          Exportar Dados para Supabase
+                          Exportar Dados para o Supabase
                         </>
                       )}
                     </button>
                     {!dbStatus?.configured && (
                       <p className="text-[9px] text-center text-amber-500 mt-2 font-medium">
-                        * Configure as chaves do Supabase nas Secrets para habilitar.
+                        * Configure as credenciais do Supabase (SUPABASE_URL e SUPABASE_KEY) nas Secrets para habilitar.
                       </p>
                     )}
                   </div>
                 </div>
 
                 {/* Pull Sync Card */}
-                <div className="bg-black/50 border border-neutral-900 rounded-2xl p-5 hover:border-emerald-500/20 transition duration-350 flex flex-col justify-between">
+                <div className="bg-app/50 border border-default rounded-2xl p-5 hover:border-emerald-500/20 transition duration-350 flex flex-col justify-between">
                   <div className="space-y-3">
                     <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
                       <FileText className="h-5 w-5" />
                     </div>
                     <div>
-                      <h5 className="text-xs font-bold text-white uppercase tracking-wider">Importar Supabase ÔåÆ Local (Pull)</h5>
-                      <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
+                      <h5 className="text-xs font-bold text-primary uppercase tracking-wider">Importar Supabase → Local (Pull)</h5>
+                      <p className="text-[11px] text-secondary mt-1.5 leading-relaxed">
                         Puxa todos os chamados e colaboradores persistidos no Supabase e substitui o cache local do servidor. Ideal para inicializar novos ambientes ou baixar dados inseridos remotamente.
                       </p>
                     </div>
@@ -2182,7 +2223,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                         }
                       }}
                       disabled={syncingDb === "push" || syncingDb === "pull" || !dbStatus?.configured}
-                      className="w-full py-2 bg-[#151515] hover:bg-[#202020] text-slate-300 hover:text-white border border-neutral-900 font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
+                      className="w-full py-2 bg-surface hover:bg-surface-2 text-secondary hover:text-primary border border-default font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
                     >
                       {syncingDb === "pull" ? (
                         <>
@@ -2191,14 +2232,14 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                         </>
                       ) : (
                         <>
-                          <Database className="h-3.5 w-3.5 text-slate-400" />
-                          Importar Dados da Nuvem
+                          <Database className="h-3.5 w-3.5 text-secondary" />
+                          Importar Dados do Supabase
                         </>
                       )}
                     </button>
                     {!dbStatus?.configured && (
                       <p className="text-[9px] text-center text-amber-500 mt-2 font-medium">
-                        * Configure as chaves do Supabase nas Secrets para habilitar.
+                        * Configure as credenciais do Supabase (SUPABASE_URL e SUPABASE_KEY) nas Secrets para habilitar.
                       </p>
                     )}
                   </div>
@@ -2208,14 +2249,14 @@ CREATE TABLE IF NOT EXISTS public.tickets (
             </div>
 
             {/* SQL Script Instruction Card */}
-            <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-6 shadow-lg space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-900/80 pb-4">
+            <div className="bg-app border border-default rounded-2xl p-6 shadow-lg space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-default/80 pb-4">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <Terminal className="h-4.5 w-4.5 text-emerald-400" />
-                    <h4 className="text-xs font-bold text-white uppercase tracking-wider">Estrutura de Tabelas SQL do Supabase</h4>
+                    <h4 className="text-xs font-bold text-primary uppercase tracking-wider">Estrutura de Tabelas SQL do Supabase</h4>
                   </div>
-                  <p className="text-[11px] text-slate-400">Instruções e código SQL para criar a arquitetura de tabelas diretamente no Supabase.</p>
+                  <p className="text-[11px] text-secondary">Instruções e código SQL para criar a arquitetura de tabelas no banco de dados PostgreSQL do Supabase.</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -2224,7 +2265,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                       setCopySuccess(true);
                       setTimeout(() => setCopySuccess(false), 2000);
                     }}
-                    className="px-3 py-1.5 bg-[#151515] hover:bg-[#202020] text-slate-300 hover:text-white font-bold rounded-xl text-[10px] uppercase tracking-wider border border-neutral-900 transition flex items-center gap-1.5 cursor-pointer"
+                    className="px-3 py-1.5 bg-surface hover:bg-surface-2 text-secondary hover:text-primary font-bold rounded-xl text-[10px] uppercase tracking-wider border border-default transition flex items-center gap-1.5 cursor-pointer"
                   >
                     {copySuccess ? (
                       <>
@@ -2233,7 +2274,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                       </>
                     ) : (
                       <>
-                        <Copy className="h-3.5 w-3.5 text-slate-400" />
+                        <Copy className="h-3.5 w-3.5 text-secondary" />
                         Copiar Código SQL
                       </>
                     )}
@@ -2250,15 +2291,15 @@ CREATE TABLE IF NOT EXISTS public.tickets (
               </div>
 
               <div className="space-y-3">
-                <p className="text-[11px] text-slate-300 leading-relaxed">
-                  Para que a sincronização funcione perfeitamente, acesse seu painel do Supabase, selecione o projeto, vá até o menu <strong className="text-white">SQL Editor</strong>, crie uma nova query, cole o código abaixo e clique em <strong className="text-white">Run</strong>.
+                <p className="text-[11px] text-secondary leading-relaxed">
+                  Para criar as tabelas manualmente, acesse o painel do seu projeto no <strong className="text-primary">Supabase</strong>, vá em <strong className="text-primary">SQL Editor</strong>, clique em <strong className="text-primary">New Query</strong>, cole o código abaixo e clique em <strong className="text-primary">Run</strong>.
                 </p>
 
-                <div className="relative rounded-xl overflow-hidden border border-neutral-900 bg-black/90">
-                  <div className="absolute top-3 right-3 bg-neutral-900 px-2 py-0.5 rounded text-[8px] font-mono font-bold text-slate-500 uppercase tracking-widest select-none border border-neutral-850">
+                <div className="relative rounded-xl overflow-hidden border border-default bg-app/90">
+                  <div className="absolute top-3 right-3 bg-surface px-2 py-0.5 rounded text-[8px] font-mono font-bold text-muted uppercase tracking-widest select-none border border-default">
                     PostgreSQL
                   </div>
-                  <pre className="p-4 text-[10px] font-mono text-slate-300 overflow-x-auto max-h-72 leading-relaxed whitespace-pre select-all">
+                  <pre className="p-4 text-[10px] font-mono text-secondary overflow-x-auto max-h-72 leading-relaxed whitespace-pre select-all">
                     {dbSqlSchema || "Carregando estrutura SQL..."}
                   </pre>
                 </div>
@@ -2276,357 +2317,570 @@ CREATE TABLE IF NOT EXISTS public.tickets (
             className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start"
           >
           
-          {/* LEFT SECTION (Col 7): Tickets List & Core Triage Panel */}
-          <div className={`transition-all duration-300 space-y-6 ${rightSidebarCollapsed ? "xl:col-span-12" : "xl:col-span-7"}`}>
+          {/* MAIN SECTION: Full width tickets grid and triage panel */}
+          <div className="transition-all duration-300 space-y-6 xl:col-span-12 min-w-0">
             
-            {/* Bento Grid Analytics Widget Row */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-              
-              {/* Card 1: Tickets em Aberto */}
-              <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-4 flex flex-col justify-between min-h-[110px] shadow-lg">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Chamados Ativos</p>
-                <div className="flex items-end justify-between mt-2">
-                  <span className="text-3xl font-black text-white">{activeTickets.length}</span>
-                  <span className="text-amber-400 text-[10px] font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-                    Aguardando TI
-                  </span>
-                </div>
-              </div>
+            {/* Indicadores — cards independentes (apenas equipe de TI, mesma regra anterior) */}
+            {isTechUser && activeTab !== "projetos" && (
+              <section aria-label="Indicadores da fila" className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
+                <StatCard
+                  icon={ListTodo}
+                  label="Chamados ativos"
+                  value={activeTickets.length}
+                  hint="Na fila de atendimento"
+                  active={selectedStatus === "Active"}
+                  onClick={() => { setActiveTab("painel"); setSelectedStatus("Active"); setSelectedPriority("All"); setSelectedCategory("All"); setSearchTerm(""); }}
+                />
+                <StatCard
+                  icon={Hourglass}
+                  label="Aguardando"
+                  hint="Ainda sem atendimento"
+                  value={activeTickets.filter(t => t.status === "Aberto").length}
+                  tone={activeTickets.some(t => t.status === "Aberto") ? "amber" : "neutral"}
+                  active={selectedStatus === "Aberto"}
+                  onClick={() => { setActiveTab("painel"); setSelectedStatus("Aberto"); setSelectedPriority("All"); setSelectedCategory("All"); setSearchTerm(""); }}
+                />
+                <StatCard
+                  icon={Wrench}
+                  label="Em atendimento"
+                  hint="Sendo atendidos agora"
+                  value={activeTickets.filter(t => t.status === "Em Atendimento").length}
+                  tone="sky"
+                  active={selectedStatus === "Em Atendimento"}
+                  onClick={() => { setActiveTab("painel"); setSelectedStatus("Em Atendimento"); setSelectedPriority("All"); setSelectedCategory("All"); setSearchTerm(""); }}
+                />
+                <StatCard
+                  icon={Flame}
+                  label="Críticos"
+                  value={criticalTickets.length}
+                  tone={criticalTickets.length > 0 ? "rose" : "neutral"}
+                  hint="Prioridade alta ou urgente"
+                  onClick={() => {
+                    setActiveTab("painel");
+                    setSelectedStatus("Active");
+                    setSelectedPriority(activeTickets.some(t => t.priority === "Urgente") ? "Urgente" : "Alta");
+                    setSelectedCategory("All");
+                    setSearchTerm("");
+                  }}
+                />
+                <StatCard
+                  icon={AlertTriangle}
+                  label="Vencidos"
+                  value={activeTickets.filter(t => isTicketOverdue(t)).length}
+                  tone={activeTickets.some(t => isTicketOverdue(t)) ? "rose" : "neutral"}
+                  hint={`${slaMetrics.nearDue} em risco · ${slaMetrics.waitingRequester} aguardando · ${slaMetrics.reopening.currentlyReopened} reaberto(s)`}
+                />
+                <StatCard
+                  icon={CheckCircle2}
+                  label="Resolvidos"
+                  hint="Resolvidos e fechados"
+                  value={resolvedTickets.length}
+                  tone="emerald"
+                  active={selectedStatus === "Resolvido"}
+                  onClick={() => { setActiveTab("painel"); setSelectedStatus("Resolvido"); setSelectedPriority("All"); setSelectedCategory("All"); setSearchTerm(""); }}
+                />
+                <StatCard
+                  icon={Inbox}
+                  label="Todos os chamados"
+                  value={activeTickets.length + resolvedTickets.length}
+                  hint="Do mais recente ao mais antigo"
+                  active={selectedStatus === "All"}
+                  onClick={() => { setActiveTab("painel"); setSelectedStatus("All"); setSelectedPriority("All"); setSelectedCategory("All"); setSearchTerm(""); }}
+                />
+                <StatCard
+                  icon={Gauge}
+                  label="Eficiência do SLA"
+                  value={slaCompliance === null ? "—" : `${slaCompliance}%`}
+                  tone="neutral"
+                  progress={slaCompliance === null ? undefined : slaCompliance}
+                  hint={slaCompliance === null ? "Sem chamados resolvidos avaliáveis" : `${slaMetrics.resolution.met} no prazo · ${slaMetrics.resolution.breached} com atraso · ${slaMetrics.resolution.evaluated} avaliados`}
+                  onClick={() => setActiveTab("sla")}
+                />
+              </section>
+            )}
 
-              {/* Card 2: SLA compliance status */}
-              <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-4 flex flex-col justify-between min-h-[110px] shadow-lg">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Eficiência (SLA)</p>
-                <div className="flex items-end justify-between mt-2">
-                  <span className="text-3xl font-black text-emerald-400">{slaCompliance}%</span>
-                  <span className="text-emerald-400 text-[10px] font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                    Meta: 92%
-                  </span>
-                </div>
-              </div>
+            {isTechUser && activeTab === "projetos" && (
+              <div className="bg-surface border border-default rounded-xl shadow-card overflow-hidden">
+                <div className="grid grid-cols-3 divide-x divide-default">
 
-              {/* Card 3: Critical alerts pending */}
-              <div className="col-span-2 sm:col-span-1 bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-4 flex flex-col justify-between min-h-[110px] shadow-lg">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Casos Críticos</p>
-                <div className="flex items-end justify-between mt-2">
-                  <span className={`text-3xl font-black ${criticalTickets.length > 0 ? "text-rose-500" : "text-white"}`}>
-                    {criticalTickets.length}
-                  </span>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${criticalTickets.length > 0 ? "bg-rose-500/10 text-rose-400 border-rose-500/20 animate-pulse" : "bg-neutral-900 text-slate-400 border-neutral-850"}`}>
-                    {criticalTickets.length > 0 ? "Ação Urgente" : "Fila Limpa"}
-                  </span>
-                </div>
-              </div>
-
-            </div>
-
-            {/* Filters Bar & Tickets List */}
-            <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-4 md:p-6 shadow-lg">
-              
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                    {activeTab === "projetos" ? "Projetos em Andamento" : "Fila de Chamados"}
-                  </h3>
-                  <span className="text-[10px] bg-black text-emerald-400 px-2 py-0.5 rounded border border-neutral-900 font-bold uppercase tracking-wide">
-                    Real-Time
-                  </span>
-                </div>
-
-                {/* Reset Filters action */}
-                {(selectedCategory !== "All" || selectedPriority !== "All" || selectedStatus !== "Active" || searchTerm) && (
-                  <button
-                    onClick={() => {
-                      setSelectedCategory("All");
-                      setSelectedPriority("All");
-                      setSelectedStatus("Active");
-                      setSearchTerm("");
-                    }}
-                    className="text-xs text-emerald-400 hover:text-emerald-300 font-semibold flex items-center gap-1 self-start md:self-auto cursor-pointer"
-                  >
-                    <Filter className="h-3 w-3" />
-                    Limpar Filtros
-                  </button>
-                )}
-              </div>
-
-              {/* Advanced search & quick status filters */}
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-4">
-                
-                {/* Search query input */}
-                <div className="sm:col-span-2 relative">
-                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-500">
-                    <Search className="h-4 w-4" />
-                  </span>
-                  <input
-                    type="text"
-                    placeholder="Buscar ID, título, autor ou responsável..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full bg-black border border-neutral-900 rounded-xl py-2 pl-9 pr-4 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
-                  />
-                </div>
-
-                {/* Priority Selection Filter */}
-                <select
-                  value={selectedPriority}
-                  onChange={(e) => setSelectedPriority(e.target.value)}
-                  className="bg-black border border-neutral-900 text-slate-300 text-xs rounded-xl py-2 px-3 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
-                >
-                  <option value="All">Prioridade (Todas)</option>
-                  <option value="Baixa">Baixa</option>
-                  <option value="Média">Média</option>
-                  <option value="Alta">Alta</option>
-                  <option value="Urgente">Urgente</option>
-                </select>
-
-                {/* Status Selection Filter */}
-                <select
-                  value={selectedStatus}
-                  onChange={(e) => setSelectedStatus(e.target.value)}
-                  className="bg-black border border-neutral-900 text-slate-300 text-xs rounded-xl py-2 px-3 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
-                >
-                  <option value="Active">Ativos (Aberto / Em Atendimento)</option>
-                  <option value="All">Status (Todos)</option>
-                  <option value="Aberto">Aberto</option>
-                  <option value="Em Atendimento">Em Atendimento</option>
-                  <option value="Resolvido">Resolvido</option>
-                  <option value="Fechado">Fechado</option>
-                </select>
-
-              </div>
-
-              {/* Main Interactive Ticket List container */}
-              <div className="space-y-3 max-h-[580px] overflow-y-auto pr-1">
-                {loading ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-3">
-                    <RefreshCw className="h-8 w-8 animate-spin text-emerald-400" />
-                    <p className="text-xs">Sincronizando banco de dados corporativo...</p>
-                  </div>
-                ) : filteredTickets.length === 0 ? (
-                  <div className="text-center py-12 border border-dashed border-neutral-900 rounded-xl text-neutral-500 font-mono">
-                    <p className="text-xs font-bold text-emerald-400">Nenhum chamado corresponde aos filtros selecionados.</p>
-                    <p className="text-[10px] text-neutral-600 mt-1">Experimente limpar a busca ou os filtros de prioridade acima.</p>
-                  </div>
-                ) : (
-                  filteredTickets.map((ticket) => {
-                    const isSelected = ticket.id === selectedTicketId;
-                    const commentsCount = ticket.comments.filter(c => c.authorRole !== "system").length;
-                    
-                    // Priority border coloring
-                    const priorityBorder = 
-                      ticket.priority === "Urgente" ? "border-l-rose-500" :
-                      ticket.priority === "Alta" ? "border-l-amber-500" :
-                      ticket.priority === "Média" ? "border-l-emerald-500" : "border-l-neutral-700";
-
-                    const priorityTextClass = 
-                      ticket.priority === "Urgente" ? "text-rose-400" :
-                      ticket.priority === "Alta" ? "text-amber-400" :
-                      ticket.priority === "Média" ? "text-emerald-400" : "text-neutral-400";
-
-                    return (
-                      <div
-                        id={`ticket-card-${ticket.id}`}
-                        key={ticket.id}
-                        onClick={() => setSelectedTicketId(ticket.id)}
-                        className={`p-4 bg-[#050505] hover:bg-[#0c0c0c] rounded-2xl border border-neutral-900 border-l-4 ${priorityBorder} flex flex-col md:flex-row justify-between md:items-center gap-4 transition-all cursor-pointer ${isSelected ? "ring-2 ring-emerald-400/35 bg-black border-emerald-400/20 shadow-neon-sm" : ""}`}
-                      >
-                        <div className="flex-1 space-y-2">
-                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-[10px] font-bold text-neutral-400 uppercase">
-                              #{ticket.id}
-                            </span>
-                            <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
-                              ticket.status === "Aberto" ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" :
-                              ticket.status === "Em Atendimento" ? "bg-sky-500/10 text-sky-400 border border-sky-500/20 shadow-[0_0_10px_rgba(56,189,248,0.05)]" :
-                              ticket.status === "Resolvido" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.05)]" :
-                              ticket.status === "Fechado" ? "bg-zinc-800/40 text-zinc-400 border border-zinc-700/30" :
-                              "bg-[#151515] text-neutral-400 border border-neutral-900"
-                            }`}>
-                              {ticket.status}
-                            </span>
-                            <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
-                              ticket.category === 'Acesso' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
-                              ticket.category === 'Redes' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                              ticket.category === 'Hardware' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
-                              ticket.category === 'Software' ? 'bg-emerald-400/10 text-emerald-400 border border-emerald-400/20' :
-                              ticket.category === 'Sistemas' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                              'bg-neutral-900 text-neutral-300'
-                            }`}>
-                              {ticket.category}
-                            </span>
-                            <span className={`text-[10px] font-bold uppercase ${priorityTextClass}`}>
-                              {ticket.priority}
-                            </span>
-                          </div>
-
-                          <h4 className="text-sm font-bold text-neutral-200 line-clamp-1">{ticket.title}</h4>
-                          
-                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
-                            <span>Solicitante: <strong className="text-slate-400">{ticket.requesterName}</strong> ({ticket.requesterDepartment.split(" / ")[0]})</span>
-                            <span>•</span>
-                            <span>Aberto: {new Date(ticket.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} às {new Date(ticket.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
-                            {ticket.projectDeadline && (
-                              <>
-                                <span>•</span>
-                                <span className="flex items-center gap-1 text-emerald-400 font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 text-[10px]">
-                                  <Calendar className="h-3 w-3" />
-                                  Limite Projeto: {(() => {
-                                    try {
-                                      const [year, month, day] = ticket.projectDeadline.split("-");
-                                      return `${day}/${month}/${year}`;
-                                    } catch (e) {
-                                      return ticket.projectDeadline;
-                                    }
-                                  })()}
-                                </span>
-                              </>
-                            )}
-                          </div>
+                      {/* Item 1: Total de Projetos */}
+                      <div className="p-2.5 sm:p-3 flex flex-col justify-between">
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-secondary">Total de Projetos</p>
+                        <div className="flex items-center justify-between mt-1 gap-2 w-full">
+                          <span className="text-lg sm:text-xl font-black text-primary leading-none">
+                            {userVisibleTickets.filter(t => !!t.projectDeadline).length}
+                          </span>
+                          <span className="text-emerald-400 text-[9px] font-bold bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20 whitespace-nowrap">
+                            {userVisibleTickets.filter(t => !!t.projectDeadline && (t.status === "Resolvido" || t.status === "Fechado")).length} Concluídos
+                          </span>
                         </div>
-
-                        {/* Responsible and stats alignment block */}
-                        <div className="flex md:flex-col items-center md:items-end justify-between md:justify-center shrink-0 border-t md:border-t-0 border-[#111] pt-2 md:pt-0 gap-2">
-                          <div className="text-right">
-                            <p className="text-[10px] text-slate-500 font-bold uppercase">Atribuído a</p>
-                            <div className="mt-1">
-                              {ticket.assignedTo ? (
-                                <div className="flex flex-wrap gap-1 justify-end">
-                                  {getAssignedTechs(ticket.assignedTo).map((t, i) => (
-                                    <span key={i} className="bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded text-[9px] border border-emerald-500/20 font-bold shadow-sm">
-                                      {t}
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : (
-                                <span className="text-slate-500 italic text-xs block text-right">Ninguém</span>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-3 mt-1 text-slate-500">
-                            {commentsCount > 0 && (
-                              <div className="flex items-center gap-1" title={`${commentsCount} comentários de suporte`}>
-                                <MessageSquare className="h-3 w-3" />
-                                <span className="text-xs font-semibold">{commentsCount}</span>
-                              </div>
-                            )}
-
-                            {/* IA Triaged icon badge indicator */}
-                            {ticket.aiCategory && (
-                              <div className="flex items-center gap-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded text-[9px] font-bold" title="Triagem inteligente realizada por IA">
-                                <Sparkles className="h-2.5 w-2.5" />
-                                <span>IA</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
                       </div>
-                    );
-                  })
-                )}
-              </div>
 
-            </div>
+                      {/* Item 2: Projetos em Dia */}
+                      <div className="p-2.5 sm:p-3 flex flex-col justify-between">
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-secondary">Projetos em Dia</p>
+                        <div className="flex items-center justify-between mt-1 gap-2 w-full">
+                          <span className="text-lg sm:text-xl font-black text-emerald-400 leading-none">
+                            {(() => {
+                              const activeProjs = userVisibleTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado");
+                              const overdueProjs = activeProjs.filter(t => isTicketOverdue(t));
+                              return activeProjs.length - overdueProjs.length;
+                            })()}
+                          </span>
+                          <span className="text-secondary text-[9px] font-bold bg-surface px-2 py-0.5 rounded-md border border-default whitespace-nowrap">
+                            SLA Monitorado
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Item 3: Fora do Prazo / Críticos */}
+                      <button
+                        onClick={() => {
+                          setSelectedStatus("All");
+                          setSelectedPriority("All");
+                          setSelectedCategory("All");
+                          setSearchTerm("");
+                        }}
+                        className="p-2.5 sm:p-3 flex flex-col justify-between text-left transition hover:bg-surface-2/40 cursor-pointer group"
+                      >
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-secondary group-hover:text-rose-400 transition-colors">Atrasados / Críticos</p>
+                        <div className="flex items-center justify-between mt-1 gap-2 w-full">
+                          <span className={`text-lg sm:text-xl font-black leading-none ${
+                            userVisibleTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado" && isTicketOverdue(t)).length > 0 ? "text-rose-500" : "text-primary"
+                          }`}>
+                            {userVisibleTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado" && isTicketOverdue(t)).length}
+                          </span>
+                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md border whitespace-nowrap ${
+                            userVisibleTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado" && isTicketOverdue(t)).length > 0 ? "bg-rose-500/10 text-rose-400 border-rose-500/20" : "bg-surface text-secondary border-default"
+                          }`}>
+                            {userVisibleTickets.filter(t => !!t.projectDeadline && t.status !== "Resolvido" && t.status !== "Fechado" && isTicketOverdue(t)).length > 0 ? "Ação Requerida" : "Cronograma OK"}
+                          </span>
+                        </div>
+                      </button>
+                    
+                </div>
+              </div>
+            )}
+
+            {/* Filters Bar, Tickets List & Projects Dashboard */}
+            {activeTab === "projetos" ? (
+              <div className="space-y-6">
+                
+                {/* Dashboard Control Bar */}
+                <div className="bg-app border border-default rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+                      <Briefcase className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-primary uppercase tracking-wider">Painel de Projetos</h4>
+                      <p className="text-[10px] text-secondary">Gerenciamento ágil de projetos corporativos</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + 7);
+                      setNewTicketForm((f) => ({ ...f, projectDeadline: d.toISOString().split("T")[0] }));
+                      setIsNewTicketModalOpen(true);
+                    }}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-full transition flex items-center gap-2 text-xs shadow-md cursor-pointer shrink-0"
+                  >
+                    <PlusCircle className="h-4 w-4" />
+                    <span>Novo Projeto</span>
+                  </button>
+                </div>
+
+                {/* Subtitle / Search & Filters for projects */}
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-app border border-default rounded-2xl p-4 shadow-lg">
+                  <div className="sm:col-span-2 relative">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-muted">
+                      <Search className="h-4 w-4" />
+                    </span>
+                    <input
+                      type="text"
+                      placeholder="Buscar projetos..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full bg-app border border-default rounded-xl py-2 pl-9 pr-4 text-xs text-primary placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
+                    />
+                  </div>
+                  
+                  <select
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    className="bg-app border border-default text-secondary text-xs rounded-xl py-2 px-3 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all cursor-pointer"
+                  >
+                    <option value="All">Categoria (Todas)</option>
+                    <option value="Hardware">Hardware</option>
+                    <option value="Software">Software</option>
+                    <option value="Redes">Redes</option>
+                    <option value="Acesso">Acesso</option>
+                    <option value="Sistemas">Sistemas</option>
+                    <option value="Outros">Outros</option>
+                  </select>
+
+                  <select
+                    value={selectedStatus}
+                    onChange={(e) => setSelectedStatus(e.target.value)}
+                    className="bg-app border border-default text-secondary text-xs rounded-xl py-2 px-3 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all cursor-pointer"
+                  >
+                    <option value="Active">Ativos (Todos)</option>
+                    <option value="All">Status (Todos)</option>
+                    <option value="Aberto">Aberto</option>
+                    <option value="Em Atendimento">Em Atendimento</option>
+                    <option value="Resolvido">Resolvido</option>
+                    <option value="Fechado">Fechado</option>
+                  </select>
+                </div>
+
+                {/* Sub-Views Content Container */}
+                <div className="min-h-[300px]">
+                  {loading ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-secondary gap-3">
+                      <RefreshCw className="h-8 w-8 animate-spin text-emerald-400" />
+                      <p className="text-xs">Carregando projetos corporativos...</p>
+                    </div>
+                  ) : filteredTickets.length === 0 ? (
+                    <div className="text-center py-16 bg-app border border-default rounded-2xl text-muted font-mono shadow-lg">
+                      <p className="text-xs font-bold text-emerald-400 uppercase tracking-widest">Nenhum projeto encontrado</p>
+                      <p className="text-[10px] text-muted mt-2">Ajuste os filtros ou crie um novo chamado definindo uma Data Limite.</p>
+                    </div>
+                  ) : (
+                    /* KANBAN BOARD VIEW */
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pb-4">
+                      {(() => {
+                        const columns = [
+                          { title: "Não Iniciado", status: "Aberto" as const, bg: "border-t-amber-500", text: "text-amber-400", dot: "bg-amber-400" },
+                          { title: "Em Desenvolvimento", status: "Em Atendimento" as const, bg: "border-t-sky-500", text: "text-sky-400", dot: "bg-sky-400" },
+                          { title: "Finalizado", status: "Resolvido" as const, bg: "border-t-emerald-500", text: "text-emerald-400", dot: "bg-emerald-400" }
+                        ];
+
+                        return columns.map((col, colIdx) => {
+                          const colProjects = filteredTickets.filter((p) => {
+                            if (col.status === "Resolvido") {
+                              return p.status === "Resolvido" || p.status === "Fechado";
+                            }
+                            if (col.status === "Em Atendimento") {
+                              return p.status === "Em Atendimento" || p.status === "Pendente" || p.status === "Testando";
+                            }
+                            return p.status === col.status;
+                          });
+
+                          const isDraggedOver = draggedOverColumn === col.status;
+                          
+                          // Dynamic style for column when dragged over
+                          let highlightClass = "border-default bg-app";
+                          if (isDraggedOver) {
+                            if (col.status === "Aberto") {
+                              highlightClass = "border-amber-500/50 bg-amber-500/5 scale-[1.01]";
+                            } else if (col.status === "Em Atendimento") {
+                              highlightClass = "border-sky-500/50 bg-sky-500/5 scale-[1.01]";
+                            } else if (col.status === "Resolvido") {
+                              highlightClass = "border-emerald-500/50 bg-emerald-500/5 scale-[1.01]";
+                            }
+                          }
+
+                          return (
+                            <div 
+                              key={col.status}
+                              id={`kanban-col-${col.status.toLowerCase().replace(/\s+/g, '-')}`}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                if (draggedOverColumn !== col.status) {
+                                  setDraggedOverColumn(col.status);
+                                }
+                              }}
+                              onDragLeave={() => {
+                                setDraggedOverColumn(null);
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                setDraggedOverColumn(null);
+                                const projectId = e.dataTransfer.getData("text/plain") || draggedProjectId;
+                                if (projectId) {
+                                  handleUpdateTicketMeta(projectId, { status: col.status as Ticket["status"] });
+                                }
+                              }}
+                              className={`border p-3 flex flex-col min-h-[550px] transition-all duration-300 rounded-2xl w-full ${highlightClass}`}
+                            >
+                              
+                              {/* Column Header */}
+                              <div className="flex items-center justify-between border-b border-default pb-3 mb-3">
+                                <div className="flex items-center gap-2">
+                                  <span className={`h-1.5 w-1.5 rounded-full ${col.dot} shadow-sm animate-pulse`} />
+                                  <span className="text-[10px] font-black uppercase text-primary tracking-wider flex items-center gap-1.5">
+                                    {col.title}
+                                    {col.status === "Resolvido" && <Check className="h-3 w-3 text-emerald-400" />}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] font-bold bg-surface px-2 py-0.5 rounded text-secondary font-mono border border-default">
+                                  {colProjects.length}
+                                </span>
+                              </div>
+
+                              {/* Column Cards Container */}
+                              <div className="space-y-3 flex-1 overflow-y-auto max-h-[500px] pr-1 scrollbar-thin">
+                                {colProjects.length === 0 ? (
+                                  <div className="text-center py-12 border border-dashed border-default/40 rounded-xl text-muted text-[10px] font-mono">
+                                    Nenhum projeto nesta etapa
+                                  </div>
+                                ) : (
+                                  colProjects.map((project) => {
+                                    const isSelected = project.id === selectedTicketId;
+                                    const commentsCount = project.comments.filter(c => c.authorRole !== "system").length;
+                                    
+                                    // Project dynamic estimation progress
+                                    let progressVal = 15;
+                                    if (project.status === "Resolvido" || project.status === "Fechado") {
+                                      progressVal = 100;
+                                    } else if (project.status === "Em Atendimento") {
+                                      progressVal = commentsCount >= 3 ? 80 : commentsCount === 2 ? 60 : commentsCount === 1 ? 40 : 30;
+                                    } else if (project.status === "Testando") {
+                                      progressVal = 90;
+                                    } else if (project.status === "Pendente") {
+                                      progressVal = 20;
+                                    }
+
+                                    // Priority custom pills
+                                    const priorityText = project.priority === "Urgente" ? "text-rose-400 bg-rose-500/10" : project.priority === "Alta" ? "text-amber-400 bg-amber-500/10" : "text-secondary bg-surface";
+
+                                    return (
+                                      <div
+                                        key={project.id}
+                                        id={`kanban-card-${project.id}`}
+                                        draggable
+                                        onDragStart={(e) => {
+                                          e.dataTransfer.setData("text/plain", project.id);
+                                          setDraggedProjectId(project.id);
+                                        }}
+                                        onDragEnd={() => {
+                                          setDraggedProjectId(null);
+                                          setDraggedOverColumn(null);
+                                        }}
+                                        onClick={() => setSelectedTicketId(project.id)}
+                                        className={`p-3 bg-app hover:bg-app border transition-all duration-200 cursor-pointer rounded-xl flex flex-col justify-between gap-3 relative group overflow-hidden ${
+                                          isSelected 
+                                            ? "border-emerald-500 ring-1 ring-emerald-500/35 bg-app" 
+                                            : "border-default hover:border-default"
+                                        }`}
+                                      >
+                                        <div className="space-y-1.5">
+                                          <div className="flex items-center justify-between text-[8px] text-muted font-bold uppercase font-mono">
+                                            <span>#{project.id}</span>
+                                            <span className={`px-1.5 py-0.5 rounded text-[7px] font-black tracking-wider uppercase ${priorityText}`}>
+                                              {project.priority}
+                                            </span>
+                                          </div>
+                                          
+                                          {/* Custom Tag Indicator similar to user's screenshot */}
+                                          <div className="flex flex-wrap gap-1">
+                                            {project.status === "Aberto" && (
+                                              <span className="text-[7px] font-black bg-surface text-secondary border border-default rounded px-1 uppercase tracking-wider">
+                                                IDEIA
+                                              </span>
+                                            )}
+                                            {project.status === "Em Atendimento" && (
+                                              <span className="text-[7px] font-black bg-sky-500/10 text-sky-400 border border-sky-500/20 rounded px-1 uppercase tracking-wider">
+                                                EXECUÇÃO
+                                              </span>
+                                            )}
+                                            {project.status === "Testando" && (
+                                              <span className="text-[7px] font-black bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded px-1 uppercase tracking-wider">
+                                                TESTE
+                                              </span>
+                                            )}
+                                            {project.status === "Resolvido" && (
+                                              <span className="text-[7px] font-black bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded px-1 uppercase tracking-wider">
+                                                ENTREGUE
+                                              </span>
+                                            )}
+                                            {project.status === "Fechado" && (
+                                              <span className="text-[7px] font-black bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded px-1 uppercase tracking-wider">
+                                                ABORTADO
+                                              </span>
+                                            )}
+                                            {project.status === "Pendente" && (
+                                              <span className="text-[7px] font-black bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded px-1 uppercase tracking-wider">
+                                                AGUARDANDO
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          <h6 className="text-[11px] font-extrabold text-primary group-hover:text-emerald-400 transition-colors line-clamp-1 leading-tight">{project.title}</h6>
+                                          <p className="text-[10px] text-secondary line-clamp-2 leading-relaxed">{project.description}</p>
+                                        </div>
+
+                                        {/* Progress line */}
+                                        <div className="h-1 bg-app/60 rounded-full overflow-hidden">
+                                          <div className="h-full bg-emerald-400 transition-all duration-300 shadow-[0_0_6px_rgba(52,211,153,0.3)]" style={{ width: `${progressVal}%` }} />
+                                        </div>
+
+                                        {/* Quick status moves / assignees */}
+                                        <div className="flex items-center justify-between border-t border-default/40 pt-2 text-[9px] text-muted font-bold">
+                                          <div className="flex items-center gap-1 text-[8px] bg-surface px-1.5 py-0.5 rounded text-emerald-400 border border-default">
+                                            <Calendar className="h-2.5 w-2.5" />
+                                            <span>
+                                              {(() => {
+                                                try {
+                                                  const [y, m, d] = project.projectDeadline.split("-");
+                                                  return `${d}/${m}`;
+                                                } catch (e) {
+                                                  return project.projectDeadline;
+                                                }
+                                              })()}
+                                            </span>
+                                          </div>
+
+                                          <div className="flex items-center gap-1.5">
+                                            {project.status !== "Resolvido" && project.status !== "Fechado" && (
+                                              <>
+                                                {project.status === "Aberto" && (
+                                                  <button
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleUpdateTicketMeta(project.id, { status: "Em Atendimento" });
+                                                    }}
+                                                    className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded hover:bg-emerald-500/20 text-[8px] font-black uppercase cursor-pointer"
+                                                    title="Iniciar Atendimento"
+                                                  >
+                                                    Iniciar →
+                                                  </button>
+                                                )}
+                                                {(project.status === "Em Atendimento" || project.status === "Pendente" || project.status === "Testando") && (
+                                                  <button
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleUpdateTicketMeta(project.id, { status: "Resolvido" });
+                                                    }}
+                                                    className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded hover:bg-emerald-500/20 text-[8px] font-black uppercase cursor-pointer"
+                                                    title="Concluir Projeto"
+                                                  >
+                                                    Concluir ✓
+                                                  </button>
+                                                )}
+                                              </>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                  )}
+                </div>
+
+              </div>
+            ) : (
+              <section className="bg-surface border border-default rounded-xl min-w-0 shadow-card overflow-hidden">
+                <QueueToolbar
+                  filters={{ search: searchTerm, category: selectedCategory, priority: selectedPriority, status: selectedStatus }}
+                  onSearch={setSearchTerm}
+                  onCategory={setSelectedCategory}
+                  onPriority={setSelectedPriority}
+                  onStatus={setSelectedStatus}
+                  onClear={() => {
+                    setSelectedCategory("All");
+                    setSelectedPriority("All");
+                    setSelectedStatus("Active");
+                    setSearchTerm("");
+                  }}
+                  resultCount={filteredTickets.length}
+                />
+                {loading ? (
+                  <TicketTableSkeleton />
+                ) : ticketsError && userVisibleTickets.length === 0 ? (
+                  <EmptyState
+                    icon={ServerCrash}
+                    tone="rose"
+                    title="Não foi possível carregar os chamados"
+                    description="O servidor e o banco não responderam e não há dados salvos neste dispositivo. Verifique a conexão e tente de novo."
+                    action={{ label: "Tentar novamente", icon: RefreshCw, onClick: () => fetchTickets() }}
+                  />
+                ) : filteredTickets.length === 0 ? (
+                  hasActiveFilters({ search: searchTerm, category: selectedCategory, priority: selectedPriority, status: selectedStatus }) ? (
+                    <EmptyState
+                      icon={SearchX}
+                      title="Nenhum chamado corresponde aos filtros"
+                      description="Tente outros termos ou remova algum filtro para ampliar a busca."
+                      secondaryAction={{
+                        label: "Limpar filtros",
+                        onClick: () => {
+                          setSelectedCategory("All");
+                          setSelectedPriority("All");
+                          setSelectedStatus("Active");
+                          setSearchTerm("");
+                        },
+                      }}
+                    />
+                  ) : (
+                    <EmptyState
+                      icon={Inbox}
+                      tone="emerald"
+                      title={userVisibleTickets.length > 0 ? "Fila em dia" : "Nenhum chamado registrado"}
+                      description={
+                        userVisibleTickets.length > 0
+                          ? "Não há chamados ativos no momento. Use a aba Resolvidos para consultar o histórico."
+                          : "Quando um chamado for aberto, ele aparecerá aqui."
+                      }
+                      action={{
+                        label: "Novo chamado",
+                        icon: PlusCircle,
+                        onClick: () => {
+                          setNewTicketForm((f) => ({ ...f, projectDeadline: "" }));
+                          setIsNewTicketModalOpen(true);
+                        },
+                      }}
+                    />
+                  )
+                ) : (
+                  <TicketTable
+                    tickets={filteredTickets}
+                    selectedId={selectedTicketId}
+                    pressedId={pressedTicketId}
+                    getDueAt={(t) => resolutionDueAt(t, nowMs)}
+                    isReopened={(t) => engineIsReopened(t, nowMs)}
+                    onSelect={openTicket}
+                    getSlaLabel={(t) => getSlaEscalation(t).label}
+                    getAssignees={getAssignedTechs}
+                  />
+                )}
+              </section>
+            )}
 
           </div>
 
           {/* RIGHT SECTION (Col 5): Bento Ticket Detail, Diagnosis Panel & Activity */}
           {!rightSidebarCollapsed && (
-            <div className="xl:col-span-5 space-y-6 animate-in fade-in slide-in-from-right-3 duration-300">
-            
-            {/* Live active team indicator module - Bento Grid Block */}
-            <div className="bg-[#0a0a0a] border border-neutral-900 rounded-2xl p-5 shadow-lg">
-              <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 flex items-center gap-2">
-                  <Users className="h-4 w-4 text-emerald-400" />
-                  Equipe de TI Ativa
-                </h3>
-                <span className="text-[10px] bg-black text-emerald-400 px-2 py-0.5 rounded border border-neutral-900 font-bold uppercase tracking-wide flex items-center gap-1 animate-pulse">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                  Live
-                </span>
-              </div>
-              
-              <div className="space-y-3 max-h-[280px] overflow-y-auto pr-1">
-                {(() => {
-                  const filteredList = users
-                    .filter(u => u.role === "tecnico")
-                    .map(u => {
-                      const isOnline = !!(u.isOnline || (currentSession && (
-                        (u.email && currentSession.email && u.email.toLowerCase() === currentSession.email.toLowerCase()) ||
-                        (u.name && currentSession.name && u.name.toLowerCase() === currentSession.name.toLowerCase())
-                      )));
-                      return { ...u, isOnline };
-                    })
-                    // Sort by online status first, then by name
-                    .sort((a, b) => {
-                      if (a.isOnline && !b.isOnline) return -1;
-                      if (!a.isOnline && b.isOnline) return 1;
-                      return (a.name || "").localeCompare(b.name || "");
-                    });
-
-                  if (filteredList.length === 0) {
-                    return (
-                      <div className="p-4 text-center border border-dashed border-neutral-900 rounded-xl">
-                        <p className="text-xs text-slate-500">Nenhum técnico de TI cadastrado.</p>
-                      </div>
-                    );
-                  }
-
-                  return filteredList.map((user, idx) => {
-                    const initials = user.name
-                      ? user.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()
-                      : "TI";
-                    
-                    // Deterministic/unique colors based on index or name
-                    const bgClasses = [
-                      "bg-emerald-950/20 text-emerald-400 border-emerald-500/20",
-                      "bg-teal-950 text-teal-400 border-teal-500/30",
-                      "bg-emerald-950 text-emerald-400 border-emerald-500/30",
-                      "bg-neutral-950 text-emerald-300 border-neutral-800",
-                    ];
-                    const colorClass = bgClasses[idx % bgClasses.length];
-
-                    return (
-                      <div key={user.id || idx} className={`flex items-center justify-between p-2.5 bg-black/40 rounded-xl border transition ${user.isOnline ? "border-emerald-500/25 bg-emerald-500/5" : "border-emerald-950/15 hover:bg-[#080808]"}`}>
-                        <div className="flex items-center gap-3">
-                          <div className="relative">
-                            <div className={`w-8 h-8 rounded-full border flex items-center justify-center text-xs font-bold ${colorClass}`}>
-                              {initials}
-                            </div>
-                            {user.isOnline ? (
-                              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-black animate-pulse" title="Ativo / Online"></span>
-                            ) : (
-                              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-neutral-700 rounded-full border-2 border-black" title="Inativo"></span>
-                            )}
-                          </div>
-                          <div>
-                            <p className="text-xs font-bold text-white">{user.name}</p>
-                            <p className="text-[10.5px] text-slate-400 font-medium">
-                              {user.department || "Suporte Técnico"} • <span className={user.isOnline ? "text-emerald-400 font-semibold" : "text-neutral-500"}>{user.isOnline ? "Ativo" : "Ausente"}</span>
-                            </p>
-                          </div>
-                        </div>
-                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-wider border ${user.isOnline ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-neutral-900 border-neutral-850 text-neutral-500"}`}>
-                          {user.isOnline ? "Online" : "Suporte"}
-                        </span>
-                      </div>
-                    );
-                  });
-                })()}
-              </div>
-            </div>
+            <div className={`xl:col-span-5 space-y-6 animate-in fade-in slide-in-from-right-3 duration-300 ${
+              selectedTicketId ? "block" : "hidden xl:block"
+            }`}>
 
             {/* Selected Ticket Deep-Dive & Action Console */}
             {selectedTicket ? (
-              <div className="bg-[#0a0a0a] border border-emerald-500/10 rounded-2xl overflow-hidden shadow-2xl">
+              <div className="bg-app border border-emerald-500/10 rounded-2xl overflow-hidden shadow-2xl">
                 
                 {/* Detail Header */}
-                <div className="p-4 md:p-5 bg-[#0e0e0e] border-b border-neutral-900/60 flex items-center justify-between flex-wrap gap-2">
-                  <div>
-                    <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest block mb-0.5">Diagnóstico Completo</span>
-                    <h3 className="text-sm font-bold text-white">Chamado #{selectedTicket.id}</h3>
+                <div className="p-4 md:p-5 bg-surface border-b border-default/60 flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setSelectedTicketId(null)}
+                      className="xl:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface hover:bg-surface border border-default text-xs font-bold text-emerald-400 transition cursor-pointer active:scale-95 shrink-0"
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                      <span>Voltar</span>
+                    </button>
+                    <div>
+                      <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest block mb-0.5">Diagnóstico Completo</span>
+                      <h3 className="text-sm font-bold text-primary">Chamado #{selectedTicket.id}</h3>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -2636,25 +2890,25 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                         value={selectedTicket.status}
                         onChange={(e) => handleUpdateTicketMeta(selectedTicket.id, { status: e.target.value as Ticket["status"] })}
                         disabled={isAssignedToOther}
-                        className={`bg-black border border-neutral-800 text-xs font-bold rounded-lg px-2 py-1 focus:outline-none transition ${
+                        className={`bg-app border border-default text-xs font-bold rounded-lg px-2 py-1 focus:outline-none transition ${
                           selectedTicket.status === "Aberto" ? "text-amber-400 focus:border-amber-500" :
                           selectedTicket.status === "Em Atendimento" ? "text-sky-400 focus:border-sky-500" :
                           selectedTicket.status === "Resolvido" ? "text-emerald-400 focus:border-emerald-500" :
-                          "text-zinc-400 focus:border-zinc-500"
-                        } ${isAssignedToOther ? "opacity-50 cursor-not-allowed text-slate-500" : ""}`}
+                          "text-secondary focus:border-default"
+                        } ${isAssignedToOther ? "opacity-50 cursor-not-allowed text-muted" : ""}`}
                         title={isAssignedToOther ? `Apenas o técnico responsável (${selectedTicket.assignedTo}) pode alterar o status.` : ""}
                       >
-                        <option value="Aberto" className="text-amber-400 font-bold bg-neutral-950">Aberto</option>
-                        <option value="Em Atendimento" className="text-sky-400 font-bold bg-neutral-950">Em Atendimento</option>
-                        <option value="Resolvido" className="text-emerald-400 font-bold bg-neutral-950">Resolvido</option>
-                        <option value="Fechado" className="text-zinc-400 font-bold bg-neutral-950">Fechado</option>
+                        <option value="Aberto" className="text-amber-400 font-bold bg-app">Aberto</option>
+                        <option value="Em Atendimento" className="text-sky-400 font-bold bg-app">Em Atendimento</option>
+                        <option value="Resolvido" className="text-emerald-400 font-bold bg-app">Resolvido</option>
+                        <option value="Fechado" className="text-secondary font-bold bg-app">Fechado</option>
                       </select>
                     ) : (
-                      <span className={`text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded bg-[#0e0e0e] border transition ${
+                      <span className={`text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded bg-surface border transition ${
                         selectedTicket.status === "Aberto" ? "text-amber-400 border-amber-500/20" :
                         selectedTicket.status === "Em Atendimento" ? "text-sky-400 border-sky-500/20 shadow-[0_0_10px_rgba(56,189,248,0.05)]" :
                         selectedTicket.status === "Resolvido" ? "text-emerald-400 border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.05)]" :
-                        "text-zinc-400 border-zinc-700/30"
+                        "text-secondary border-default/30"
                       }`}>
                         {selectedTicket.status}
                       </span>
@@ -2663,27 +2917,27 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                 </div>
 
                 {/* Main scrollable body */}
-                <div className="p-5 space-y-5 max-h-[550px] overflow-y-auto">
+                <div className="p-5 space-y-5 max-h-[550px] xl:max-h-[calc(100vh-220px)] overflow-y-auto">
                   
                   {/* Requester overview */}
-                  <div className="p-3 bg-black/40 rounded-xl border border-emerald-950/20 text-xs space-y-2">
+                  <div className="p-3 bg-app/40 rounded-xl border border-emerald-950/20 text-xs space-y-2">
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-500 font-medium">Solicitado por:</span>
-                      <strong className="text-white">{selectedTicket.requesterName}</strong>
+                      <span className="text-muted font-medium">Solicitado por:</span>
+                      <strong className="text-primary">{selectedTicket.requesterName}</strong>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-500 font-medium">Departamento:</span>
-                      <span className="text-slate-300">{selectedTicket.requesterDepartment}</span>
+                      <span className="text-muted font-medium">Departamento:</span>
+                      <span className="text-secondary">{selectedTicket.requesterDepartment}</span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-500 font-medium">SLA Limite:</span>
+                      <span className="text-muted font-medium">SLA Limite:</span>
                       <span className="text-rose-400 font-semibold">
                         {new Date(selectedTicket.slaLimit).toLocaleDateString("pt-BR")} {new Date(selectedTicket.slaLimit).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                       </span>
                     </div>
                     {selectedTicket.projectDeadline && (
-                      <div className="flex justify-between items-center border-t border-neutral-900/40 pt-1.5">
-                        <span className="text-slate-500 font-medium flex items-center gap-1">
+                      <div className="flex justify-between items-center border-t border-default/40 pt-1.5">
+                        <span className="text-muted font-medium flex items-center gap-1">
                           <Calendar className="h-3 w-3 text-emerald-400" />
                           Limite do Projeto:
                         </span>
@@ -2720,31 +2974,31 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                       </div>
                       
                       <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div className="bg-black/40 p-2 rounded-lg border border-neutral-900">
-                          <span className="text-slate-500 block text-[9px] uppercase tracking-wider">Categoria IA</span>
+                        <div className="bg-app/40 p-2 rounded-lg border border-default">
+                          <span className="text-muted block text-[9px] uppercase tracking-wider">Categoria IA</span>
                           <span className="text-emerald-400 font-bold">{selectedTicket.aiCategory}</span>
                         </div>
-                        <div className="bg-black/40 p-2 rounded-lg border border-neutral-900">
-                          <span className="text-slate-500 block text-[9px] uppercase tracking-wider">Prioridade IA</span>
+                        <div className="bg-app/40 p-2 rounded-lg border border-default">
+                          <span className="text-muted block text-[9px] uppercase tracking-wider">Prioridade IA</span>
                           <span className={`font-bold ${
                             selectedTicket.aiPriority === "Urgente" ? "text-rose-400" :
                             selectedTicket.aiPriority === "Alta" ? "text-amber-400" :
-                            selectedTicket.aiPriority === "Média" ? "text-emerald-400" : "text-slate-400"
+                            selectedTicket.aiPriority === "Média" ? "text-emerald-400" : "text-secondary"
                           }`}>{selectedTicket.aiPriority}</span>
                         </div>
                       </div>
 
                       <div className="space-y-1">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Justificativa Técnica</span>
-                        <p className="text-slate-300 text-xs leading-relaxed whitespace-pre-line italic">
+                        <span className="text-[10px] font-bold text-secondary uppercase tracking-wider block">Justificativa Técnica</span>
+                        <p className="text-secondary text-xs leading-relaxed whitespace-pre-line italic">
                           "{selectedTicket.aiReasoning}"
                         </p>
                       </div>
 
                       {selectedTicket.aiSuggestions && (
                         <div className="space-y-1.5 pt-1 border-t border-emerald-950/25">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Soluções Recomendadas</span>
-                          <div className="text-slate-300 text-xs leading-relaxed space-y-1 bg-black/30 p-2.5 rounded-lg border border-neutral-900/60 font-sans">
+                          <span className="text-[10px] font-bold text-secondary uppercase tracking-wider block">Soluções Recomendadas</span>
+                          <div className="text-secondary text-xs leading-relaxed space-y-1 bg-app/30 p-2.5 rounded-lg border border-default/60 font-sans">
                             {selectedTicket.aiSuggestions.split("\n").map((line, index) => (
                               <div key={index} className="flex gap-2 items-start">
                                 <span className="text-emerald-400 font-bold select-none">•</span>
@@ -2803,7 +3057,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                       <div className="p-3 bg-emerald-500/5 rounded-xl border border-emerald-500/10 text-xs space-y-2">
                         <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider block border-b border-emerald-950/25 pb-1 mb-1">Registro de Atendimento</span>
                         <div className="flex justify-between items-center gap-4">
-                          <span className="text-slate-400 font-medium shrink-0">Técnicos Responsáveis:</span>
+                          <span className="text-secondary font-medium shrink-0">Técnicos Responsáveis:</span>
                           {selectedTicket.assignedTo ? (
                             <div className="flex flex-wrap gap-1 justify-end">
                               {getAssignedTechs(selectedTicket.assignedTo).map((t, i) => (
@@ -2819,8 +3073,8 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                         
                         {firstAssumedTime && (
                           <div className="flex justify-between items-center">
-                            <span className="text-slate-400 font-medium">Início do Atendimento:</span>
-                            <span className="text-slate-300">
+                            <span className="text-secondary font-medium">Início do Atendimento:</span>
+                            <span className="text-secondary">
                               {new Date(firstAssumedTime).toLocaleDateString("pt-BR")} {new Date(firstAssumedTime).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                             </span>
                           </div>
@@ -2828,13 +3082,13 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
                         {durationText && (
                           <div className="flex justify-between items-center">
-                            <span className="text-slate-400 font-medium">Tempo de Resolução:</span>
+                            <span className="text-secondary font-medium">Tempo de Resolução:</span>
                             <span className="text-emerald-400 font-semibold">{durationText}</span>
                           </div>
                         )}
 
                         {isResolved && resolutionComment && (
-                          <div className="flex justify-between items-center border-t border-emerald-500/10 pt-1.5 mt-1 text-[10px] text-slate-400 italic">
+                          <div className="flex justify-between items-center border-t border-emerald-500/10 pt-1.5 mt-1 text-[10px] text-secondary italic">
                             <span>Resolvido em: {new Date(resolutionComment.timestamp).toLocaleDateString("pt-BR")} {new Date(resolutionComment.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
                           </div>
                         )}
@@ -2844,50 +3098,108 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
                   {/* Original issue description block */}
                   <div className="space-y-1.5">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Descrição do Problema</span>
-                    <div className="bg-black p-4 rounded-xl border border-neutral-900 text-xs text-slate-200 leading-relaxed whitespace-pre-line">
+                    <span className="text-[10px] font-bold text-muted uppercase tracking-wider">Descrição do Problema</span>
+                    <div className="bg-app p-4 rounded-xl border border-default text-xs text-primary leading-relaxed whitespace-pre-line">
                       {selectedTicket.description}
                     </div>
                   </div>
 
-                  {/* Attached screenshot block */}
-                  {selectedTicket.screenshot && (
+                  {/* Attached files and screenshots block */}
+                  {((selectedTicket.attachments && selectedTicket.attachments.length > 0) || selectedTicket.screenshot) && (
                     <div className="space-y-2">
-                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                        <Camera className="h-3.5 w-3.5 text-emerald-400" />
-                        Print Anexado
+                      <span className="text-[10px] font-bold text-muted uppercase tracking-wider flex items-center gap-1.5">
+                        <Paperclip className="h-3.5 w-3.5 text-emerald-400" />
+                        Prints e Arquivos Anexados
                       </span>
-                      <div className="bg-black p-3 rounded-xl border border-neutral-900 flex flex-col items-center">
-                        <button 
-                          onClick={() => setPreviewImage(selectedTicket.screenshot || null)} 
-                          className="relative block rounded-lg overflow-hidden border border-neutral-900 group cursor-zoom-in max-w-full text-left"
-                          title="Clique para abrir em tela cheia"
-                        >
-                          <img 
-                            src={selectedTicket.screenshot} 
-                            alt="Print do chamado" 
-                            className="max-h-64 object-contain rounded-lg group-hover:scale-[1.015] transition-all duration-200" 
-                          />
-                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                            <span className="bg-black/95 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-xl border border-neutral-800 shadow-xl flex items-center gap-1">
-                              <Eye className="h-3.5 w-3.5 text-emerald-400" /> Ver Imagem Completa
-                            </span>
+                      <div className="bg-app/40 p-4 rounded-xl border border-default/60 space-y-3">
+                        {/* If we have multiple attachments */}
+                        {selectedTicket.attachments && selectedTicket.attachments.length > 0 ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {selectedTicket.attachments.map((file, idx) => {
+                              const isImage = file.type.startsWith("image/");
+                              const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+                              
+                              return (
+                                <div key={idx} className="flex flex-col p-2.5 rounded-xl bg-surface/60 border border-default hover:border-default transition justify-between gap-2.5">
+                                  <div className="flex items-center gap-2.5 min-w-0">
+                                    {isImage ? (
+                                      <div className="w-10 h-10 rounded-lg overflow-hidden border border-default flex-shrink-0 bg-app flex items-center justify-center">
+                                        <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
+                                      </div>
+                                    ) : (
+                                      <div className={`w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center bg-app border border-default ${isPdf ? "text-red-400" : "text-emerald-400"}`}>
+                                        <FileText className="h-5 w-5" />
+                                      </div>
+                                    )}
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-xs font-semibold text-primary truncate" title={file.name}>
+                                        {file.name}
+                                      </p>
+                                      <p className="text-[9px] text-muted uppercase font-mono tracking-wider">
+                                        {isPdf ? "Documento PDF" : isImage ? "Imagem" : "Arquivo"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  
+                                  <div className="flex items-center gap-2 mt-0.5">
+                                    {isImage ? (
+                                      <button
+                                        onClick={() => setPreviewImage(file.url)}
+                                        className="flex-1 py-1 px-2.5 bg-app hover:bg-surface border border-default rounded-lg text-[10px] font-bold text-secondary hover:text-emerald-400 flex items-center justify-center gap-1 transition cursor-pointer"
+                                      >
+                                        <Eye className="h-3 w-3" /> Visualizar
+                                      </button>
+                                    ) : (
+                                      <a
+                                        href={file.url}
+                                        download={file.name}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex-1 py-1 px-2.5 bg-app hover:bg-surface border border-default rounded-lg text-[10px] font-bold text-secondary hover:text-emerald-400 flex items-center justify-center gap-1 transition text-center"
+                                      >
+                                        <Upload className="h-3 w-3 rotate-180" /> Abrir / Baixar
+                                      </a>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
-                        </button>
+                        ) : (
+                          /* Legacy single screenshot fallback */
+                          <div className="flex flex-col items-center">
+                            <button 
+                              onClick={() => setPreviewImage(selectedTicket.screenshot || null)} 
+                              className="relative block rounded-lg overflow-hidden border border-default group cursor-zoom-in max-w-full text-left"
+                              title="Clique para abrir em tela cheia"
+                            >
+                              <img 
+                                src={selectedTicket.screenshot} 
+                                alt="Print do chamado" 
+                                className="max-h-64 object-contain rounded-lg group-hover:scale-[1.015] transition-all duration-200" 
+                              />
+                              <div className="absolute inset-0 bg-app/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <span className="bg-app/95 text-primary text-[10px] font-bold px-2.5 py-1.5 rounded-xl border border-default shadow-xl flex items-center gap-1">
+                                  <Eye className="h-3.5 w-3.5 text-emerald-400" /> Ver Imagem Completa
+                                </span>
+                              </div>
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
 
                   {/* Interactive Control Controls (TI Assignment / Priority changer) */}
-                  {currentSession.role === "tecnico" && (
-                    <div className="p-4 bg-black border border-emerald-950/20 rounded-xl space-y-3">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Painel do Técnico (Atendimento)</span>
+                  {isTechUser && (
+                    <div className="p-4 bg-app border border-emerald-950/20 rounded-xl space-y-3">
+                      <span className="text-[10px] font-bold text-secondary uppercase tracking-wider block">Painel do Técnico (Atendimento)</span>
                       
                       <div className="grid grid-cols-2 gap-3 text-xs">
                         
                         {/* Assign to multiple technicians option */}
                         <div className="space-y-1.5 col-span-2 md:col-span-1">
-                          <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">Técnicos Atribuídos</label>
+                          <label className="text-secondary block text-[10px] font-bold uppercase tracking-wider">Técnicos Atribuídos</label>
                           {(() => {
                             const assignedTechs = getAssignedTechs(selectedTicket.assignedTo);
                             const firstTech = getFirstAssignedTech(selectedTicket);
@@ -2910,7 +3222,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                             return (
                               <>
                                 <div 
-                                  className="bg-neutral-950/80 p-2 rounded-xl border border-neutral-900/60 max-h-48 overflow-y-auto space-y-1.5 scrollbar-thin scrollbar-thumb-neutral-800 scrollbar-track-transparent"
+                                  className="bg-app/80 p-2 rounded-xl border border-default/60 max-h-48 overflow-y-auto space-y-1.5 scrollbar-thin scrollbar-thumb-neutral-800 scrollbar-track-transparent"
                                   title={!canManageAssignments ? `Apenas o primeiro técnico responsável (${firstTech}) pode alterar as atribuições.` : ""}
                                 >
                                   {users
@@ -2942,7 +3254,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                                           className={`group flex items-center justify-between p-2 rounded-lg border transition-all text-left select-none ${
                                             isAssigned
                                               ? "bg-emerald-950/15 border-emerald-500/20 text-emerald-300"
-                                              : "bg-[#060606] border-neutral-900/60 text-slate-400 hover:border-neutral-800/80 hover:text-slate-200"
+                                              : "bg-app border-default/60 text-secondary hover:border-default/80 hover:text-primary"
                                           } ${!canManageAssignments ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
                                         >
                                           <div className="flex items-center gap-2 min-w-0">
@@ -2951,7 +3263,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                                               <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold border transition-colors ${
                                                 isAssigned 
                                                   ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/20" 
-                                                  : "bg-neutral-900 text-slate-500 border-neutral-800"
+                                                  : "bg-surface text-muted border-default"
                                               }`}>
                                                 {initials}
                                               </div>
@@ -2961,10 +3273,10 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                                             </div>
                                             
                                             <div className="min-w-0 leading-tight">
-                                              <span className={`text-[11px] font-semibold block truncate ${isAssigned ? 'text-emerald-300' : 'text-slate-300 group-hover:text-slate-100'}`}>
+                                              <span className={`text-[11px] font-semibold block truncate ${isAssigned ? 'text-emerald-300' : 'text-secondary group-hover:text-primary'}`}>
                                                 {tech.name}
                                               </span>
-                                              <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider block">Suporte</span>
+                                              <span className="text-[8px] text-muted font-bold uppercase tracking-wider block">Suporte</span>
                                             </div>
                                           </div>
 
@@ -2981,7 +3293,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                                                 <Check className="h-2.5 w-2.5 stroke-[3]" />
                                               </div>
                                             ) : (
-                                              <div className="w-4 h-4 rounded-full border border-neutral-800 bg-black transition-colors group-hover:border-neutral-700" />
+                                              <div className="w-4 h-4 rounded-full border border-default bg-app transition-colors group-hover:border-default" />
                                             )}
                                           </div>
                                         </div>
@@ -3001,16 +3313,16 @@ CREATE TABLE IF NOT EXISTS public.tickets (
  
                         {/* Adjust priority manually */}
                         <div className="space-y-1.5 col-span-2 md:col-span-1">
-                          <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">Prioridade Operacional</label>
+                          <label className="text-secondary block text-[10px] font-bold uppercase tracking-wider">Prioridade Operacional</label>
                           <div className="relative">
                             <select
                               value={selectedTicket.priority}
                               onChange={(e) => handleUpdateTicketMeta(selectedTicket.id, { priority: e.target.value as Ticket["priority"] })}
                               disabled={isAssignedToOther}
-                              className={`w-full bg-[#060606] border border-neutral-900 rounded-xl py-2 px-3 text-xs text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all ${
+                              className={`w-full bg-app border border-default rounded-xl py-2 px-3 text-xs text-primary focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all ${
                                 isAssignedToOther 
-                                  ? "opacity-60 cursor-not-allowed text-slate-500" 
-                                  : "hover:border-neutral-800/80 cursor-pointer"
+                                  ? "opacity-60 cursor-not-allowed text-muted" 
+                                  : "hover:border-default/80 cursor-pointer"
                               }`}
                               title={isAssignedToOther ? `Apenas o técnico responsável (${selectedTicket.assignedTo}) pode alterar a prioridade.` : ""}
                             >
@@ -3026,7 +3338,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
                       {/* Alterar Solicitante (Visible to technicians) */}
                       <div className="pt-2.5 border-t border-emerald-950/10 space-y-1.5">
-                        <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                        <label className="text-secondary block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
                           <UserIcon className="h-3.5 w-3.5 text-emerald-400" />
                           Alterar Solicitante (Colaborador)
                         </label>
@@ -3044,10 +3356,10 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                               }
                             }
                           }}
-                          className={`w-full bg-[#060606] border border-neutral-900 rounded-xl py-2 px-3 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all ${
+                          className={`w-full bg-app border border-default rounded-xl py-2 px-3 text-xs text-secondary focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all ${
                             isAssignedToOther 
-                              ? "opacity-60 cursor-not-allowed text-slate-500" 
-                              : "hover:border-neutral-800/80 cursor-pointer"
+                              ? "opacity-60 cursor-not-allowed text-muted" 
+                              : "hover:border-default/80 cursor-pointer"
                           }`}
                           title={isAssignedToOther ? `Apenas o técnico responsável (${selectedTicket.assignedTo}) pode alterar o solicitante.` : ""}
                         >
@@ -3057,13 +3369,13 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                             </option>
                           ))}
                         </select>
-                        <p className="text-[9px] text-slate-500 font-medium">Altere o colaborador que solicitou este chamado de suporte.</p>
+                        <p className="text-[9px] text-muted font-medium">Altere o colaborador que solicitou este chamado de suporte.</p>
                       </div>
 
                       {/* SLA/Ticket Type Setting (Visible to all technicians) */}
                       {currentSession?.role === "tecnico" && (
                         <div className="pt-2.5 border-t border-emerald-950/10 space-y-1.5">
-                          <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                          <label className="text-secondary block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
                             <FolderKanban className="h-3.5 w-3.5 text-emerald-400" />
                             Tipo de SLA (Chamado ou Projeto)
                           </label>
@@ -3082,12 +3394,12 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                                 handleUpdateTicketMeta(selectedTicket.id, { projectDeadline: dateStr });
                               }
                             }}
-                            className="w-full bg-[#060606] border border-neutral-900 rounded-xl py-2 px-3 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all hover:border-neutral-800/80 cursor-pointer"
+                            className="w-full bg-app border border-default rounded-xl py-2 px-3 text-xs text-secondary focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all hover:border-default/80 cursor-pointer"
                           >
                             <option value="chamado">Chamado Padrão (SLA Baseado em Horas)</option>
                             <option value="projeto">Projeto em Andamento (SLA Baseado em Data Limite)</option>
                           </select>
-                          <p className="text-[9px] text-slate-500 font-medium">
+                          <p className="text-[9px] text-muted font-medium">
                             Selecione se este item deve ser tratado como um chamado padrão com SLA por prioridade ou um projeto de longo prazo com data limite de entrega.
                           </p>
                         </div>
@@ -3096,7 +3408,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                       {/* Project Deadline Setting (Visible to all technicians and only if configured as a project) */}
                       {currentSession?.role === "tecnico" && selectedTicket.projectDeadline && (
                         <div className="pt-2.5 border-t border-emerald-950/10 space-y-1.5">
-                          <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                          <label className="text-secondary block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
                             <Calendar className="h-3.5 w-3.5 text-emerald-400" />
                             Definir Data Limite do Projeto
                           </label>
@@ -3104,20 +3416,20 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                             value={selectedTicket.projectDeadline}
                             onChange={(date) => handleUpdateTicketMeta(selectedTicket.id, { projectDeadline: date })}
                           />
-                          <p className="text-[9px] text-slate-500 font-medium">Defina ou altere o prazo limite para a conclusão do projeto associado a este chamado.</p>
+                          <p className="text-[9px] text-muted font-medium">Defina ou altere o prazo limite para a conclusão do projeto associado a este chamado.</p>
                         </div>
                       )}
 
                       {/* Transfer Option (Only visible to the first assigned technician) */}
                       {getFirstAssignedTech(selectedTicket) === currentSession.name && (
                         <div className="pt-2.5 border-t border-emerald-950/10 space-y-1.5">
-                          <label className="text-slate-400 block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
+                          <label className="text-secondary block text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
                             <RefreshCw className="h-3.5 w-3.5 text-emerald-400" />
                             Transferir chamado para outro técnico:
                           </label>
                           <select
                             defaultValue=""
-                            className="w-full bg-[#060606] border border-neutral-900 rounded-xl py-2 px-3 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all hover:border-neutral-800/80 cursor-pointer"
+                            className="w-full bg-app border border-default rounded-xl py-2 px-3 text-xs text-secondary focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/25 transition-all hover:border-default/80 cursor-pointer"
                             onChange={(e) => {
                               const targetTechName = e.target.value;
                               if (targetTechName) {
@@ -3143,12 +3455,12 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                   )}
 
                   {/* Action Button: Finalizar Chamado */}
-                  <div className="p-4 bg-black border border-emerald-950/20 rounded-xl space-y-2">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Ações Disponíveis</span>
+                  <div className="p-4 bg-app border border-emerald-950/20 rounded-xl space-y-2">
+                    <span className="text-[10px] font-bold text-secondary uppercase tracking-wider block">Ações Disponíveis</span>
                     
                     {isAssignedToOther && (
                       <div className="p-2.5 bg-amber-500/5 border border-amber-500/15 rounded-lg text-[10px] text-amber-400 leading-normal font-medium flex items-center gap-2 mb-2">
-                        <span>ÔÜá´©Å Este chamado está sob responsabilidade de <strong>{selectedTicket.assignedTo}</strong>. Apenas um dos responsáveis pode alterar ou finalizá-lo.</span>
+                        <span>⚠️ Este chamado está sob responsabilidade de <strong>{selectedTicket.assignedTo}</strong>. Apenas um dos responsáveis pode alterar ou finalizá-lo.</span>
                       </div>
                     )}
 
@@ -3162,7 +3474,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                           handleUpdateTicketMeta(selectedTicket.id, { status: "Resolvido" });
                         }}
                         disabled={isAssignedToOther}
-                        className={`w-full py-2.5 bg-emerald-400 hover:bg-emerald-300 text-black font-extrabold rounded-xl text-xs transition flex items-center justify-center gap-2 shadow-neon hover:shadow-neon-lg cursor-pointer font-display ${isAssignedToOther ? "opacity-40 cursor-not-allowed" : ""}`}
+                        className={`w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-xs transition flex items-center justify-center gap-2 shadow-sm cursor-pointer font-display ${isAssignedToOther ? "opacity-40 cursor-not-allowed" : ""}`}
                         title={isAssignedToOther ? `Apenas ${selectedTicket.assignedTo} pode finalizar este chamado` : ""}
                       >
                         <CheckCircle className="h-4 w-4" />
@@ -3178,7 +3490,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                           handleUpdateTicketMeta(selectedTicket.id, { status: "Aberto" });
                         }}
                         disabled={isAssignedToOther}
-                        className={`w-full py-2.5 bg-black hover:bg-neutral-900 text-slate-200 font-bold rounded-xl text-xs transition flex items-center justify-center gap-2 border border-emerald-950/25 cursor-pointer font-display ${isAssignedToOther ? "opacity-40 cursor-not-allowed" : ""}`}
+                        className={`w-full py-2.5 bg-app hover:bg-surface text-primary font-bold rounded-xl text-xs transition flex items-center justify-center gap-2 border border-emerald-950/25 cursor-pointer font-display ${isAssignedToOther ? "opacity-40 cursor-not-allowed" : ""}`}
                         title={isAssignedToOther ? `Apenas ${selectedTicket.assignedTo} pode reabrir este chamado` : ""}
                       >
                         <RefreshCw className="h-4 w-4 text-emerald-400" />
@@ -3188,15 +3500,15 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
                     {/* Excluir Chamado (Apenas para os técnicos responsáveis) */}
                     {currentSession.role === "tecnico" && (
-                      <div className="pt-2 border-t border-neutral-900 mt-2">
+                      <div className="pt-2 border-t border-default mt-2">
                         {!getAssignedTechs(selectedTicket.assignedTo).includes(currentSession.name) ? (
                           <button
                             type="button"
                             disabled
-                            className="w-full py-2 bg-neutral-950 text-neutral-600 border border-neutral-900/40 font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-not-allowed"
+                            className="w-full py-2 bg-app text-muted border border-default/40 font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-not-allowed"
                             title={`Apenas os técnicos responsáveis (${selectedTicket.assignedTo || 'Nenhum'}) podem excluir este chamado.`}
                           >
-                            <Trash2 className="h-3.5 w-3.5 text-neutral-700" />
+                            <Trash2 className="h-3.5 w-3.5 text-muted" />
                             Excluir Chamado (Apenas Responsável)
                           </button>
                         ) : isConfirmingDeleteTicket === selectedTicket.id ? (
@@ -3204,7 +3516,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                             <button
                               type="button"
                               onClick={() => handleDeleteTicket(selectedTicket.id)}
-                              className="flex-1 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-rose-600/20"
+                              className="flex-1 py-2 bg-rose-600 hover:bg-rose-500 text-primary font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-rose-600/20"
                             >
                               <Trash2 className="h-4 w-4" />
                               Confirmar Exclusão?
@@ -3212,7 +3524,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                             <button
                               type="button"
                               onClick={() => setIsConfirmingDeleteTicket(null)}
-                              className="px-3 py-2 bg-[#151515] hover:bg-[#202020] text-slate-300 font-medium rounded-xl text-xs border border-neutral-900 transition cursor-pointer"
+                              className="px-3 py-2 bg-surface hover:bg-surface-2 text-secondary font-medium rounded-xl text-xs border border-default transition cursor-pointer"
                             >
                               Cancelar
                             </button>
@@ -3221,7 +3533,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                           <button
                             type="button"
                             onClick={() => setIsConfirmingDeleteTicket(selectedTicket.id)}
-                            className="w-full py-2 bg-black hover:bg-rose-950/15 text-rose-400 hover:text-rose-300 border border-emerald-950/20 hover:border-rose-900/30 font-semibold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                            className="w-full py-2 bg-app hover:bg-rose-950/15 text-rose-400 hover:text-rose-300 border border-emerald-950/20 hover:border-rose-900/30 font-semibold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                             Excluir Chamado
@@ -3231,9 +3543,84 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                     )}
                   </div>
 
+                  {/* OS Local Notification Callout for Chat */}
+                  <div className={`p-3 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 ${
+                    desktopNotificationPermission === "granted"
+                      ? "bg-emerald-950/20 border-emerald-500/20 text-emerald-300"
+                      : desktopNotificationPermission === "denied"
+                      ? "bg-rose-950/20 border-rose-500/30 text-rose-300"
+                      : "bg-emerald-500/10 border-emerald-500/30 text-primary"
+                  }`}>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className={`p-2 rounded-lg shrink-0 ${
+                        desktopNotificationPermission === "granted"
+                          ? "bg-emerald-500/20 text-emerald-400"
+                          : desktopNotificationPermission === "denied"
+                          ? "bg-rose-500/20 text-rose-400"
+                          : "bg-emerald-600 text-white font-semibold"
+                      }`}>
+                        <BellRing className={`h-4 w-4 ${desktopNotificationPermission !== "granted" ? "animate-bounce" : ""}`} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-extrabold text-[11px] uppercase tracking-wider block truncate">
+                            {desktopNotificationPermission === "granted"
+                              ? "Notificações do Sistema Operacional Ativas"
+                              : desktopNotificationPermission === "denied"
+                              ? "Notificações do SO Bloqueadas"
+                              : "Ative as Notificações Nativas do Sistema para este Chat"}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-secondary leading-tight mt-0.5">
+                          {desktopNotificationPermission === "granted"
+                            ? "Sua área de trabalho avisará instantaneamente quando houver novas mensagens neste chamado."
+                            : desktopNotificationPermission === "denied"
+                            ? "Bloqueado no navegador. Clique ao lado para saber como permitir alertas de chat."
+                            : "Para não perder mensagens deste chamado sem precisar ficar olhando para esta tela, ative as Notificações do SO."}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                      {desktopNotificationPermission === "granted" ? (
+                        <button
+                          type="button"
+                          onClick={testDesktopNotification}
+                          className="w-full sm:w-auto px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <Sparkles className="h-3 w-3 text-emerald-400" />
+                          Testar Pop-up SO
+                        </button>
+                      ) : desktopNotificationPermission === "denied" ? (
+                        <button
+                          type="button"
+                          onClick={() => setIsNotificationGuideOpen(true)}
+                          className="w-full sm:w-auto px-3 py-1.5 bg-rose-500 hover:bg-rose-400 text-primary font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <HelpCircle className="h-3.5 w-3.5" />
+                          Como Desbloquear
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const res = await requestDesktopNotificationPermission();
+                            if (res === "granted") {
+                              testDesktopNotification();
+                            }
+                          }}
+                          className="w-full sm:w-auto px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-[10.5px] rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer shadow-sm font-sans"
+                        >
+                          <Bell className="h-3.5 w-3.5" />
+                          Ativar no SO
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
                   {/* Interaction history and discussion thread */}
                   <div className="space-y-3 pt-2">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Histórico de Discussão & Logs</span>
+                    <span className="text-[10px] font-bold text-muted uppercase tracking-wider block">Histórico de Discussão & Logs</span>
                     
                     <div className="space-y-2">
                       {selectedTicket.comments
@@ -3247,10 +3634,10 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                           <div
                             key={comment.id}
                             className={`p-3 rounded-xl border text-xs leading-relaxed ${
-                              isSystem ? "bg-black/40 text-slate-400 border-neutral-900 text-center py-2 italic font-mono text-[10px]" :
+                              isSystem ? "bg-app/40 text-secondary border-default text-center py-2 italic font-mono text-[10px]" :
                               isAI ? "bg-emerald-950/5 text-emerald-300 border-emerald-500/10" :
-                              isTechnical ? "bg-[#0e0e0e] text-slate-200 border-emerald-950/20" :
-                              "bg-black text-slate-200 border-neutral-900"
+                              isTechnical ? "bg-surface text-primary border-emerald-950/20" :
+                              "bg-app text-primary border-default"
                             }`}
                           >
                             {!isSystem && (
@@ -3258,11 +3645,11 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                                 <span className="font-bold flex items-center gap-1">
                                   {isAI && <Sparkles className="h-3 w-3 text-emerald-400" />}
                                   {comment.authorName}
-                                  <span className="text-[9px] font-normal text-slate-500">
+                                  <span className="text-[9px] font-normal text-muted">
                                     ({comment.authorRole})
                                   </span>
                                 </span>
-                                <span className="text-[10px] text-slate-500">
+                                <span className="text-[10px] text-muted">
                                   {new Date(comment.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                                 </span>
                               </div>
@@ -3271,12 +3658,12 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                             <p className="whitespace-pre-line text-xs">{comment.content}</p>
 
                             {comment.attachmentUrl && (
-                              <div className="mt-2.5 p-2 bg-black/50 rounded-lg border border-neutral-900/60 flex items-center gap-2 max-w-sm" onClick={(e) => e.stopPropagation()}>
+                              <div className="mt-2.5 p-2 bg-app/50 rounded-lg border border-default/60 flex items-center gap-2 max-w-sm" onClick={(e) => e.stopPropagation()}>
                                 {comment.attachmentUrl.startsWith("data:image/") ? (
                                   <button
                                     type="button"
                                     onClick={() => setPreviewImage(comment.attachmentUrl || null)}
-                                    className="relative h-12 w-12 rounded-md overflow-hidden border border-neutral-800 flex-shrink-0 cursor-zoom-in text-left"
+                                    className="relative h-12 w-12 rounded-md overflow-hidden border border-default flex-shrink-0 cursor-zoom-in text-left"
                                     title="Clique para ver imagem cheia"
                                   >
                                     <img 
@@ -3284,17 +3671,17 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                                       alt="Anexo" 
                                       className="h-full w-full object-cover"
                                     />
-                                    <div className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 flex items-center justify-center transition">
-                                      <Eye className="h-3 w-3 text-white" />
+                                    <div className="absolute inset-0 bg-app/40 opacity-0 hover:opacity-100 flex items-center justify-center transition">
+                                      <Eye className="h-3 w-3 text-primary" />
                                     </div>
                                   </button>
                                 ) : (
-                                  <div className="h-10 w-10 rounded-md bg-neutral-900 border border-neutral-800 flex items-center justify-center text-emerald-400 flex-shrink-0">
+                                  <div className="h-10 w-10 rounded-md bg-surface border border-default flex items-center justify-center text-emerald-400 flex-shrink-0">
                                     <FileText className="h-5 w-5" />
                                   </div>
                                 )}
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-[10px] font-bold text-slate-300 truncate">{comment.attachmentName || "Anexo"}</p>
+                                  <p className="text-[10px] font-bold text-secondary truncate">{comment.attachmentName || "Anexo"}</p>
                                   <a
                                     href={comment.attachmentUrl}
                                     download={comment.attachmentName || "anexo.png"}
@@ -3314,25 +3701,25 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                 </div>
 
                 {/* Live Comments Thread Input bar */}
-                <div className="border-t border-neutral-900 bg-black flex flex-col">
+                <div className="border-t border-default bg-app flex flex-col">
                   {/* Attachment Preview Box */}
                   {commentAttachment && (
-                    <div className="px-4 py-2 bg-neutral-950/80 border-b border-neutral-900 flex items-center justify-between gap-3 text-xs animate-in slide-in-from-bottom-2 duration-150">
+                    <div className="px-4 py-2 bg-app/80 border-b border-default flex items-center justify-between gap-3 text-xs animate-in slide-in-from-bottom-2 duration-150">
                       <div className="flex items-center gap-2 min-w-0">
                         {commentAttachment.startsWith("data:image/") ? (
                           <img 
                             src={commentAttachment} 
                             alt="Preview do anexo" 
-                            className="h-8 w-8 rounded object-cover border border-neutral-800"
+                            className="h-8 w-8 rounded object-cover border border-default"
                           />
                         ) : (
-                          <div className="h-8 w-8 rounded bg-neutral-900 border border-neutral-800 flex items-center justify-center text-emerald-400">
+                          <div className="h-8 w-8 rounded bg-surface border border-default flex items-center justify-center text-emerald-400">
                             <FileText className="h-4 w-4" />
                           </div>
                         )}
                         <div className="min-w-0">
-                          <p className="text-[11px] font-bold text-slate-300 truncate">{commentAttachmentName}</p>
-                          <p className="text-[9px] text-slate-500 uppercase font-medium">Pronto para enviar</p>
+                          <p className="text-[11px] font-bold text-secondary truncate">{commentAttachmentName}</p>
+                          <p className="text-[9px] text-muted uppercase font-medium">Pronto para enviar</p>
                         </div>
                       </div>
                       <button
@@ -3341,10 +3728,10 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                           setCommentAttachment(null);
                           setCommentAttachmentName("");
                         }}
-                        className="p-1 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-slate-400 hover:text-white transition cursor-pointer"
+                        className="p-1 rounded-lg bg-surface hover:bg-surface-2 border border-default text-secondary hover:text-primary transition cursor-pointer flex items-center justify-center"
                         title="Remover anexo"
                       >
-                        Ô£ò
+                        <X className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   )}
@@ -3386,7 +3773,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                     />
                     <label
                       htmlFor="comment-file-input"
-                      className="p-2.5 bg-[#0e0e0e] hover:bg-neutral-900 border border-neutral-900 text-slate-400 hover:text-slate-200 rounded-xl transition cursor-pointer flex items-center justify-center flex-shrink-0"
+                      className="p-2.5 bg-surface hover:bg-surface border border-default text-secondary hover:text-primary rounded-xl transition cursor-pointer flex items-center justify-center flex-shrink-0"
                       title="Anexar imagem ou documento"
                     >
                       <Paperclip className="h-4 w-4" />
@@ -3428,7 +3815,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                         }
                       }}
                       placeholder={commentAttachment ? "Adicione um comentário opcional..." : "Adicionar comentário ao chamado..."}
-                      className="flex-1 bg-[#0e0e0e] border border-neutral-900 text-xs rounded-xl px-3 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
+                      className="flex-1 bg-surface border border-default text-xs rounded-xl px-3 py-2.5 text-primary placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
                     />
                     <button
                       type="submit"
@@ -3440,15 +3827,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                 </div>
 
               </div>
-            ) : (
-              <div className="bg-[#0a0a0a] border border-emerald-950/15 rounded-2xl p-8 text-center text-slate-500 space-y-3">
-                <AlertCircle className="h-10 w-10 text-emerald-400 mx-auto" />
-                <div>
-                  <h4 className="text-sm font-bold text-slate-300">Nenhum chamado selecionado</h4>
-                  <p className="text-xs mt-1">Selecione qualquer ticket na fila da prioridade ao lado para verificar os detalhes, histórico de conversas, e recomendações em tempo real geradas por IA.</p>
-                </div>
-              </div>
-            )}
+            ) : null}
 
             </div>
           )}
@@ -3458,32 +3837,38 @@ CREATE TABLE IF NOT EXISTS public.tickets (
         </AnimatePresence>
 
       </main>
+      </motion.div>
+      )}
+      </AnimatePresence>
+      </AppLayout>
+
+      {expandOrigin && <TicketExpandOverlay origin={expandOrigin} onDone={() => setExpandOrigin(null)} />}
 
       {/* Modal: My Tickets History */}
       {isMyTicketsModalOpen && currentSession && (
         <div 
           onClick={() => setIsMyTicketsModalOpen(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 cursor-pointer"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-app/80 backdrop-blur-sm p-4 cursor-pointer"
         >
           <div 
             onClick={(e) => e.stopPropagation()}
-            className="bg-[#0a0a0a] border border-neutral-900 w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[90vh] cursor-default"
+            className="bg-app border border-default w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[90vh] cursor-default"
           >
             
             {/* Modal Header */}
-            <div className="p-5 border-b border-neutral-900 flex items-center justify-between bg-black/50 backdrop-blur-md">
+            <div className="p-5 border-b border-default flex items-center justify-between bg-app/50 backdrop-blur-md">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
                   <Layers className="h-4 w-4 text-emerald-400" />
                 </div>
                 <div>
-                  <h3 className="font-display font-extrabold text-white text-base">Meus Chamados</h3>
-                  <p className="text-[10px] text-slate-400">Gerencie todos os chamados abertos por você</p>
+                  <h3 className="font-display font-extrabold text-primary text-base">Meus Chamados</h3>
+                  <p className="text-[10px] text-secondary">Gerencie todos os chamados abertos por você</p>
                 </div>
               </div>
               <button
                 onClick={() => setIsMyTicketsModalOpen(false)}
-                className="text-slate-400 hover:text-white text-xs font-bold bg-neutral-900 hover:bg-neutral-800 px-3 py-1.5 rounded-xl transition cursor-pointer border border-neutral-800/55"
+                className="text-secondary hover:text-primary text-xs font-bold bg-surface hover:bg-surface-2 px-3 py-1.5 rounded-xl transition cursor-pointer border border-default/55"
               >
                 Fechar
               </button>
@@ -3491,7 +3876,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
             {/* Segmented view controls for technicians */}
             {currentSession.role === "tecnico" && (
-              <div className="px-6 py-2 border-b border-neutral-900 flex gap-2 bg-black/40">
+              <div className="px-6 py-2 border-b border-default flex gap-2 bg-app/40">
                 <button
                   onClick={() => {
                     setMyTicketsViewMode("created");
@@ -3499,8 +3884,8 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                   }}
                   className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition cursor-pointer border ${
                     myTicketsViewMode === "created"
-                      ? "bg-neutral-900 text-white border-neutral-800"
-                      : "bg-transparent text-slate-400 border-transparent hover:text-white"
+                      ? "bg-surface text-primary border-default"
+                      : "bg-transparent text-secondary border-transparent hover:text-primary"
                   }`}
                 >
                   Chamados Criados
@@ -3512,8 +3897,8 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                   }}
                   className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition cursor-pointer border ${
                     myTicketsViewMode === "resolved"
-                      ? "bg-emerald-500 text-slate-950 border-emerald-500 shadow-neon-sm"
-                      : "bg-transparent text-slate-400 border-transparent hover:text-white"
+                      ? "bg-emerald-500 text-muted border-emerald-500 shadow-sm"
+                      : "bg-transparent text-secondary border-transparent hover:text-primary"
                   }`}
                 >
                   Meus Atendimentos Resolvidos
@@ -3522,24 +3907,24 @@ CREATE TABLE IF NOT EXISTS public.tickets (
             )}
 
             {/* Profile context summary */}
-            <div className="px-6 py-3 bg-black/20 border-b border-neutral-900/60 flex flex-wrap items-center justify-between gap-2 text-xs">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-full bg-neutral-900 flex items-center justify-center text-[10px] font-bold text-emerald-400 border border-neutral-800">
+            <div className="px-4 sm:px-6 py-2.5 sm:py-3 bg-app/20 border-b border-default/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-surface flex items-center justify-center text-[8px] sm:text-[10px] font-bold text-emerald-400 border border-default shrink-0">
                   {currentSession.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
                 </div>
-                <div>
-                  <span className="text-slate-400 font-semibold">{currentSession.name}</span>
-                  <span className="text-slate-500 text-[10px] ml-1.5 font-medium">({currentSession.department})</span>
+                <div className="flex flex-wrap items-baseline gap-1 sm:gap-1.5">
+                  <span className="text-secondary font-semibold text-[11px] sm:text-xs">{currentSession.name}</span>
+                  <span className="text-muted text-[9px] sm:text-[10px] font-medium">({currentSession.department})</span>
                 </div>
               </div>
-              <div className="text-[10px] text-slate-500 font-medium">
+              <div className="text-[9px] sm:text-[10px] text-muted font-medium">
                 {myTicketsViewMode === "resolved" ? (
                   <>
                     Total de chamados resolvidos por você: <strong className="text-emerald-400">{tickets.filter(t => getAssignedTechs(t.assignedTo).includes(currentSession.name) && (t.status === "Resolvido" || t.status === "Fechado")).length}</strong>
                   </>
                 ) : (
                   <>
-                    Total de chamados criados: <strong className="text-slate-300">{tickets.filter(t => t.requesterName === currentSession.name).length}</strong>
+                    Total de chamados criados: <strong className="text-secondary">{tickets.filter(t => t.requesterName === currentSession.name).length}</strong>
                   </>
                 )}
               </div>
@@ -3547,18 +3932,18 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
             {/* Tabs filter */}
             {myTicketsViewMode === "created" ? (
-              <div className="p-4 border-b border-neutral-900 flex gap-2">
+              <div className="p-3 sm:p-4 border-b border-default flex gap-1.5 sm:gap-2 overflow-x-auto scrollbar-none">
                 <button
                   onClick={() => setMyTicketsTab("all")}
-                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0 ${
                     myTicketsTab === "all"
-                      ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/10"
-                      : "bg-black text-slate-400 hover:text-white border border-neutral-900"
+                      ? "bg-emerald-500 text-muted shadow-lg shadow-emerald-500/10"
+                      : "bg-app text-secondary hover:text-primary border border-default"
                   }`}
                 >
                   <span>Todos</span>
-                  <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-md ${
-                    myTicketsTab === "all" ? "bg-black/20 text-slate-950" : "bg-neutral-900 text-slate-400"
+                  <span className={`text-[8px] sm:text-[10px] font-extrabold px-1 sm:px-1.5 py-0.5 rounded-md ${
+                    myTicketsTab === "all" ? "bg-app/20 text-muted" : "bg-surface text-secondary"
                   }`}>
                     {tickets.filter(t => t.requesterName === currentSession.name).length}
                   </span>
@@ -3566,15 +3951,15 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
                 <button
                   onClick={() => setMyTicketsTab("unresolved")}
-                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0 ${
                     myTicketsTab === "unresolved"
-                      ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/10"
-                      : "bg-black text-slate-400 hover:text-white border border-neutral-900"
+                      ? "bg-emerald-500 text-muted shadow-lg shadow-emerald-500/10"
+                      : "bg-app text-secondary hover:text-primary border border-default"
                   }`}
                 >
                   <span>Pendentes</span>
-                  <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-md ${
-                    myTicketsTab === "unresolved" ? "bg-black/20 text-slate-950" : "bg-neutral-900 text-slate-400"
+                  <span className={`text-[8px] sm:text-[10px] font-extrabold px-1 sm:px-1.5 py-0.5 rounded-md ${
+                    myTicketsTab === "unresolved" ? "bg-app/20 text-muted" : "bg-surface text-secondary"
                   }`}>
                     {tickets.filter(t => t.requesterName === currentSession.name && t.status !== "Resolvido" && t.status !== "Fechado").length}
                   </span>
@@ -3582,24 +3967,24 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
                 <button
                   onClick={() => setMyTicketsTab("resolved")}
-                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0 ${
                     myTicketsTab === "resolved"
-                      ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/10"
-                      : "bg-black text-slate-400 hover:text-white border border-neutral-900"
+                      ? "bg-emerald-500 text-muted shadow-lg shadow-emerald-500/10"
+                      : "bg-app text-secondary hover:text-primary border border-default"
                   }`}
                 >
                   <span>Resolvidos</span>
-                  <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-md ${
-                    myTicketsTab === "resolved" ? "bg-black/20 text-slate-950" : "bg-neutral-900 text-slate-400"
+                  <span className={`text-[8px] sm:text-[10px] font-extrabold px-1 sm:px-1.5 py-0.5 rounded-md ${
+                    myTicketsTab === "resolved" ? "bg-app/20 text-muted" : "bg-surface text-secondary"
                   }`}>
                     {tickets.filter(t => t.requesterName === currentSession.name && (t.status === "Resolvido" || t.status === "Fechado")).length}
                   </span>
                 </button>
               </div>
             ) : (
-              <div className="px-6 py-4 border-b border-neutral-900 bg-black/20 flex items-center justify-between">
-                <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Histórico de Atendimentos Concluídos</span>
-                <span className="text-xs bg-emerald-500/10 text-emerald-400 font-semibold px-2.5 py-1 rounded-xl border border-emerald-500/20 shadow-neon-sm">
+              <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-default bg-app/20 flex items-center justify-between gap-3">
+                <span className="text-[10px] sm:text-xs text-secondary font-bold uppercase tracking-wider truncate">Histórico de Atendimentos Concluídos</span>
+                <span className="text-[9px] sm:text-xs bg-emerald-500/10 text-emerald-400 font-semibold px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg sm:rounded-xl border border-emerald-500/20 whitespace-nowrap">
                   {tickets.filter(t => getAssignedTechs(t.assignedTo).includes(currentSession.name) && (t.status === "Resolvido" || t.status === "Fechado")).length} Chamado(s)
                 </span>
               </div>
@@ -3624,11 +4009,11 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
                 if (filteredList.length === 0) {
                   return (
-                    <div className="py-12 text-center text-slate-500 space-y-3">
-                      <CheckCircle className="h-8 w-8 text-slate-700 mx-auto" />
+                    <div className="py-12 text-center text-muted space-y-3">
+                      <CheckCircle className="h-8 w-8 text-muted mx-auto" />
                       <div>
-                        <h4 className="text-xs font-bold text-slate-400">Nenhum chamado encontrado</h4>
-                        <p className="text-[10px] text-slate-500 mt-1">Não há registros para esta categoria no momento.</p>
+                        <h4 className="text-xs font-bold text-secondary">Nenhum chamado encontrado</h4>
+                        <p className="text-[10px] text-muted mt-1">Não há registros para esta categoria no momento.</p>
                       </div>
                     </div>
                   );
@@ -3643,7 +4028,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                   const priorityTextClass = 
                     ticket.priority === "Urgente" ? "text-rose-400" :
                     ticket.priority === "Alta" ? "text-amber-400" :
-                    ticket.priority === "Média" ? "text-emerald-400" : "text-neutral-400";
+                    ticket.priority === "Média" ? "text-emerald-400" : "text-secondary";
 
                   return (
                     <div
@@ -3652,17 +4037,17 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                         setSelectedTicketId(ticket.id);
                         setIsMyTicketsModalOpen(false);
                       }}
-                      className={`p-3.5 bg-black/50 hover:bg-[#080808]/50 rounded-xl border border-neutral-900 border-l-4 ${priorityBorder} flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition cursor-pointer hover:border-emerald-500/20 group`}
+                      className={`p-3.5 bg-app/50 hover:bg-app/50 rounded-xl border border-default border-l-4 ${priorityBorder} flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition cursor-pointer hover:border-emerald-500/20 group`}
                     >
                       <div className="space-y-1 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-[10px] font-bold text-neutral-500">#{ticket.id}</span>
+                          <span className="text-[10px] font-bold text-muted">#{ticket.id}</span>
                           <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
                             ticket.status === "Aberto" ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" :
                             ticket.status === "Em Atendimento" ? "bg-sky-500/10 text-sky-400 border border-sky-500/20 shadow-[0_0_10px_rgba(56,189,248,0.05)]" :
                             ticket.status === "Resolvido" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.05)]" :
-                            ticket.status === "Fechado" ? "bg-zinc-800/40 text-zinc-400 border border-zinc-700/30" :
-                            "bg-neutral-900 text-neutral-400 border border-neutral-850"
+                            ticket.status === "Fechado" ? "bg-surface-2/40 text-secondary border border-default/30" :
+                            "bg-surface text-secondary border border-default"
                           }`}>
                             {ticket.status}
                           </span>
@@ -3672,13 +4057,13 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                             ticket.category === 'Hardware' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
                             ticket.category === 'Software' ? 'bg-emerald-400/10 text-emerald-400 border border-emerald-400/20' :
                             ticket.category === 'Sistemas' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                            'bg-neutral-900 text-neutral-300'
+                            'bg-surface text-secondary'
                           }`}>
                             {ticket.category}
                           </span>
                         </div>
-                        <h4 className="text-xs font-bold text-neutral-200 group-hover:text-emerald-400 transition-colors line-clamp-1">{ticket.title}</h4>
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-neutral-500">
+                        <h4 className="text-xs font-bold text-primary group-hover:text-emerald-400 transition-colors line-clamp-1">{ticket.title}</h4>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted">
                           <span>
                             Aberto em: {new Date(ticket.createdAt).toLocaleDateString("pt-BR")} às {new Date(ticket.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                           </span>
@@ -3700,7 +4085,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
                       <div className="flex sm:flex-col items-start sm:items-end justify-between sm:justify-center gap-1.5 flex-shrink-0 text-[10px]">
                         <span className={`font-bold uppercase ${priorityTextClass}`}>{ticket.priority}</span>
-                        <span className="text-slate-400 font-medium">
+                        <span className="text-secondary font-medium">
                           {ticket.assignedTo ? `Técnicos: ${ticket.assignedTo}` : "Sem técnico atribuído"}
                         </span>
                         <span className="text-emerald-500 font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
@@ -3713,7 +4098,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
               })()}
             </div>
 
-            <div className="p-4 border-t border-neutral-900 bg-black/30 text-center text-[10px] text-slate-500">
+            <div className="p-4 border-t border-default bg-app/30 text-center text-[10px] text-muted">
               Dica: Clique em qualquer chamado para abrir os detalhes completos e interagir com o suporte.
             </div>
 
@@ -3721,221 +4106,368 @@ CREATE TABLE IF NOT EXISTS public.tickets (
         </div>
       )}
 
-      {/* Modal: Perfil do Técnico */}
-      {isTechProfileModalOpen && selectedTechProfile && (
-        <div 
-          onClick={() => setIsTechProfileModalOpen(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 cursor-pointer"
-        >
-          <div 
-            onClick={(e) => e.stopPropagation()}
-            className="bg-[#0a0a0a] border border-neutral-900 w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[90vh] cursor-default"
-          >
-            
-            {/* Modal Header */}
-            <div className="p-5 border-b border-neutral-900 flex items-center justify-between bg-black/50 backdrop-blur-md">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 text-emerald-400 font-bold text-base">
-                  {selectedTechProfile.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
-                </div>
-                <div>
-                  <h3 className="font-display font-extrabold text-white text-base flex items-center gap-2">
-                    {selectedTechProfile.name}
-                    {selectedTechProfile.role === "tecnico" ? (
-                      <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                        TÉCNICO
-                      </span>
-                    ) : (
-                      <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                        COLABORADOR
+      {/* Modal: Perfil Completo do Usuário */}
+      <AnimatePresence>
+      {isTechProfileModalOpen && selectedTechProfile && (() => {
+        // Técnico = nível de acesso Técnico (mesmo critério da tabela). Antes bastava o setor conter "ti", o que tratava
+        // colaboradores de setores como "TI" ou "Logística" como técnicos.
+        const userIsTech = selectedTechProfile.role === "tecnico" || (selectedTechProfile.role as string) === "ti";
+        // "Métricas" só existe para técnico; se o estado guardou essa aba de outro perfil, cai em "Visão geral".
+        const profileTab = profileModalTab === "metrics" && !userIsTech ? "overview" : profileModalTab;
+        const isCurrentSessionUser = currentSession && (selectedTechProfile.name === currentSession.name || selectedTechProfile.email === currentSession.email);
+
+        // Tickets
+        const requestedTickets = tickets.filter(t => t.requesterName === selectedTechProfile.name);
+        const assignedTickets = tickets.filter(t => getAssignedTechs(t.assignedTo).includes(selectedTechProfile.name));
+        const allUserTickets = userIsTech ? Array.from(new Set([...requestedTickets, ...assignedTickets])) : requestedTickets;
+
+        const totalTicketsCount = allUserTickets.length;
+        const activeTicketsCount = allUserTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado").length;
+        const resolvedTicketsCount = allUserTickets.filter(t => t.status === "Resolvido" || t.status === "Fechado").length;
+        const projectTicketsCount = allUserTickets.filter(t => !!t.projectDeadline).length;
+
+        // Technician SLA metrics
+        const techSlaPct = profileTechSla?.pct ?? null;
+        const techSlaSub = profileTechSla && profileTechSla.resolved > 0
+          ? `${profileTechSla.onTime} de ${profileTechSla.resolved} resolvidos no prazo${isSmallSample(profileTechSla.resolved) ? " · amostra pequena" : ""}`
+          : "Nenhum resolvido avaliável";
+
+        // TMA em horas úteis (motor oficial, primeira resolução, descontadas as pausas) — mesma fonte do card de SLA.
+        const techTmaStr = profileTechSla && profileTechSla.avgResolutionMin !== null ? formatBusinessMinutes(profileTechSla.avgResolutionMin) : "Sem dados";
+        const techTmaSub = profileTechSla && profileTechSla.resolved > 0
+          ? `Média de ${profileTechSla.resolved} resolvido${profileTechSla.resolved > 1 ? "s" : ""} · horas úteis${isSmallSample(profileTechSla.resolved) ? " · amostra pequena" : ""}`
+          : "Nenhum resolvido avaliável";
+
+        // Recent Activity Comments by this user
+        const userComments = tickets
+          .flatMap(t => (t.comments || []).filter(c => c.authorName === selectedTechProfile.name).map(c => ({ ...c, ticketTitle: t.title, ticketId: t.id })))
+          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+          .slice(0, 15);
+
+        // Filtered tickets for Tickets Tab
+        const filteredTickets = allUserTickets.filter(t => {
+          if (profileTicketsFilter === "active") return t.status !== "Resolvido" && t.status !== "Fechado";
+          if (profileTicketsFilter === "resolved") return t.status === "Resolvido" || t.status === "Fechado";
+          if (profileTicketsFilter === "projects") return !!t.projectDeadline;
+          return true;
+        });
+
+        const profilePresence = presenceOf(selectedTechProfile, currentSession);
+        const canEditProfile = currentSession?.role === "tecnico" && users.some(u => u.id === selectedTechProfile.id);
+        const canEditPhoto = canEditProfile; // somente Técnico (TI/Admin), e só para contas cadastradas
+        const initials = selectedTechProfile.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase() || "U";
+
+        return (
+          <Drawer ariaLabel={`Perfil de ${selectedTechProfile.name}`} onClose={() => setIsTechProfileModalOpen(false)} restoreFocusTo={profileOpenerRef}>
+            {/* Cabeçalho */}
+            <div className="px-5 pt-5 pb-4 border-b border-default bg-surface">
+              <div className="flex items-start gap-3.5">
+                <Avatar name={selectedTechProfile.name} photo={selectedTechProfile.photo} className="h-14 w-14 text-lg" fallbackClassName="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20" />
+                <div className="min-w-0 flex-1">
+                  <h2 className="font-display text-lg font-bold text-primary leading-snug break-words">{selectedTechProfile.name}</h2>
+                  <p className="text-sm text-secondary">{selectedTechProfile.department || "—"}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1.5 h-6 px-2 rounded-md border border-default bg-surface-2 text-xs font-medium text-secondary">
+                      {userIsTech ? <Shield className="h-3 w-3" /> : <UserIcon className="h-3 w-3" />}
+                      {roleLabel(userIsTech ? "tecnico" : "colaborador")}
+                    </span>
+                    {profilePresence !== "unknown" && (
+                      <span className="inline-flex items-center gap-1.5 text-xs text-secondary">
+                        <span className={`h-2 w-2 rounded-full ${profilePresence === "online" ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-600"}`} />
+                        {profilePresence === "online" ? "Online" : "Offline"}
                       </span>
                     )}
-                  </h3>
-                  <p className="text-[10px] text-slate-400">{selectedTechProfile.email} • {selectedTechProfile.department}</p>
+                    {isCurrentSessionUser && <span className="text-xs text-muted">· Sua conta</span>}
+                  </div>
                 </div>
+                <button type="button" onClick={() => setIsTechProfileModalOpen(false)} aria-label="Fechar perfil" title="Fechar (Esc)" className="h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-lg text-secondary hover:text-primary hover:bg-surface-2 transition-colors duration-150 cursor-pointer">
+                  <X className="h-4 w-4" />
+                </button>
               </div>
-              <button
-                onClick={() => setIsTechProfileModalOpen(false)}
-                className="text-slate-400 hover:text-white text-xs font-bold bg-neutral-900 hover:bg-neutral-800 px-3 py-1.5 rounded-xl transition cursor-pointer border border-neutral-800"
-              >
-                Fechar
-              </button>
+              {(canEditProfile || isCurrentSessionUser || canEditPhoto) && (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {canEditPhoto && (
+                    <>
+                      <input ref={photoInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" tabIndex={-1} aria-hidden="true" onChange={(e) => handlePhotoPicked(e.target.files?.[0])} />
+                      <button
+                        type="button"
+                        onClick={() => photoInputRef.current?.click()}
+                        disabled={photoBusy}
+                        aria-busy={photoBusy}
+                        className="h-9 px-3.5 inline-flex items-center gap-2 rounded-lg border border-default bg-surface hover:bg-surface-2 disabled:opacity-60 disabled:cursor-not-allowed text-sm font-medium text-primary transition-colors duration-150 cursor-pointer"
+                      >
+                        <Camera className="h-4 w-4 text-secondary" aria-hidden />
+                        {photoBusy ? "Enviando…" : selectedTechProfile.photo ? "Alterar foto" : "Adicionar foto"}
+                      </button>
+                      {selectedTechProfile.photo && (
+                        <button
+                          type="button"
+                          onClick={handleRemovePhoto}
+                          disabled={photoBusy}
+                          className="h-9 px-3 inline-flex items-center gap-2 rounded-lg text-sm font-medium text-secondary hover:text-primary hover:bg-surface-2 disabled:opacity-60 disabled:cursor-not-allowed transition-colors duration-150 cursor-pointer"
+                        >
+                          <Trash2 className="h-4 w-4" aria-hidden />Remover foto
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {canEditProfile && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = selectedTechProfile;
+                        setIsTechProfileModalOpen(false);
+                        handleStartEditUser(target);
+                        setIsUserModalOpen(true);
+                      }}
+                      className="h-9 px-3.5 inline-flex items-center gap-2 rounded-lg border border-default bg-surface hover:bg-surface-2 text-sm font-medium text-primary transition-colors duration-150 cursor-pointer"
+                    >
+                      Editar colaborador
+                    </button>
+                  )}
+                  {isCurrentSessionUser && (
+                    <button
+                      type="button"
+                      onClick={() => { setIsTechProfileModalOpen(false); setIsNewTicketModalOpen(true); }}
+                      className="h-9 px-3.5 inline-flex items-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition-colors duration-150 cursor-pointer"
+                    >
+                      <PlusCircle className="h-4 w-4" />Novo Chamado
+                    </button>
+                  )}
+                </div>
+              )}
+              {photoError && <p role="alert" className="mt-2 text-[13px] text-rose-800 dark:text-rose-300">{photoError}</p>}
             </div>
 
-            {/* Stats section */}
-            {(() => {
-              const isTechnician = selectedTechProfile.role === "tecnico";
+            {/* Abas */}
+            <div role="tablist" aria-label="Seções do perfil" className="flex px-2 border-b border-default bg-surface overflow-x-auto scrollbar-none">
+              {([
+                { id: "overview", label: "Visão geral", icon: UserIcon, count: null },
+                { id: "tickets", label: "Chamados", icon: FileText, count: totalTicketsCount },
+                { id: "metrics", label: "Métricas", icon: Cpu, count: null },
+                { id: "activity", label: "Atividade", icon: MessageSquare, count: userComments.length },
+              ] as const).filter(({ id }) => id !== "metrics" || userIsTech).map(({ id, label, icon: Icon, count }) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={profileTab === id}
+                  onClick={() => setProfileModalTab(id)}
+                  className={`py-2.5 px-2.5 text-[13px] font-medium inline-flex items-center gap-1 border-b-2 whitespace-nowrap cursor-pointer transition-colors duration-150 ${
+                    profileTab === id ? "border-emerald-600 text-emerald-700 dark:border-emerald-400 dark:text-emerald-400" : "border-transparent text-secondary hover:text-primary"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" aria-hidden />
+                  {label}
+                  {count !== null && <span className="text-[11px] bg-surface-2 text-secondary font-semibold px-1.5 rounded-full">{count}</span>}
+                </button>
+              ))}
+            </div>
 
-              if (isTechnician) {
-                const techResolvedTickets = tickets.filter(t => getAssignedTechs(t.assignedTo).includes(selectedTechProfile.name) && (t.status === "Resolvido" || t.status === "Fechado"));
-                const techActiveTickets = tickets.filter(t => getAssignedTechs(t.assignedTo).includes(selectedTechProfile.name) && t.status !== "Resolvido" && t.status !== "Fechado");
-                const totalTechTickets = techResolvedTickets.length + techActiveTickets.length;
+            {/* Conteúdo */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-5 bg-app" role="tabpanel">
 
-                // SLA compliance for this technician
-                const techOverdue = techActiveTickets.filter(t => isTicketOverdue(t)).length;
-                const techSlaCompliance = totalTechTickets > 0 ? Math.round(((totalTechTickets - techOverdue) / totalTechTickets) * 100) : 100;
-
-                // Average resolution time (TMA)
-                let techAvgResolutionTimeStr = "N/A";
-                if (techResolvedTickets.length > 0) {
-                  const totalMs = techResolvedTickets.reduce((sum, t) => {
-                    if (t.createdAt && t.updatedAt) {
-                      const duration = new Date(t.updatedAt).getTime() - new Date(t.createdAt).getTime();
-                      return sum + (duration > 0 ? duration : 0);
-                    }
-                    return sum;
-                  }, 0);
-                  const avgMs = totalMs / techResolvedTickets.length;
-                  const avgMinutes = avgMs / (1000 * 60);
-                  if (avgMinutes < 1) {
-                    techAvgResolutionTimeStr = `${Math.round(avgMs / 1000)}s`;
-                  } else if (avgMinutes < 60) {
-                    techAvgResolutionTimeStr = `${Math.round(avgMinutes)} min`;
-                  } else {
-                    const hours = Math.floor(avgMinutes / 60);
-                    const mins = Math.round(avgMinutes % 60);
-                    techAvgResolutionTimeStr = mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
-                  }
-                }
-
-                return (
-                  <>
-                    <div className="grid grid-cols-3 gap-4 p-5 bg-black/40 border-b border-neutral-900">
-                      <div className="bg-[#050505] border border-neutral-900 rounded-xl p-3 text-center">
-                        <span className="text-[9px] font-bold text-slate-500 uppercase block tracking-wider mb-1">Resolvidos</span>
-                        <span className="text-xl font-black text-emerald-400">{techResolvedTickets.length}</span>
+                {/* TAB 1: VISÃO GERAL */}
+                {profileTab === "overview" && (
+                  <div className="space-y-6 animate-in fade-in duration-200">
+                    
+                    {/* Consolidated Bento Cards */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-surface border border-default/80 rounded-xl p-4 space-y-1">
+                        <span className="text-[10px] font-bold text-muted uppercase tracking-wider block">Total de Chamados</span>
+                        <div className="text-2xl font-extrabold text-primary">{totalTicketsCount}</div>
+                        <span className="text-[10px] text-muted block">Registrados no sistema</span>
                       </div>
-                      <div className="bg-[#050505] border border-neutral-900 rounded-xl p-3 text-center">
-                        <span className="text-[9px] font-bold text-slate-500 uppercase block tracking-wider mb-1">SLA Individual</span>
-                        <span className="text-xl font-black text-white">{techSlaCompliance}%</span>
+
+                      <div className="bg-surface border border-default/80 rounded-xl p-4 space-y-1">
+                        <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider block">Em Aberto / Ativos</span>
+                        <div className="text-2xl font-extrabold text-amber-700 dark:text-amber-400">{activeTicketsCount}</div>
+                        <span className="text-[10px] text-muted block">Aguardando/em fila</span>
                       </div>
-                      <div className="bg-[#050505] border border-neutral-900 rounded-xl p-3 text-center">
-                        <span className="text-[9px] font-bold text-slate-500 uppercase block tracking-wider mb-1">Tempo Médio (TMA)</span>
-                        <span className="text-xl font-black text-emerald-400">{techAvgResolutionTimeStr}</span>
+
+                      <div className="bg-surface border border-default/80 rounded-xl p-4 space-y-1">
+                        <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider block">Resolvidos / Fechados</span>
+                        <div className="text-2xl font-extrabold text-emerald-700 dark:text-emerald-400">{resolvedTicketsCount}</div>
+                        <span className="text-[10px] text-muted block">Finalizados com sucesso</span>
+                      </div>
+
+                      <div className="bg-surface border border-default/80 rounded-xl p-4 space-y-1">
+                        <span className="text-[10px] font-bold text-sky-700 dark:text-sky-400 uppercase tracking-wider block">
+                          {userIsTech ? "SLA Cumprimento" : "Resolutividade"}
+                        </span>
+                        <div className="text-2xl font-extrabold text-sky-700 dark:text-sky-400">
+                          {userIsTech ? (techSlaPct !== null ? `${techSlaPct}%` : "Sem dados") : totalTicketsCount > 0 ? `${Math.round((resolvedTicketsCount / totalTicketsCount) * 100)}%` : "—"}
+                        </div>
+                        <span className="text-[10px] text-muted block">{userIsTech ? techSlaSub : "Taxa de conclusão"}</span>
                       </div>
                     </div>
 
-                    <div className="px-6 py-4 bg-black/20 border-b border-neutral-900 flex items-center justify-between">
-                      <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Aba de Chamados Resolvidos</span>
-                      <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-1 rounded-xl font-bold uppercase">
-                        Histórico de Eficiência
-                      </span>
+                    {/* Personal & Account Details Card */}
+                    <div className="bg-surface border border-default/80 rounded-2xl p-5 space-y-4">
+                      <div className="flex items-center justify-between border-b border-default/60 pb-3">
+                        <h4 className="text-xs font-bold text-primary uppercase tracking-wider flex items-center gap-2">
+                          <UserIcon className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
+                          Informações da Conta & Acesso
+                        </h4>
+                        {selectedTechProfile.id && <span className="text-[10px] font-mono text-muted">ID: {selectedTechProfile.id}</span>}
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4 text-xs">
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-bold text-muted uppercase">Nome Completo</span>
+                          <p className="font-semibold text-primary">{selectedTechProfile.name}</p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-bold text-muted uppercase">E-mail de Contato</span>
+                          <p className="font-semibold text-primary break-all">{selectedTechProfile.email || "—"}</p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-bold text-muted uppercase">Cargo / Nível de Permissão</span>
+                          <p className="font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+                            <Shield className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-400" />
+                            {userIsTech ? "Administrativo & Técnico de Suporte TI" : "Colaborador Solicitante de Chamados"}
+                          </p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-bold text-muted uppercase">Setor / Departamento</span>
+                          <p className="font-semibold text-primary">{selectedTechProfile.department || "—"}</p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-bold text-muted uppercase">Presença</span>
+                          <p className="font-semibold text-primary flex items-center gap-1.5">
+                            <span className={`w-2 h-2 rounded-full ${profilePresence === "online" ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-600"}`} />
+                            {profilePresence === "online" ? "Online" : profilePresence === "offline" ? "Offline" : "Sem informação"}
+                          </p>
+                        </div>
+
+                      </div>
                     </div>
 
-                    {/* List Area */}
-                    <div className="flex-1 overflow-y-auto p-5 space-y-3 min-h-[250px] max-h-[45vh]">
-                      {techResolvedTickets.length === 0 ? (
-                        <div className="py-12 text-center text-slate-500 space-y-3">
-                          <CheckCircle className="h-8 w-8 text-slate-700 mx-auto" />
-                          <div>
-                            <h4 className="text-xs font-bold text-slate-400">Nenhum chamado resolvido ainda</h4>
-                            <p className="text-[10px] text-slate-500 mt-1">Este técnico ainda não finalizou nenhum chamado ou não há registros de atendimentos concluídos.</p>
-                          </div>
+                    {/* Quick Preview of Recent Tickets */}
+                    <div className="bg-surface border border-default/80 rounded-2xl p-5 space-y-4">
+                      <div className="flex items-center justify-between border-b border-default/60 pb-3">
+                        <h4 className="text-xs font-bold text-primary uppercase tracking-wider flex items-center gap-2">
+                          <Clock className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
+                          Últimos Chamados Registrados
+                        </h4>
+                        <button
+                          onClick={() => setProfileModalTab("tickets")}
+                          className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
+                        >
+                          Ver Todos ({totalTicketsCount}) <ArrowRight className="h-3 w-3" />
+                        </button>
+                      </div>
+
+                      {allUserTickets.length === 0 ? (
+                        <div className="text-center py-6 text-muted text-xs">
+                          Nenhum chamado registrado para este perfil até o momento.
                         </div>
                       ) : (
-                        techResolvedTickets.map((ticket) => {
-                          const priorityBorder = 
-                            ticket.priority === "Urgente" ? "border-l-rose-500" :
-                            ticket.priority === "Alta" ? "border-l-amber-500" :
-                            ticket.priority === "Média" ? "border-l-emerald-500" : "border-l-neutral-700";
-
-                          const priorityTextClass = 
-                            ticket.priority === "Urgente" ? "text-rose-400" :
-                            ticket.priority === "Alta" ? "text-amber-400" :
-                            ticket.priority === "Média" ? "text-emerald-400" : "text-neutral-400";
-
-                          return (
+                        <div className="space-y-2.5">
+                          {allUserTickets.slice(0, 3).map((ticket) => (
                             <div
                               key={ticket.id}
                               onClick={() => {
                                 setSelectedTicketId(ticket.id);
                                 setIsTechProfileModalOpen(false);
                               }}
-                              className={`p-4 bg-black border border-neutral-900 rounded-xl flex flex-col sm:flex-row justify-between gap-3 hover:border-emerald-500/30 transition cursor-pointer group border-l-4 ${priorityBorder}`}
+                              className="p-3 bg-surface-2/60 border border-default/80 rounded-xl flex items-center justify-between gap-3 hover:border-emerald-500/30 transition cursor-pointer group"
                             >
-                              <div className="space-y-1">
+                              <div className="space-y-0.5 min-w-0">
                                 <div className="flex items-center gap-2">
-                                  <span className="text-[10px] bg-neutral-900 text-slate-400 border border-neutral-800 px-1.5 py-0.2 rounded font-mono">
-                                    #{ticket.id}
-                                  </span>
-                                  <span className="bg-emerald-950 text-emerald-400 border border-emerald-900/30 text-[9px] font-bold uppercase px-1.5 py-0.2 rounded">
+                                  <span className="text-[9px] font-mono text-secondary">#{ticket.id}</span>
+                                  <span className="text-[9px] font-bold uppercase px-1.5 py-0.2 rounded bg-surface-2 text-secondary">
                                     {ticket.status}
                                   </span>
-                                  <span className="bg-neutral-900 text-slate-400 text-[9px] font-bold uppercase px-1.5 py-0.2 rounded">
+                                  <span className="text-[9px] font-bold uppercase px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
                                     {ticket.category}
                                   </span>
                                 </div>
-                                <h4 className="text-xs font-bold text-neutral-200 group-hover:text-emerald-400 transition-colors line-clamp-1">{ticket.title}</h4>
-                                <p className="text-[10px] text-neutral-500">
-                                  Resolvido em: {new Date(ticket.updatedAt).toLocaleDateString("pt-BR")} às {new Date(ticket.updatedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                                </p>
+                                <h5 className="text-xs font-bold text-primary group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors truncate">
+                                  {ticket.title}
+                                </h5>
                               </div>
-
-                              <div className="flex sm:flex-col items-start sm:items-end justify-between sm:justify-center gap-1 flex-shrink-0 text-[10px]">
-                                <span className={`font-bold uppercase ${priorityTextClass}`}>{ticket.priority}</span>
-                                <span className="text-slate-500 font-medium">Solicitante: {ticket.requesterName}</span>
-                                <span className="text-emerald-500 font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-                                  Ver Detalhes <ArrowRight className="h-3 w-3" />
-                                </span>
-                              </div>
+                              <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-bold shrink-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                                Abrir <ArrowRight className="h-3 w-3" />
+                              </span>
                             </div>
-                          );
-                        })
+                          ))}
+                        </div>
                       )}
                     </div>
-                  </>
-                );
-              } else {
-                // For collaborators: list of all tickets requested by them
-                const userTickets = tickets.filter(t => t.requesterName === selectedTechProfile.name);
-                const userActiveTickets = userTickets.filter(t => t.status !== "Resolvido" && t.status !== "Fechado");
-                const userResolvedTickets = userTickets.filter(t => t.status === "Resolvido" || t.status === "Fechado");
 
-                return (
-                  <>
-                    <div className="grid grid-cols-3 gap-4 p-5 bg-black/40 border-b border-neutral-900">
-                      <div className="bg-[#050505] border border-neutral-900 rounded-xl p-3 text-center">
-                        <span className="text-[9px] font-bold text-slate-500 uppercase block tracking-wider mb-1">Total de Chamados</span>
-                        <span className="text-xl font-black text-emerald-400">{userTickets.length}</span>
-                      </div>
-                      <div className="bg-[#050505] border border-neutral-900 rounded-xl p-3 text-center">
-                        <span className="text-[9px] font-bold text-slate-500 uppercase block tracking-wider mb-1">Ativos</span>
-                        <span className="text-xl font-black text-amber-400">{userActiveTickets.length}</span>
-                      </div>
-                      <div className="bg-[#050505] border border-neutral-900 rounded-xl p-3 text-center">
-                        <span className="text-[9px] font-bold text-slate-500 uppercase block tracking-wider mb-1">Concluídos</span>
-                        <span className="text-xl font-black text-emerald-400">{userResolvedTickets.length}</span>
-                      </div>
-                    </div>
+                  </div>
+                )}
 
-                    <div className="px-6 py-4 bg-black/20 border-b border-neutral-900 flex items-center justify-between">
-                      <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Histórico Geral de Chamados</span>
-                      <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-1 rounded-xl font-bold uppercase">
-                        Linha do Tempo
-                      </span>
+                {/* TAB 2: CHAMADOS & HISTÓRICO */}
+                {profileTab === "tickets" && (
+                  <div className="space-y-4 animate-in fade-in duration-200">
+                    
+                    {/* Filter Pills */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => setProfileTicketsFilter("all")}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                          profileTicketsFilter === "all"
+                            ? "bg-emerald-600 text-white"
+                            : "bg-surface text-secondary hover:text-primary border border-default/80"
+                        }`}
+                      >
+                        Todos ({totalTicketsCount})
+                      </button>
+
+                      <button
+                        onClick={() => setProfileTicketsFilter("active")}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                          profileTicketsFilter === "active"
+                            ? "bg-amber-500 text-white"
+                            : "bg-surface text-secondary hover:text-primary border border-default/80"
+                        }`}
+                      >
+                        Ativos / Pendentes ({activeTicketsCount})
+                      </button>
+
+                      <button
+                        onClick={() => setProfileTicketsFilter("resolved")}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                          profileTicketsFilter === "resolved"
+                            ? "bg-emerald-600 text-white"
+                            : "bg-surface text-secondary hover:text-primary border border-default/80"
+                        }`}
+                      >
+                        Resolvidos ({resolvedTicketsCount})
+                      </button>
+
+                      <button
+                        onClick={() => setProfileTicketsFilter("projects")}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                          profileTicketsFilter === "projects"
+                            ? "bg-sky-600 text-white"
+                            : "bg-surface text-secondary hover:text-primary border border-default/80"
+                        }`}
+                      >
+                        Com Prazo de Projeto ({projectTicketsCount})
+                      </button>
                     </div>
 
                     {/* List Area */}
-                    <div className="flex-1 overflow-y-auto p-5 space-y-3 min-h-[250px] max-h-[45vh]">
-                      {userTickets.length === 0 ? (
-                        <div className="py-12 text-center text-slate-500 space-y-3">
-                          <CheckCircle className="h-8 w-8 text-slate-700 mx-auto" />
-                          <div>
-                            <h4 className="text-xs font-bold text-slate-400">Nenhum chamado aberto ainda</h4>
-                            <p className="text-[10px] text-slate-500 mt-1">Este colaborador ainda não registrou nenhum chamado de suporte.</p>
-                          </div>
+                    <div className="space-y-3">
+                      {filteredTickets.length === 0 ? (
+                        <div className="py-12 text-center text-muted space-y-2 bg-surface border border-default/80 rounded-2xl">
+                          <CheckCircle className="h-8 w-8 text-muted mx-auto" />
+                          <h4 className="text-xs font-bold text-secondary">Nenhum chamado encontrado</h4>
+                          <p className="text-[10px] text-muted">Não há chamados para o filtro selecionado neste perfil.</p>
                         </div>
                       ) : (
-                        userTickets.map((ticket) => {
+                        filteredTickets.map((ticket) => {
                           const priorityBorder = 
                             ticket.priority === "Urgente" ? "border-l-rose-500" :
                             ticket.priority === "Alta" ? "border-l-amber-500" :
-                            ticket.priority === "Média" ? "border-l-emerald-500" : "border-l-neutral-700";
-
-                          const priorityTextClass = 
-                            ticket.priority === "Urgente" ? "text-rose-400" :
-                            ticket.priority === "Alta" ? "text-amber-400" :
-                            ticket.priority === "Média" ? "text-emerald-400" : "text-neutral-400";
+                            ticket.priority === "Média" ? "border-l-emerald-500" : "border-l-zinc-700";
 
                           const isClosed = ticket.status === "Resolvido" || ticket.status === "Fechado";
 
@@ -3946,37 +4478,44 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                                 setSelectedTicketId(ticket.id);
                                 setIsTechProfileModalOpen(false);
                               }}
-                              className={`p-4 bg-black border border-neutral-900 rounded-xl flex flex-col sm:flex-row justify-between gap-3 hover:border-emerald-500/30 transition cursor-pointer group border-l-4 ${priorityBorder}`}
+                              className={`p-4 bg-surface border border-default/80 rounded-xl flex flex-col gap-2 hover:border-emerald-500/40 transition cursor-pointer group border-l-4 ${priorityBorder}`}
                             >
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-[10px] bg-neutral-900 text-slate-400 border border-neutral-800 px-1.5 py-0.2 rounded font-mono">
+                              <div className="space-y-1 flex-1 min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-[10px] bg-surface text-secondary border border-default px-1.5 py-0.2 rounded font-mono">
                                     #{ticket.id}
                                   </span>
                                   <span className={`border text-[9px] font-bold uppercase px-1.5 py-0.2 rounded ${
                                     isClosed 
-                                      ? "bg-emerald-950 text-emerald-400 border-emerald-900/30" 
-                                      : "bg-amber-950 text-amber-400 border-amber-900/30"
+                                      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20" 
+                                      : "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20"
                                   }`}>
                                     {ticket.status}
                                   </span>
-                                  <span className="bg-neutral-900 text-slate-400 text-[9px] font-bold uppercase px-1.5 py-0.2 rounded">
+                                  <span className="bg-surface text-secondary text-[9px] font-bold uppercase px-1.5 py-0.2 rounded">
                                     {ticket.category}
                                   </span>
                                 </div>
-                                <h4 className="text-xs font-bold text-neutral-200 group-hover:text-emerald-400 transition-colors line-clamp-1">{ticket.title}</h4>
-                                <p className="text-[10px] text-neutral-500">
-                                  Criado em: {new Date(ticket.createdAt).toLocaleDateString("pt-BR")} às {new Date(ticket.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                                </p>
+                                <h4 className="text-xs font-bold text-primary group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors truncate">
+                                  {ticket.title}
+                                </h4>
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted">
+                                  <span>Criado em: {new Date(ticket.createdAt).toLocaleDateString("pt-BR")}</span>
+                                  <span>•</span>
+                                  <span>Solicitante: {ticket.requesterName}</span>
+                                  {ticket.assignedTo && (
+                                    <>
+                                      <span>•</span>
+                                      <span>Técnico: {ticket.assignedTo}</span>
+                                    </>
+                                  )}
+                                </div>
                               </div>
 
-                              <div className="flex sm:flex-col items-start sm:items-end justify-between sm:justify-center gap-1 flex-shrink-0 text-[10px]">
-                                <span className={`font-bold uppercase ${priorityTextClass}`}>{ticket.priority}</span>
-                                <span className="text-slate-500 font-medium">
-                                  {ticket.assignedTo ? `Técnicos: ${ticket.assignedTo}` : "Sem técnico atribuído"}
-                                </span>
-                                <span className="text-emerald-500 font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-                                  Ver Detalhes <ArrowRight className="h-3 w-3" />
+                              <div className="flex items-center justify-between gap-1 shrink-0 text-[10px]">
+                                <span className="font-extrabold text-secondary uppercase">{ticket.priority}</span>
+                                <span className="text-emerald-700 dark:text-emerald-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                                  Ver Chamado <ArrowRight className="h-3 w-3" />
                                 </span>
                               </div>
                             </div>
@@ -3984,39 +4523,200 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                         })
                       )}
                     </div>
-                  </>
-                );
-              }
-            })()}
 
-            <div className="p-4 border-t border-neutral-900 bg-black/30 text-center text-[10px] text-slate-500">
-              Clique em qualquer chamado para visualizar o histórico de soluções.
+                  </div>
+                )}
+
+                {/* TAB 3: MÉTRICAS & DESEMPENHO */}
+                {profileTab === "metrics" && userIsTech && (
+                  <div className="space-y-5 animate-in fade-in duration-200">
+                    <div className="bg-surface border border-default/80 rounded-2xl p-5 space-y-4">
+                      <h4 className="text-xs font-bold text-primary uppercase tracking-wider flex items-center gap-2">
+                        <Cpu className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
+                        Relatório de Desempenho do Perfil
+                      </h4>
+
+                      <div className="grid grid-cols-1 gap-3 text-center">
+                        <div className="p-4 bg-surface-2/60 border border-default/80 rounded-xl space-y-1">
+                          <span className="text-[10px] font-bold text-muted uppercase block">Total de Atendimentos</span>
+                          <span className="text-2xl font-black text-primary">{totalTicketsCount}</span>
+                          <span className="text-[10px] text-muted block">Registros associados</span>
+                        </div>
+
+                        <div className="p-4 bg-surface-2/60 border border-default/80 rounded-xl space-y-1">
+                          <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase block">SLA de Atendimento</span>
+                          <span className="text-2xl font-black text-emerald-700 dark:text-emerald-400">{techSlaPct !== null ? `${techSlaPct}%` : "Sem dados"}</span>
+                          <span className="text-[10px] text-muted block">{techSlaSub}</span>
+                        </div>
+
+                        <div className="p-4 bg-surface-2/60 border border-default/80 rounded-xl space-y-1">
+                          <span className="text-[10px] font-bold text-sky-700 dark:text-sky-400 uppercase block">Tempo Médio (TMA)</span>
+                          <span className="text-2xl font-black text-sky-700 dark:text-sky-400">{techTmaStr}</span>
+                          <span className="text-[10px] text-muted block">{techTmaSub}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Categories distribution */}
+                    <div className="bg-surface border border-default/80 rounded-2xl p-5 space-y-4">
+                      <h4 className="text-xs font-bold text-primary uppercase tracking-wider flex items-center gap-2">
+                        <Layers className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
+                        Distribuição por Categorias de Suporte
+                      </h4>
+
+                      {["Software", "Hardware", "Redes", "Acesso", "Sistemas", "Outros"].map((cat) => {
+                        const count = allUserTickets.filter(t => t.category === cat).length;
+                        const pct = totalTicketsCount > 0 ? Math.round((count / totalTicketsCount) * 100) : 0;
+                        return (
+                          <div key={cat} className="space-y-1 text-xs">
+                            <div className="flex items-center justify-between font-medium">
+                              <span className="text-secondary">{cat}</span>
+                              <span className="text-muted">{count} chamado(s) ({pct}%)</span>
+                            </div>
+                            <div className="w-full bg-surface rounded-full h-1.5 overflow-hidden border border-default">
+                              <div className="bg-emerald-500 h-full rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 4: ATIVIDADES RECENTES */}
+                {profileTab === "activity" && (
+                  <div className="space-y-4 animate-in fade-in duration-200">
+                    <div className="bg-surface border border-default/80 rounded-2xl p-5 space-y-4">
+                      <h4 className="text-xs font-bold text-primary uppercase tracking-wider flex items-center gap-2">
+                        <MessageSquare className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
+                        Histórico de Respostas & Comentários
+                      </h4>
+
+                      {userComments.length === 0 ? (
+                        <div className="text-center py-8 text-muted text-xs">
+                          Nenhum comentário ou resposta registrada por este perfil no histórico de chamados.
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {userComments.map((comment) => (
+                            <div
+                              key={comment.id}
+                              onClick={() => {
+                                setSelectedTicketId(comment.ticketId);
+                                setIsTechProfileModalOpen(false);
+                              }}
+                              className="p-3.5 bg-surface-2/60 border border-default/80 rounded-xl space-y-2 hover:border-emerald-500/30 transition cursor-pointer group"
+                            >
+                              <div className="flex items-center justify-between text-[10px] text-muted">
+                                <span className="font-bold text-emerald-700 dark:text-emerald-400 group-hover:underline flex items-center gap-1">
+                                  #{comment.ticketId} • {comment.ticketTitle}
+                                </span>
+                                <span>{new Date(comment.timestamp).toLocaleDateString("pt-BR")} às {new Date(comment.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+                              </div>
+                              <p className="text-xs text-secondary line-clamp-2 italic">
+                                "{comment.content}"
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+
             </div>
+          </Drawer>
+        );
+      })()}
+      </AnimatePresence>
 
-          </div>
+      {/* Slide-over Modal: Create New Ticket */}
+      {isUserModalOpen && (
+        <div onClick={() => setIsUserModalOpen(false)} className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <form
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={handleCreateOrUpdateUser}
+            onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setIsUserModalOpen(false); } }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="user-form-title"
+            className="bg-app border border-default w-full max-w-lg max-h-[92vh] overflow-y-auto rounded-xl shadow-raised"
+          >
+            <div className="px-5 py-4 border-b border-default flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 id="user-form-title" className="font-display text-lg font-bold text-primary flex items-center gap-2">
+                  <UserPlus className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0" aria-hidden />
+                  {editingUserId ? "Editar Colaborador" : "Adicionar Colaborador"}
+                </h3>
+                <p className="text-[13px] text-secondary mt-0.5">{editingUserId ? "Atualize os dados de acesso do colaborador." : "Crie uma conta para um novo colaborador."}</p>
+              </div>
+              <button type="button" onClick={() => setIsUserModalOpen(false)} aria-label="Fechar" className="h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-lg text-secondary hover:text-primary hover:bg-surface-2 cursor-pointer"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              {userFormError && <p role="alert" className="text-[13px] text-rose-800 dark:text-rose-300 bg-rose-500/10 border border-rose-500/25 rounded-lg px-3 py-2.5">{userFormError}</p>}
+              <div className="space-y-1.5">
+                <label htmlFor="uf-name" className="block text-sm font-medium text-primary">Nome completo <span className="text-rose-700 dark:text-rose-400">*</span></label>
+                <input id="uf-name" type="text" required autoFocus value={newUserForm.name} onChange={(e) => setNewUserForm({ ...newUserForm, name: e.target.value })} className="h-10 w-full bg-surface border border-default rounded-lg px-3 text-sm text-primary focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15" />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="uf-email" className="block text-sm font-medium text-primary">E-mail <span className="text-rose-700 dark:text-rose-400">*</span></label>
+                <input id="uf-email" type="email" required value={newUserForm.email} onChange={(e) => setNewUserForm({ ...newUserForm, email: e.target.value })} className="h-10 w-full bg-surface border border-default rounded-lg px-3 text-sm text-primary focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15" />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="uf-pass" className="block text-sm font-medium text-primary">{editingUserId ? "Nova senha (opcional)" : <>Senha inicial <span className="text-rose-700 dark:text-rose-400">*</span></>}</label>
+                <input id="uf-pass" type="password" autoComplete="new-password" required={!editingUserId} value={newUserForm.password} onChange={(e) => setNewUserForm({ ...newUserForm, password: e.target.value })} className="h-10 w-full bg-surface border border-default rounded-lg px-3 text-sm text-primary focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15" />
+                {editingUserId && <p className="text-xs text-muted leading-relaxed">Deixe em branco para manter a senha atual. Ao definir uma nova, o usuário será desconectado e precisará escolher a própria senha no próximo acesso.</p>}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label htmlFor="uf-dept" className="block text-sm font-medium text-primary">Setor <span className="text-rose-700 dark:text-rose-400">*</span></label>
+                  <select id="uf-dept" required value={newUserForm.department} onChange={(e) => setNewUserForm({ ...newUserForm, department: e.target.value })} className="h-10 w-full bg-surface border border-default rounded-lg px-2.5 text-sm text-primary focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 cursor-pointer">
+                    {!USER_DEPARTMENTS.includes(newUserForm.department) && newUserForm.department && (
+                      <option value={newUserForm.department}>{newUserForm.department}</option>
+                    )}
+                    {USER_DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="uf-role" className="block text-sm font-medium text-primary">Nível de acesso</label>
+                  <select id="uf-role" value={newUserForm.role} onChange={(e) => setNewUserForm({ ...newUserForm, role: e.target.value as UserRole })} className="h-10 w-full bg-surface border border-default rounded-lg px-2.5 text-sm text-primary focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 cursor-pointer">
+                    <option value="colaborador">Colaborador</option>
+                    <option value="tecnico">Técnico (TI / Admin)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div className="px-5 py-3.5 border-t border-default bg-surface flex justify-end gap-2">
+              <button type="button" onClick={() => setIsUserModalOpen(false)} className="h-10 px-4 rounded-lg border border-default bg-surface hover:bg-surface-2 text-sm font-medium text-secondary cursor-pointer">Cancelar</button>
+              <button type="submit" disabled={isSubmittingUser} aria-busy={isSubmittingUser} className="h-10 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold inline-flex items-center gap-2 cursor-pointer">
+                {isSubmittingUser && <RefreshCw className="h-4 w-4 motion-safe:animate-spin" aria-hidden />}
+                {isSubmittingUser ? "Salvando…" : editingUserId ? "Salvar alterações" : "Cadastrar colaborador"}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 
-      {/* Slide-over Modal: Create New Ticket */}
       {isNewTicketModalOpen && (
         <div 
           onClick={() => setIsNewTicketModalOpen(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 cursor-pointer"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-app/80 backdrop-blur-sm p-4 cursor-pointer"
         >
           <div 
             onClick={(e) => e.stopPropagation()}
-            className="bg-[#0a0a0a] border border-neutral-900 w-full max-w-lg rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 cursor-default"
+            className="bg-app border border-default w-full max-w-lg rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 cursor-default"
           >
             
             {/* Modal Header */}
-            <div className="p-5 border-b border-neutral-900 flex items-center justify-between bg-black/50">
+            <div className="p-5 border-b border-default flex items-center justify-between bg-app/50">
               <div className="flex items-center gap-2">
                 <Shield className="h-5 w-5 text-emerald-400" />
-                <h3 className="font-display font-extrabold text-white text-base">Novo Chamado de Suporte</h3>
+                <h3 className="font-display font-extrabold text-primary text-base">{newTicketForm.projectDeadline ? "Novo Projeto" : "Novo Chamado de Suporte"}</h3>
               </div>
               <button
                 onClick={() => setIsNewTicketModalOpen(false)}
-                className="text-slate-400 hover:text-white text-xs font-bold bg-neutral-900 hover:bg-neutral-800 border border-neutral-800/50 px-3 py-1.5 rounded-xl transition cursor-pointer"
+                className="text-secondary hover:text-primary text-xs font-bold bg-surface hover:bg-surface-2 border border-default/50 px-3 py-1.5 rounded-xl transition cursor-pointer"
               >
                 Fechar
               </button>
@@ -4026,21 +4726,21 @@ CREATE TABLE IF NOT EXISTS public.tickets (
             <form onSubmit={handleCreateTicket} className="p-6 space-y-4">
               
               {/* Profile Context warning / Requester Info */}
-              {currentSession.role === "tecnico" ? (
-                <div className="bg-black/50 p-3.5 rounded-xl border border-neutral-900 space-y-3">
+              {isTechUser ? (
+                <div className="bg-app/50 p-3.5 rounded-xl border border-default space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">Solicitando como:</span>
-                      <strong className="text-white text-sm">{selectedRequesterName || currentSession.name}</strong>
+                      <span className="text-muted block text-[10px] uppercase tracking-wider font-bold">Solicitando como:</span>
+                      <strong className="text-primary text-sm">{selectedRequesterName || currentSession.name}</strong>
                     </div>
                     <div className="text-right">
-                      <span className="text-slate-500 block text-[10px] uppercase tracking-wider font-bold">Departamento:</span>
+                      <span className="text-muted block text-[10px] uppercase tracking-wider font-bold">Departamento:</span>
                       <span className="text-emerald-400 font-medium text-xs">{selectedRequesterDepartment || currentSession.department}</span>
                     </div>
                   </div>
                   
                   <div className="space-y-1">
-                    <label className="text-[10px] font-extrabold uppercase tracking-widest text-slate-500 flex items-center gap-1">
+                    <label className="text-[10px] font-extrabold uppercase tracking-widest text-muted flex items-center gap-1">
                       <Users className="h-3 w-3 text-emerald-400" />
                       Alterar Solicitante (Apenas Técnicos)
                     </label>
@@ -4056,7 +4756,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                           setSelectedRequesterDepartment(currentSession.department);
                         }
                       }}
-                      className="w-full bg-black border border-neutral-800 rounded-lg py-2 px-2.5 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 transition-all cursor-pointer"
+                      className="w-full bg-app border border-default rounded-lg py-2 px-2.5 text-xs text-secondary focus:outline-none focus:border-emerald-500 transition-all cursor-pointer"
                     >
                       <option value="">{currentSession.name} (Você - {currentSession.department})</option>
                       {users
@@ -4072,13 +4772,13 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                   </div>
                 </div>
               ) : (
-                <div className="bg-black/50 p-3 rounded-xl border border-neutral-900 text-xs text-slate-300 flex items-center justify-between">
+                <div className="bg-app/50 p-3 rounded-xl border border-default text-xs text-secondary flex items-center justify-between">
                   <div>
-                    <span className="text-slate-500 block text-[10px]">Solicitando como:</span>
-                    <strong className="text-white">{currentSession.name}</strong>
+                    <span className="text-muted block text-[10px]">Solicitando como:</span>
+                    <strong className="text-primary">{currentSession.name}</strong>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[10px]">Departamento:</span>
+                    <span className="text-muted block text-[10px]">Departamento:</span>
                     <span className="text-emerald-400 font-medium">{currentSession.department}</span>
                   </div>
                 </div>
@@ -4086,35 +4786,35 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
               {/* Title input */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-400">Título do Chamado *</label>
+                <label className="text-xs font-bold text-secondary">{newTicketForm.projectDeadline ? "Nome do Projeto *" : "Título do Chamado *"}</label>
                 <input
                   type="text"
                   required
                   placeholder="Ex: Impressora do faturamento não liga"
                   value={newTicketForm.title}
                   onChange={(e) => setNewTicketForm({ ...newTicketForm, title: e.target.value })}
-                  className="w-full bg-black border border-neutral-900 rounded-xl py-2 px-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
+                  className="w-full bg-app border border-default rounded-xl py-2 px-3 text-xs text-primary placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
                 />
               </div>
 
               {/* Description input */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-400">Descrição Detalhada *</label>
+                <label className="text-xs font-bold text-secondary">Descrição Detalhada *</label>
                 <textarea
                   required
                   rows={4}
                   placeholder="Forneça o máximo de detalhes possível. Ex: Marca/Modelo do equipamento, mensagem de erro exibida, tentativas já feitas, se o problema afeta mais pessoas."
                   value={newTicketForm.description}
                   onChange={(e) => setNewTicketForm({ ...newTicketForm, description: e.target.value })}
-                  className="w-full bg-black border border-neutral-900 rounded-xl py-2 px-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all resize-none"
+                  className="w-full bg-app border border-default rounded-xl py-2 px-3 text-xs text-primary placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all resize-none"
                 />
               </div>
 
               {/* Tipo de Atendimento selection */}
-              {currentSession.role === "tecnico" && (
+              {currentSession.role === "tecnico" && PROJECTS_MODULE_ENABLED && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                    <label className="text-xs font-bold text-secondary flex items-center gap-1.5">
                       <FolderKanban className="h-3.5 w-3.5 text-emerald-400" />
                       Tipo de Atendimento
                     </label>
@@ -4130,7 +4830,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                           setNewTicketForm({ ...newTicketForm, projectDeadline: dateStr });
                         }
                       }}
-                      className="w-full bg-black border border-neutral-900 rounded-xl py-2 px-3 text-xs text-slate-300 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all cursor-pointer"
+                      className="w-full bg-app border border-default rounded-xl py-2 px-3 text-xs text-secondary focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all cursor-pointer"
                     >
                       <option value="chamado">Chamado Padrão</option>
                       <option value="projeto">Projeto em Andamento</option>
@@ -4140,7 +4840,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                   {/* If "projeto" is selected, show the date picker for deadline */}
                   {!!newTicketForm.projectDeadline && (
                     <div className="space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-150">
-                      <label className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                      <label className="text-xs font-bold text-secondary flex items-center gap-1.5">
                         <Calendar className="h-3.5 w-3.5 text-emerald-400" />
                         Data Limite do Projeto *
                       </label>
@@ -4155,117 +4855,130 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 
 
 
-              {/* Screenshot attachment field */}
+              {/* Screenshot and multiple attachments field */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
-                  <Camera className="h-3.5 w-3.5 text-emerald-400" />
-                  Anexar Print/Imagem (Opcional)
+                <label className="text-xs font-bold text-secondary flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Camera className="h-3.5 w-3.5 text-emerald-400" />
+                    Anexar Prints / Imagens / PDFs (Opcional)
+                  </span>
+                  <span className="text-[10px] text-muted font-normal">
+                    {newTicketForm.attachments.length} {newTicketForm.attachments.length === 1 ? "anexo" : "anexos"}
+                  </span>
                 </label>
                 
-                {!newTicketForm.screenshot ? (
-                  <div 
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      const file = e.dataTransfer.files?.[0];
-                      if (file && file.type.startsWith("image/")) {
-                        compressImage(file)
-                          .then((compressedUrl) => {
-                            setNewTicketForm({ ...newTicketForm, screenshot: compressedUrl });
-                          })
-                          .catch(() => {
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              setNewTicketForm({ ...newTicketForm, screenshot: reader.result as string });
-                            };
-                            reader.readAsDataURL(file);
-                          });
-                      }
-                    }}
-                    onPaste={(e) => {
-                      const item = e.clipboardData?.items?.[0];
-                      if (item && item.type.startsWith("image/")) {
-                        const file = item.getAsFile();
-                        if (file) {
-                          compressImage(file)
-                            .then((compressedUrl) => {
-                              setNewTicketForm({ ...newTicketForm, screenshot: compressedUrl });
-                            })
-                            .catch(() => {
-                              const reader = new FileReader();
-                              reader.onloadend = () => {
-                                setNewTicketForm({ ...newTicketForm, screenshot: reader.result as string });
-                              };
-                              reader.readAsDataURL(file);
-                            });
+                <div 
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (e.dataTransfer.files) {
+                      handleAddFiles(e.dataTransfer.files);
+                    }
+                  }}
+                  onPaste={(e) => {
+                    const items = e.clipboardData?.items;
+                    if (items) {
+                      const files: File[] = [];
+                      for (let i = 0; i < items.length; i++) {
+                        const item = items[i];
+                        if (item.kind === "file") {
+                          const file = item.getAsFile();
+                          if (file) files.push(file);
                         }
                       }
+                      if (files.length > 0) {
+                        handleAddFiles(files);
+                      }
+                    }
+                  }}
+                  className="border border-dashed border-default hover:border-emerald-500/20 bg-app hover:bg-app transition rounded-xl p-4 text-center cursor-pointer relative group"
+                >
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt"
+                    onChange={(e) => {
+                      if (e.target.files) {
+                        handleAddFiles(e.target.files);
+                      }
                     }}
-                    className="border border-dashed border-neutral-900 hover:border-emerald-500/20 bg-black hover:bg-[#070707] transition rounded-xl p-4 text-center cursor-pointer relative group"
-                  >
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          compressImage(file)
-                            .then((compressedUrl) => {
-                              setNewTicketForm({ ...newTicketForm, screenshot: compressedUrl });
-                            })
-                            .catch(() => {
-                              const reader = new FileReader();
-                              reader.onloadend = () => {
-                                setNewTicketForm({ ...newTicketForm, screenshot: reader.result as string });
-                              };
-                              reader.readAsDataURL(file);
-                            });
-                        }
-                      }}
-                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                    />
-                    <Upload className="h-5 w-5 text-slate-500 group-hover:text-emerald-400 mx-auto mb-1.5 transition-colors" />
-                    <p className="text-[11px] text-slate-400 font-medium">
-                      Clique para selecionar ou <span className="text-emerald-400">arraste e solte</span> a imagem aqui
-                    </p>
-                    <p className="text-[9px] text-slate-500 mt-0.5">
-                      Você também pode pressionar <kbd className="bg-[#151515] px-1.5 py-0.5 rounded text-[8px]">Ctrl+V</kbd> para colar um print
-                    </p>
-                  </div>
-                ) : (
-                  <div className="relative w-full rounded-xl overflow-hidden border border-neutral-900 bg-black/50 p-2.5 flex flex-col items-center">
-                    <img 
-                      src={newTicketForm.screenshot} 
-                      alt="Preview do print" 
-                      className="max-h-40 rounded-lg object-contain border border-neutral-900" 
-                    />
-                    <div className="mt-2 flex items-center justify-between w-full text-[10px] text-slate-400 px-1">
-                      <span className="truncate max-w-[200px] text-slate-500">Imagem anexada com sucesso</span>
-                      <button
-                        type="button"
-                        onClick={() => setNewTicketForm({ ...newTicketForm, screenshot: "" })}
-                        className="text-rose-400 hover:text-rose-300 font-bold flex items-center gap-1 transition cursor-pointer"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" /> Remover
-                      </button>
-                    </div>
+                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                  />
+                  <Upload className="h-5 w-5 text-muted group-hover:text-emerald-400 mx-auto mb-1.5 transition-colors" />
+                  <p className="text-[11px] text-secondary font-medium">
+                    Clique para selecionar ou <span className="text-emerald-400">arraste e solte</span> arquivos aqui
+                  </p>
+                  <p className="text-[9px] text-muted mt-0.5">
+                    Aceita imagens, PDFs e documentos. Ctrl+V para colar prints.
+                  </p>
+                </div>
+
+                {/* Attachments Preview Grid */}
+                {newTicketForm.attachments.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 max-h-48 overflow-y-auto pr-1">
+                    {newTicketForm.attachments.map((file, idx) => {
+                      const isImage = file.type.startsWith("image/");
+                      const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+                      
+                      return (
+                        <div key={idx} className="flex items-center justify-between p-2 rounded-xl bg-surface/40 border border-default hover:border-default transition">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            {isImage ? (
+                              <div className="w-8 h-8 rounded-lg overflow-hidden border border-default flex-shrink-0 bg-app flex items-center justify-center">
+                                <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
+                              </div>
+                            ) : (
+                              <div className={`w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center bg-app border border-default ${isPdf ? "text-red-400" : "text-emerald-400"}`}>
+                                <FileText className="h-4 w-4" />
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[11px] font-semibold text-secondary truncate animate-pulse-once" title={file.name}>
+                                {file.name}
+                              </p>
+                              <p className="text-[9px] text-muted capitalize">
+                                {isPdf ? "Documento PDF" : isImage ? "Imagem" : "Arquivo"}
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewTicketForm((prev) => {
+                                const newAttachments = prev.attachments.filter((_, i) => i !== idx);
+                                const firstImage = newAttachments.find(a => a.type.startsWith("image/"))?.url || "";
+                                return {
+                                  ...prev,
+                                  attachments: newAttachments,
+                                  screenshot: firstImage
+                                };
+                              });
+                            }}
+                            className="p-1 text-rose-400 hover:bg-rose-500/10 rounded-lg transition"
+                            title="Remover anexo"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
               {/* Actions buttons */}
-              <div className="pt-4 flex items-center justify-end gap-3 border-t border-neutral-900">
+              <div className="pt-4 flex items-center justify-end gap-3 border-t border-default">
                 <button
                   type="button"
                   onClick={() => setIsNewTicketModalOpen(false)}
-                  className="px-4 py-2 bg-[#151515] hover:bg-[#202020] text-slate-300 font-semibold rounded-xl text-xs border border-neutral-900 transition cursor-pointer"
+                  className="px-4 py-2 bg-surface hover:bg-surface-2 text-secondary font-semibold rounded-xl text-xs border border-default transition cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmittingTicket}
-                  className="px-5 py-2 bg-emerald-400 hover:bg-emerald-300 text-black font-extrabold rounded-xl text-xs transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-neon hover:shadow-neon-lg"
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-xs transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-sm"
                 >
                   {isSubmittingTicket ? (
                     <>
@@ -4291,44 +5004,44 @@ CREATE TABLE IF NOT EXISTS public.tickets (
       {deletingUser && (
         <div 
           onClick={() => setDeletingUser(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 cursor-pointer"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-app/80 backdrop-blur-sm p-4 cursor-pointer"
         >
           <div 
             onClick={(e) => e.stopPropagation()}
-            className="bg-[#0a0a0a] border border-neutral-900 w-full max-w-md rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 cursor-default"
+            className="bg-app border border-default w-full max-w-md rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150 cursor-default"
           >
-            <div className="p-5 border-b border-neutral-900 bg-black/50 flex items-center gap-2">
+            <div className="p-5 border-b border-default bg-app/50 flex items-center gap-2">
               <AlertCircle className="h-5 w-5 text-rose-400" />
-              <h3 className="font-display font-extrabold text-white text-sm">Excluir Conta do Colaborador</h3>
+              <h3 className="font-display font-extrabold text-primary text-sm">Excluir Conta do Colaborador</h3>
             </div>
             
             <div className="p-6 space-y-4">
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Tem certeza que deseja excluir o colaborador <strong className="text-white">{deletingUser.name}</strong>?
+              <p className="text-xs text-secondary leading-relaxed">
+                Tem certeza que deseja excluir o colaborador <strong className="text-primary">{deletingUser.name}</strong>?
               </p>
-              <div className="p-3 bg-black/50 border border-neutral-900 rounded-xl space-y-1">
-                <div className="text-[10px] text-slate-500">Setor / Departamento:</div>
-                <div className="text-xs text-slate-200 font-bold">{deletingUser.department}</div>
-                <div className="text-[10px] text-slate-500 mt-2">E-mail Corporativo:</div>
-                <div className="text-xs text-slate-200 font-mono">{deletingUser.email}</div>
+              <div className="p-3 bg-app/50 border border-default rounded-xl space-y-1">
+                <div className="text-[10px] text-muted">Setor / Departamento:</div>
+                <div className="text-xs text-primary font-bold">{deletingUser.department}</div>
+                <div className="text-[10px] text-muted mt-2">E-mail Corporativo:</div>
+                <div className="text-xs text-primary font-mono">{deletingUser.email}</div>
               </div>
               <p className="text-[10px] text-rose-400/90 italic">
                 Aviso: Esta ação é permanente e removerá todas as credenciais de acesso deste usuário.
               </p>
             </div>
 
-            <div className="p-4 bg-black/20 border-t border-neutral-900 flex items-center justify-end gap-3">
+            <div className="p-4 bg-app/20 border-t border-default flex items-center justify-end gap-3">
               <button
                 type="button"
                 onClick={() => setDeletingUser(null)}
-                className="px-4 py-2 bg-neutral-900 hover:bg-neutral-850 border border-neutral-800 text-slate-300 font-semibold rounded-xl text-xs transition cursor-pointer"
+                className="px-4 py-2 bg-surface hover:bg-surface border border-default text-secondary font-semibold rounded-xl text-xs transition cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 type="button"
                 onClick={handleConfirmDeleteUser}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs transition cursor-pointer"
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-primary font-bold rounded-xl text-xs transition cursor-pointer"
               >
                 Confirmar Exclusão
               </button>
@@ -4342,16 +5055,27 @@ CREATE TABLE IF NOT EXISTS public.tickets (
         <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3 max-w-sm w-full pointer-events-none font-sans">
           {notifications.map((notif) => {
             const isComment = notif.type === "comment";
+            const toastStyle = (localStorage.getItem("gran7_notif_toast_style") as ToastStyle) || "emerald";
+
+            let cardContainerStyle = "bg-surface border border-emerald-500/50 shadow-2xl";
+            if (isComment) {
+              cardContainerStyle = "bg-surface border border-cyan-500/50 shadow-2xl";
+            }
+            if (toastStyle === "glass") {
+              cardContainerStyle = "bg-app/95 border border-default shadow-xl";
+            } else if (toastStyle === "compact") {
+              cardContainerStyle = "bg-surface border border-default shadow-lg py-2.5 px-3.5";
+            }
+
             return (
               <div
                 key={notif.id}
                 onClick={() => {
                   setSelectedTicketId(notif.ticketId);
                   setActiveTab("painel");
-                  // Clear this notification on click
                   setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
                 }}
-                className={`bg-[#05090e]/95 border-2 ${isComment ? 'border-cyan-500/80 hover:border-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.25)]' : 'border-emerald-500/80 hover:border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.25)]'} text-white rounded-2xl p-4 flex flex-col pointer-events-auto cursor-pointer animate-in slide-in-from-bottom duration-300 hover:scale-[1.02] transition-all duration-200 group`}
+                className={`${cardContainerStyle} text-primary rounded-2xl p-4 flex flex-col pointer-events-auto cursor-pointer animate-in slide-in-from-bottom duration-300 hover:scale-[1.02] transition-all duration-200 group`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-2">
@@ -4376,27 +5100,28 @@ CREATE TABLE IF NOT EXISTS public.tickets (
                       e.stopPropagation();
                       setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
                     }}
-                    className="text-slate-400 hover:text-white transition-colors text-xs font-bold leading-none p-1 -m-1"
+                    className="text-secondary hover:text-primary transition-colors p-1 -m-1 focus:outline-none flex items-center justify-center"
+                    title="Fechar"
                   >
-                    Ô£ò
+                    <X className="h-3.5 w-3.5" />
                   </button>
                 </div>
                 
-                <h4 className={`font-display font-extrabold text-sm mt-2 text-slate-100 ${isComment ? 'group-hover:text-cyan-300' : 'group-hover:text-emerald-300'} transition-colors line-clamp-1`}>
+                <h4 className={`font-display font-extrabold text-sm mt-2 text-primary ${isComment ? 'group-hover:text-cyan-300' : 'group-hover:text-emerald-300'} transition-colors line-clamp-1`}>
                   {notif.title}
                 </h4>
 
                 {isComment && notif.commentText && (
-                  <p className="text-slate-300 text-xs mt-1.5 bg-black/40 border border-neutral-900/40 px-2.5 py-2 rounded-xl italic line-clamp-2 leading-relaxed">
+                  <p className="text-secondary text-xs mt-1.5 bg-app/40 border border-default/40 px-2.5 py-2 rounded-xl italic line-clamp-2 leading-relaxed">
                     "{notif.commentText}"
                   </p>
                 )}
                 
-                <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-neutral-900 text-xs">
-                  <span className="text-slate-400 font-mono text-[10px]">
-                    {isComment ? "Por: " : "De: "}<span className="text-slate-200 font-sans font-semibold">{isComment ? notif.commentAuthor : notif.requesterName}</span>
+                <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-default text-xs">
+                  <span className="text-secondary font-mono text-[10px]">
+                    {isComment ? "Por: " : "De: "}<span className="text-primary font-sans font-semibold">{isComment ? notif.commentAuthor : notif.requesterName}</span>
                   </span>
-                  <span className="text-[9px] text-slate-500 font-mono">
+                  <span className="text-[9px] text-muted font-mono">
                     {notif.timestamp.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
                   </span>
                 </div>
@@ -4409,29 +5134,29 @@ CREATE TABLE IF NOT EXISTS public.tickets (
       {/* Full-Screen Image Preview Modal */}
       {previewImage && (
         <div 
-          className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/95 backdrop-blur-md p-4 animate-in fade-in duration-200"
+          className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-app/95 backdrop-blur-md p-4 animate-in fade-in duration-200"
           onClick={() => setPreviewImage(null)}
         >
           {/* Top toolbar */}
           <div className="w-full max-w-5xl flex items-center justify-between mb-4 px-2 select-none" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-2">
               <Camera className="h-4 w-4 text-emerald-400" />
-              <span className="text-xs font-bold text-slate-300 uppercase tracking-widest">Visualização do Anexo</span>
+              <span className="text-xs font-bold text-secondary uppercase tracking-widest">Visualização do Anexo</span>
             </div>
             <div className="flex items-center gap-3">
               <a 
                 href={previewImage} 
                 download="screenshot.png"
-                className="px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-slate-300 font-bold rounded-xl text-[10px] uppercase tracking-wider transition cursor-pointer flex items-center gap-1.5"
+                className="px-3 py-1.5 bg-surface hover:bg-surface-2 border border-default text-secondary font-bold rounded-xl text-[10px] uppercase tracking-wider transition cursor-pointer flex items-center gap-1.5"
               >
                 Download
               </a>
               <button
                 onClick={() => setPreviewImage(null)}
-                className="p-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-slate-400 hover:text-white transition cursor-pointer flex items-center justify-center"
+                className="p-1.5 rounded-xl bg-surface hover:bg-surface-2 border border-default text-secondary hover:text-primary transition cursor-pointer flex items-center justify-center"
                 title="Fechar visualização"
               >
-                <span className="text-sm font-bold px-1">Ô£ò</span>
+                <X className="h-4 w-4" />
               </button>
             </div>
           </div>
@@ -4441,15 +5166,41 @@ CREATE TABLE IF NOT EXISTS public.tickets (
             <img 
               src={previewImage} 
               alt="Visualização ampliada" 
-              className="max-w-full max-h-[80vh] object-contain rounded-2xl border border-neutral-900 shadow-2xl animate-in zoom-in-95 duration-200"
+              className="max-w-full max-h-[80vh] object-contain rounded-2xl border border-default shadow-2xl animate-in zoom-in-95 duration-200"
             />
           </div>
 
-          <p className="text-[10px] text-slate-500 font-medium uppercase mt-4 select-none">Clique em qualquer lugar fora para fechar</p>
+          <p className="text-[10px] text-muted font-medium uppercase mt-4 select-none">Clique em qualquer lugar fora para fechar</p>
         </div>
       )}
 
+      {/* Notification Guide Modal */}
+      <NotificationGuideModal
+        isOpen={isNotificationGuideOpen}
+        onClose={() => setIsNotificationGuideOpen(false)}
+        onRetryPermission={requestDesktopNotificationPermission}
+        onTestNotification={testDesktopNotification}
+        currentPermission={desktopNotificationPermission}
+      />
+
+      {/* Notification Customizer Modal */}
+      <NotificationCustomizerModal
+        isOpen={isNotificationCustomizerOpen}
+        onClose={() => setIsNotificationCustomizerOpen(false)}
+        desktopPermission={desktopNotificationPermission}
+        onRequestDesktopPermission={requestDesktopNotificationPermission}
+        onTriggerTestNotification={(customTitle, customBody) => {
+          showDesktopNotification(
+            customTitle || "⚡ GRAN7 HELP • Alerta de Teste",
+            customBody || "Sua notificação personalizada foi enviada com sucesso!",
+            selectedTicketId || undefined
+          );
+        }}
+      />
+
       {preloaderJSX}
     </div>
+    {loginLayer}
+    </>
   );
 }

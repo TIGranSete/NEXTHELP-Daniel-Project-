@@ -1,0 +1,105 @@
+/* GRAN7 Motion Transition — Login → Interface. Valores vêm das variáveis --g7-* (authTransitionConfig.ts).
+   Só transform/opacity nas camadas grandes (aceleradas por GPU); blur apenas no formulário (elemento pequeno). */
+
+/* Camada do login durante a saída: fica por cima da interface, que já está montada por trás. */
+.g7-login-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  overflow: hidden;
+  contain: layout paint;
+}
+
+/* 1) Cena inteira "mergulha" para dentro (zoom de câmera) e dissolve no fim. */
+.g7-exiting #login_container {
+  transform-origin: 50% 50%;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  animation:
+    g7-scene-zoom var(--g7-zoom-ms) var(--g7-ease) both,
+    g7-scene-fade calc(var(--g7-zoom-ms) * 0.62) cubic-bezier(0.4, 0, 0.9, 0.6) calc(var(--g7-zoom-ms) * 0.38) both;
+}
+@keyframes g7-scene-zoom {
+  from { transform: scale(1) translateZ(0); }
+  to   { transform: scale(var(--g7-zoom-scale)) translateZ(0); }
+}
+@keyframes g7-scene-fade {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+/* O 7 ganha um zoom extra, na mesma curva, para dar profundidade (paralaxe). */
+.g7-exiting .lbd-stage {
+  scale: var(--g7-seven-scale);
+  transition: scale var(--g7-zoom-ms) var(--g7-ease);
+  will-change: scale;
+}
+/* backdrop-filter dentro de árvore animada é caro: o formulário já está sumindo mesmo. */
+.g7-exiting .backdrop-blur-xl,
+.g7-exiting .backdrop-blur-md { -webkit-backdrop-filter: none; backdrop-filter: none; }
+
+/* 2) Formulário: sai rápido com blur + zoom + pequeno deslocamento (substitui a animação de entrada). */
+.g7-exiting .lbd-reveal {
+  animation: g7-form-exit var(--g7-form-ms) cubic-bezier(0.45, 0, 0.85, 0.45) both;
+  will-change: transform, opacity, filter;
+}
+@keyframes g7-form-exit {
+  from { opacity: 1; transform: translate3d(0, 0, 0) scale(1); filter: blur(0); }
+  to   { opacity: 0; transform: translate3d(var(--g7-tx), 0, 0) scale(var(--g7-scale)); filter: blur(var(--g7-blur)); }
+}
+
+/* 3) Faixa de luz verde atravessando a tela junto com o zoom. */
+.g7-glow-sweep {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgba(var(--g7-green), calc(var(--g7-glow) * 0.55)) 44%,
+    rgba(var(--g7-green), var(--g7-glow)) 50%,
+    rgba(var(--g7-green), calc(var(--g7-glow) * 0.55)) 56%,
+    transparent 70%
+  );
+  transform: translate3d(-100%, 0, 0);
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: g7-glow-sweep var(--g7-glow-ms) cubic-bezier(0.3, 0.1, 0.3, 1) both;
+}
+@keyframes g7-glow-sweep {
+  0%   { transform: translate3d(-100%, 0, 0); opacity: 0; }
+  25%  { opacity: 1; }
+  100% { transform: translate3d(100%, 0, 0); opacity: 0; }
+}
+
+/* 4) Entrada da interface: chega de um zoom-in leve e assenta (fill-mode "backwards": nada fica aplicado depois).
+   A escala é aplicada no .app-shell (não no root) e o root recorta o excesso → sem barras de rolagem. */
+.g7-enter { overflow: hidden; }
+.g7-enter .app-shell {
+  transform-origin: 50% 50%;
+  will-change: transform, opacity, filter;
+  animation: g7-enter var(--g7-enter-ms) var(--g7-ease-out) var(--g7-enter-delay) backwards;
+}
+@keyframes g7-enter {
+  from { opacity: 0; transform: translate3d(0, var(--g7-enter-ty), 0) scale(var(--g7-enter-scale)); filter: blur(var(--g7-enter-blur)); }
+  to   { opacity: 1; transform: none; filter: none; }
+}
+.g7-enter .app-shell > aside {
+  animation: g7-side-in calc(var(--g7-enter-ms) + 60ms) var(--g7-ease-out) var(--g7-enter-delay) backwards;
+}
+.g7-enter .app-shell > div > header {
+  animation: g7-top-in calc(var(--g7-enter-ms) + 60ms) var(--g7-ease-out) var(--g7-enter-delay) backwards;
+}
+@keyframes g7-side-in { from { transform: translate3d(-14px, 0, 0); } to { transform: none; } }
+@keyframes g7-top-in  { from { transform: translate3d(0, -8px, 0); }  to { transform: none; } }
+
+/* Movimento reduzido: sem animação (a troca já é imediata pelo resolveAuthFx; isto é só rede de segurança). */
+@media (prefers-reduced-motion: reduce) {
+  .g7-exiting .lbd-reveal,
+  .g7-exiting #login_container,
+  .g7-glow-sweep,
+  .g7-enter .app-shell,
+  .g7-enter .app-shell > aside,
+  .g7-enter .app-shell > div > header { animation: none !important; }
+  .g7-exiting .lbd-stage { scale: 1; transition: none; }
+}
