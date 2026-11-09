@@ -193,7 +193,7 @@ interface AppNotification {
   title: string;
   requesterName: string;
   timestamp: Date;
-  type?: "ticket" | "comment";
+  type?: "ticket" | "comment" | "resolved";
   commentText?: string;
   commentAuthor?: string;
 }
@@ -315,6 +315,7 @@ export default function App() {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const seenTicketIds = useRef<Set<string>>(new Set());
   const seenCommentIds = useRef<Set<string>>(new Set());
+  const seenTicketStatus = useRef<Map<string, string>>(new Map());
   const hasInitializedTicketsRef = useRef<boolean>(false);
   const audioUnlockedRef = useRef<boolean>(false);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -867,7 +868,7 @@ export default function App() {
 
     if (!hasInitializedTicketsRef.current) {
       // First load: register all existing ticket IDs so we don't spam notifications on startup
-      tickets.forEach(t => seenTicketIds.current.add(t.id));
+      tickets.forEach(t => { seenTicketIds.current.add(t.id); seenTicketStatus.current.set(t.id, t.status); });
       // Also register all existing comment IDs so we don't spam comment notifications on startup
       tickets.forEach(t => {
         t.comments?.forEach(c => seenCommentIds.current.add(c.id));
@@ -881,6 +882,31 @@ export default function App() {
     const newlyDetected: AppNotification[] = [];
 
     tickets.forEach((t) => {
+      // 0. Chamado finalizado: o solicitante (colaborador) é avisado quando a TI resolve/fecha o chamado.
+      const prevStatus = seenTicketStatus.current.get(t.id);
+      seenTicketStatus.current.set(t.id, t.status);
+      const isDone = (st?: string) => st === "Resolvido" || st === "Fechado";
+      if (
+        prevStatus !== undefined && !isDone(prevStatus) && isDone(t.status) &&
+        currentSession?.role === "colaborador" && t.requesterName === currentSession?.name
+      ) {
+        shouldPlaySound = true;
+        hasNewNotification = true;
+        showDesktopNotification(
+          `✅ Chamado #${t.id} finalizado`,
+          `Seu chamado "${t.title}" foi ${t.status === "Fechado" ? "fechado" : "resolvido"} pela TI.`,
+          t.id
+        );
+        newlyDetected.push({
+          id: `notif-${Date.now()}-${t.id}-done`,
+          ticketId: t.id,
+          title: t.title,
+          requesterName: t.requesterName,
+          timestamp: new Date(),
+          type: "resolved"
+        });
+      }
+
       // 1. Check for new tickets
       if (!seenTicketIds.current.has(t.id)) {
         seenTicketIds.current.add(t.id);
@@ -5088,6 +5114,10 @@ export default function App() {
                       {isComment ? (
                         <>
                           <MessageSquare className="h-3 w-3" /> NOVA MENSAGEM
+                        </>
+                      ) : notif.type === "resolved" ? (
+                        <>
+                          <Sparkles className="h-3 w-3" /> CHAMADO FINALIZADO
                         </>
                       ) : (
                         <>

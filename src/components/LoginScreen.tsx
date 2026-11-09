@@ -29,8 +29,55 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [logoError, setLogoError] = useState(false);
   // Tela de login SEMPRE abre no tema claro; o botão alterna só aqui (não altera a preferência do app).
   const [dark, setDark] = useState(false);
+  // "Esqueci a senha" (colaboradores): mesmo cartão, formulário alternativo.
+  const [mode, setMode] = useState<"login" | "forgot">("login");
+  const [fpEmail, setFpEmail] = useState("");
+  const [fpPass, setFpPass] = useState("");
+  const [fpConfirm, setFpConfirm] = useState("");
+  const [fpLoading, setFpLoading] = useState(false);
+  const [fpError, setFpError] = useState("");
+  const [fpOk, setFpOk] = useState("");
   // Trava síncrona contra envios duplicados (o estado `loading` só reflete no próximo render).
   const submittingRef = useRef(false);
+
+  const openForgot = () => {
+    setFpEmail(email.trim());
+    setFpPass(""); setFpConfirm(""); setFpError(""); setFpOk("");
+    setError("");
+    setMode("forgot");
+  };
+
+  const handleForgot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFpError("");
+    if (!fpEmail.trim() || !fpPass) { setFpError("Informe o e-mail e a nova senha."); return; }
+    if (fpPass.length < 6 || !/\d/.test(fpPass) || !/[a-zA-Z]/.test(fpPass)) {
+      setFpError("A senha deve ter ao menos 6 caracteres, com letras e números.");
+      return;
+    }
+    if (fpPass !== fpConfirm) { setFpError("As senhas não coincidem."); return; }
+    setFpLoading(true);
+    try {
+      const res = await apiFetch("/api/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ email: fpEmail.trim(), newPassword: fpPass })
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok) {
+        setEmail(fpEmail.trim());
+        setPassword("");
+        setFpOk(data?.message || "Senha redefinida com sucesso.");
+        setMode("login");
+        return;
+      }
+      setFpError(data?.error || "Não foi possível redefinir a senha. Tente novamente.");
+    } catch {
+      setFpError("Sem conexão com o servidor. Verifique sua internet e tente novamente.");
+    } finally {
+      setFpLoading(false);
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,6 +90,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     submittingRef.current = true;
     setLoading(true);
     setError("");
+    setFpOk("");
     let succeeded = false;
 
     try {
@@ -153,7 +201,60 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             </div>
           )}
 
-          {/* Form Login */}
+          {fpOk && mode === "login" && (
+            <div className={`p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs font-medium flex items-center gap-2 ${dark ? "text-emerald-400" : "text-emerald-700"}`}>
+              <span>{fpOk}</span>
+            </div>
+          )}
+
+          {mode === "forgot" ? (
+          <form onSubmit={handleForgot} className="space-y-4">
+            <p className={`text-xs leading-relaxed ${dark ? "text-zinc-400" : "text-slate-600"}`}>
+              Informe o seu e-mail corporativo e escolha uma nova senha. Disponível apenas para colaboradores.
+            </p>
+            {fpError && (
+              <div className={`p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs ${dark ? "text-rose-400" : "text-rose-600"} font-medium flex items-center gap-2 animate-shake`}>
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{fpError}</span>
+              </div>
+            )}
+            {([
+              { label: "E-mail Corporativo", type: "email", value: fpEmail, set: setFpEmail, ph: "usuario@gran7.com.br", ac: "username", Icon: Mail },
+              { label: "Nova Senha", type: "password", value: fpPass, set: setFpPass, ph: "Mín. 6 caracteres, com letras e números", ac: "new-password", Icon: Lock },
+              { label: "Confirmar Nova Senha", type: "password", value: fpConfirm, set: setFpConfirm, ph: "Repita a nova senha", ac: "new-password", Icon: Lock },
+            ] as const).map((f) => (
+              <div key={f.label} className="space-y-1.5">
+                <label className={`text-[10px] font-bold uppercase tracking-wider block ${dark ? "text-zinc-400" : "text-slate-600"}`}>{f.label}</label>
+                <div className="relative">
+                  <f.Icon className={`absolute left-3.5 top-2.5 h-4 w-4 ${dark ? "text-zinc-500" : "text-slate-400"}`} />
+                  <input
+                    type={f.type}
+                    autoComplete={f.ac}
+                    required
+                    placeholder={f.ph}
+                    value={f.value}
+                    onChange={(e) => f.set(e.target.value)}
+                    className={`w-full border rounded-xl py-2.5 pl-10 pr-3 text-xs focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all duration-200 ${dark ? "bg-black/30 border-white/10 text-zinc-100 placeholder-zinc-600 focus:bg-black/40" : "bg-white border-slate-300 text-slate-900 placeholder-slate-400"}`}
+                  />
+                </div>
+              </div>
+            ))}
+            <button
+              type="submit"
+              disabled={fpLoading}
+              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-xs transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer shadow-sm disabled:opacity-60"
+            >
+              {fpLoading ? (<><RefreshCw className="h-3.5 w-3.5 animate-spin text-white" />Redefinindo...</>) : "Redefinir senha"}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMode("login"); setFpError(""); }}
+              className={`w-full text-center text-[11px] font-semibold cursor-pointer transition-colors ${dark ? "text-zinc-400 hover:text-zinc-200" : "text-slate-500 hover:text-slate-800"}`}
+            >
+              Voltar para o login
+            </button>
+          </form>
+          ) : (
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-1.5">
               <label className={`text-[10px] font-bold uppercase tracking-wider block ${dark ? "text-zinc-400" : "text-slate-600"}`}>E-mail Corporativo</label>
@@ -218,7 +319,15 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 </>
               )}
             </button>
+          <button
+              type="button"
+              onClick={openForgot}
+              className={`w-full text-center text-[11px] font-semibold cursor-pointer transition-colors ${dark ? "text-emerald-400 hover:text-emerald-300" : "text-emerald-700 hover:text-emerald-600"}`}
+            >
+              Esqueceu a senha?
+            </button>
           </form>
+          )}
         </div>
 
         {/* Footer signature */}

@@ -1172,6 +1172,77 @@ app.post("/api/logout", requireAuth, (req, res) => {
 });
 
 // Login/Auth endpoint
+// ── "Esqueci a senha" (somente colaboradores) ─────────────────────────────────
+// Redefinição sem e-mail: o colaborador informa o e-mail e escolhe a nova senha.
+// Contas de técnico/admin NUNCA podem ser redefinidas por aqui (a TI altera pela gestão de colaboradores).
+// Limite simples por IP para dificultar abuso.
+const forgotAttempts = new Map<string, { count: number; resetAt: number }>();
+const FORGOT_MAX = 8;
+const FORGOT_WINDOW_MS = 15 * 60 * 1000;
+
+app.post("/api/forgot-password", async (req, res) => {
+  try {
+    const ip = String(req.ip || req.socket.remoteAddress || "unknown");
+    const now = Date.now();
+    const rec = forgotAttempts.get(ip);
+    if (!rec || rec.resetAt <= now) {
+      forgotAttempts.set(ip, { count: 1, resetAt: now + FORGOT_WINDOW_MS });
+    } else {
+      rec.count++;
+      if (rec.count > FORGOT_MAX) {
+        return res.status(429).json({ error: "Muitas tentativas. Aguarde alguns minutos e tente novamente." });
+      }
+    }
+
+    const { email, newPassword } = req.body || {};
+    if (typeof email !== "string" || typeof newPassword !== "string" || !email.trim() || !newPassword) {
+      return res.status(400).json({ error: "Informe o e-mail e a nova senha." });
+    }
+    if (newPassword.length < 6 || !/\d/.test(newPassword) || !/[a-zA-Z]/.test(newPassword)) {
+      return res.status(400).json({ error: "A senha deve ter ao menos 6 caracteres, com letras e números." });
+    }
+
+    const emailLower = email.trim().toLowerCase();
+    const users = await loadUsers();
+    const index = users.findIndex(u => u.email.toLowerCase() === emailLower);
+    const generic = { error: "Não foi possível redefinir a senha para este e-mail. Procure a TI." };
+    if (index === -1 || users[index].role !== "colaborador") {
+      return res.status(403).json(generic);
+    }
+
+    const user = users[index];
+    user.password = newPassword; // saveUsers faz o hash
+    user.mustChangePassword = false;
+    user.updatedAt = new Date().toISOString();
+    users[index] = user;
+    await saveUsers(users, user);
+
+    if (isSupabaseConfigured() && isSupabaseHealthy()) {
+      try {
+        await saveSupabaseUser({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          password: newPassword,
+          department: user.department,
+          role: "colaborador",
+          mustChangePassword: false
+        });
+      } catch (dbErr: any) {
+        console.error("[Forgot Password] Falha ao sincronizar com Supabase:", dbErr.message);
+      }
+    }
+
+    // Sessões antigas dessa conta deixam de valer.
+    revokeSessionsForUser(user.id);
+    console.log(`[Forgot Password] Senha redefinida para colaborador: ${emailLower}`);
+    res.json({ success: true, message: "Senha redefinida com sucesso. Entre com a nova senha." });
+  } catch (error) {
+    console.error("Erro em /api/forgot-password:", error);
+    res.status(500).json({ error: "Erro interno ao redefinir a senha." });
+  }
+});
+
 app.post("/api/login", async (req, res) => {
   try {
     const { email, password } = req.body;
