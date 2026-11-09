@@ -1204,17 +1204,26 @@ app.post("/api/forgot-password", async (req, res) => {
 
     const emailLower = email.trim().toLowerCase();
     const users = await loadUsers();
-    const index = users.findIndex(u => u.email.toLowerCase() === emailLower);
-    const generic = { error: "Não foi possível redefinir a senha para este e-mail. Procure a TI." };
-    if (index === -1 || users[index].role !== "colaborador") {
-      return res.status(403).json(generic);
+    let index = users.findIndex(u => u.email.toLowerCase() === emailLower);
+
+    // O login consulta o Supabase primeiro; fazemos o mesmo aqui para não depender de cache local defasado.
+    let dbUser: User | null = null;
+    if (isSupabaseConfigured() && isSupabaseHealthy()) {
+      try { dbUser = (await getSupabaseUserByEmail(emailLower)) || null; } catch { dbUser = null; }
+    }
+    const found: User | null = dbUser || (index !== -1 ? users[index] : null);
+
+    if (!found) {
+      console.log(`[Forgot Password] E-mail não cadastrado: ${emailLower}`);
+      return res.status(404).json({ error: "E-mail não cadastrado. Confira o endereço digitado." });
+    }
+    if (found.role !== "colaborador") {
+      console.log(`[Forgot Password] Conta não-colaborador recusada: ${emailLower} (${found.role})`);
+      return res.status(403).json({ error: "Esta conta é da equipe de TI e não pode ser redefinida por aqui. Procure outro técnico." });
     }
 
-    const user = users[index];
-    user.password = newPassword; // saveUsers faz o hash
-    user.mustChangePassword = false;
-    user.updatedAt = new Date().toISOString();
-    users[index] = user;
+    const user: User = { ...(index !== -1 ? users[index] : found), ...found, password: newPassword, mustChangePassword: false, updatedAt: new Date().toISOString() } as User;
+    if (index === -1) { users.push(user); index = users.length - 1; } else { users[index] = user; }
     await saveUsers(users, user);
 
     if (isSupabaseConfigured() && isSupabaseHealthy()) {
