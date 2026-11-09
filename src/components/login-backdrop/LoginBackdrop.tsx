@@ -14,7 +14,7 @@ export const LOGIN_FX = {
   enabled: import.meta.env.VITE_LOGIN_FX !== "off",
   /** Particle count and 7 extrusion depth (layers) per device tier. */
   tiers: {
-    desktop: { particles: 80, layers: 18 },
+    desktop: { particles: 64, layers: 16 },
     tablet: { particles: 45, layers: 9 },
     mobile: { particles: 26, layers: 3 },
   },
@@ -42,10 +42,50 @@ interface Particle {
   dx: number; dy: number; // last drawn position (for link lines)
 }
 
-export default function LoginBackdrop() {
+
+/**
+ * Pré-renderiza (uma única vez) o 7 em poucos tons de verde vivo num canvas, em vez de
+ * aplicar `filter` CSS em cada fatia (18 camadas filtradas = muito caro a cada quadro).
+ * Tom 0 = face frontal; os demais escurecem com a profundidade. Sem suporte a ctx.filter
+ * (Safari antigo) cai para a imagem original.
+ */
+const TONES = {
+  light: [{ b: 1.12, s: 2.1 }, { b: 0.95, s: 1.9 }, { b: 0.82, s: 1.9 }, { b: 0.7, s: 1.8 }],
+  dark: [{ b: 1.18, s: 2.0 }, { b: 0.85, s: 1.9 }, { b: 0.62, s: 1.8 }, { b: 0.45, s: 1.7 }],
+};
+
+function useTonedSevens(light: boolean): string[] | null {
+  const [urls, setUrls] = React.useState<string[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (cancelled) return;
+      const k = Math.min(1, 900 / img.naturalHeight);
+      const w = Math.round(img.naturalWidth * k), h = Math.round(img.naturalHeight * k);
+      const out: string[] = [];
+      for (const t of TONES[light ? "light" : "dark"]) {
+        const c = document.createElement("canvas");
+        c.width = w; c.height = h;
+        const g = c.getContext("2d");
+        if (!g || !("filter" in g)) { setUrls(null); return; }
+        g.filter = `brightness(${t.b}) saturate(${t.s})`;
+        g.drawImage(img, 0, 0, w, h);
+        out.push(c.toDataURL("image/png"));
+      }
+      setUrls(out);
+    };
+    img.src = sevenImg;
+    return () => { cancelled = true; };
+  }, [light]);
+  return urls;
+}
+
+export default function LoginBackdrop({ light = false }: { light?: boolean }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const tier = useMemo(getTier, []);
+  const toned = useTonedSevens(light);
   const { particles: particleCount, layers } = LOGIN_FX.tiers[tier];
   // Skip 3D extrusion if the browser can't do preserve-3d.
   const layerCount = useMemo(
@@ -68,9 +108,21 @@ export default function LoginBackdrop() {
     const mouse = { x: -9999, y: -9999 };
     const links = tier !== "mobile";
     const linkDist = 112;
+    const linkDist2 = linkDist * linkDist;
     let raf = 0;
     let last = 0;
-    const frameGap = tier === "desktop" ? 0 : 1000 / 30; // 30fps on weaker tiers
+    // Transforms escritos direto nos 3 elementos que reagem ao mouse (sem custom properties na raiz,
+    // que forçariam recalcular o estilo de toda a árvore a cada quadro).
+    const tiltEl = root.querySelector<HTMLElement>(".lbd-tilt");
+    const lightEl = root.querySelector<HTMLElement>(".lbd-light");
+    const gridEl = root.querySelector<HTMLElement>(".lbd-grid");
+    const cs = getComputedStyle(root);
+    const restY = parseFloat(cs.getPropertyValue("--lbd-rest-y")) || -30;
+    const restX = parseFloat(cs.getPropertyValue("--lbd-rest-x")) || 8;
+    const vmin = Math.min(window.innerWidth, window.innerHeight) / 100;
+    const frameGap = tier === "desktop" ? 0 : 1000 / 30; // partículas a 30fps nas faixas fracas (o tilt segue a 60fps)
+    let lastDraw = 0;
+    let lastMx = NaN, lastMy = NaN;
 
     const seed = () => {
       parts = Array.from({ length: particleCount }, () => {
@@ -126,9 +178,10 @@ export default function LoginBackdrop() {
         for (let i = 0; i < parts.length; i++) {
           for (let j = i + 1; j < parts.length; j++) {
             const a = parts[i], b = parts[j];
-            const dist = Math.hypot(a.dx - b.dx, a.dy - b.dy);
-            if (dist < linkDist) {
-              ctx.strokeStyle = `rgba(${LOGIN_FX.green},${(1 - dist / linkDist) * 0.09})`;
+            const ddx = a.dx - b.dx, ddy = a.dy - b.dy;
+            const d2 = ddx * ddx + ddy * ddy;
+            if (d2 < linkDist2) {
+              ctx.strokeStyle = `rgba(${LOGIN_FX.green},${(1 - Math.sqrt(d2) / linkDist) * 0.09})`;
               ctx.beginPath(); ctx.moveTo(a.dx, a.dy); ctx.lineTo(b.dx, b.dy); ctx.stroke();
             }
           }
@@ -138,13 +191,19 @@ export default function LoginBackdrop() {
 
     const tick = (t: number) => {
       raf = requestAnimationFrame(tick);
-      if (t - last < frameGap) return;
+      // suavização independente de FPS (antes dependia da taxa de quadros)
+      const dt = Math.min(64, t - last || 16);
       last = t;
-      cur.x += (target.x - cur.x) * 0.06;
-      cur.y += (target.y - cur.y) * 0.06;
-      root.style.setProperty("--mx", cur.x.toFixed(4));
-      root.style.setProperty("--my", cur.y.toFixed(4));
-      draw(t);
+      const k = 1 - Math.exp(-dt / 140);
+      cur.x += (target.x - cur.x) * k;
+      cur.y += (target.y - cur.y) * k;
+      if (Math.abs(target.x - cur.x) > 0.0005 || Math.abs(target.y - cur.y) > 0.0005 || cur.x !== lastMx || cur.y !== lastMy) {
+        if (tiltEl) tiltEl.style.transform = `rotateX(${(restX + cur.y * -5).toFixed(3)}deg) rotateY(${(restY + cur.x * 9).toFixed(3)}deg)`;
+        if (lightEl) lightEl.style.transform = `translate3d(${(cur.x * 12 * vmin).toFixed(2)}px, ${(cur.y * 9 * vmin).toFixed(2)}px, 0)`;
+        if (gridEl) gridEl.style.transform = `translate3d(${(cur.x * -8).toFixed(2)}px, ${(cur.y * -8).toFixed(2)}px, 0)`;
+        lastMx = cur.x; lastMy = cur.y;
+      }
+      if (t - lastDraw >= frameGap) { lastDraw = t; draw(t); }
     };
 
     const onMove = (e: PointerEvent) => {
@@ -185,7 +244,7 @@ export default function LoginBackdrop() {
   if (!LOGIN_FX.enabled) return null;
 
   return (
-    <div ref={rootRef} className="lbd-root" data-tier={tier} aria-hidden="true">
+    <div ref={rootRef} className={`lbd-root${light ? " lbd-root--light" : ""}`} data-tier={tier} aria-hidden="true">
       <div className="lbd-light" />
       <div className="lbd-grid" />
       <canvas ref={canvasRef} className="lbd-canvas" />
@@ -206,8 +265,9 @@ export default function LoginBackdrop() {
                     {Array.from({ length: layerCount }, (_, i) => (
                       <img
                         key={i}
-                        src={sevenImg}
+                        src={toned ? toned[Math.min(toned.length - 1, Math.floor((i / Math.max(1, layerCount)) * toned.length))] : sevenImg}
                         alt=""
+                        decoding="async"
                         draggable={false}
                         className="lbd-layer"
                         style={{ ["--i" as string]: i } as React.CSSProperties}

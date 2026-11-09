@@ -885,15 +885,10 @@ export default function App() {
       if (!seenTicketIds.current.has(t.id)) {
         seenTicketIds.current.add(t.id);
         
-        // Play notification sound if the current user is a technician OR if they are the collaborator who opened this ticket
-        if (currentSession?.role === "tecnico" || t.requesterName === currentSession?.name) {
+        // Regra: a TI só é notificada de (1) novo chamado e (2) nova mensagem do solicitante.
+        // Quem abriu o chamado não é notificado da própria ação.
+        if (currentSession?.role === "tecnico" && t.requesterName !== currentSession?.name) {
           shouldPlaySound = true;
-        }
-
-        // Visual notifications (on-screen pop-ups): technicians see every new
-        // ticket; collaborators only see ones they opened themselves (e.g.
-        // when a technician opens it on their behalf).
-        if (currentSession?.role === "tecnico" || t.requesterName === currentSession?.name) {
           hasNewNotification = true;
           showDesktopNotification(
             `🔔 Novo Chamado #${t.id} • ${t.title}`,
@@ -922,10 +917,16 @@ export default function App() {
             return;
           }
 
-          // Decide if user is relevant for this comment:
-          // Technicians get all comment notifications.
-          // Collaborators only get comment notifications for their own tickets.
-          const isUserRelevant = currentSession?.role === "tecnico" || t.requesterName === currentSession?.name;
+          // Mensagens automáticas (sistema/IA) nunca geram notificação; continuam no histórico.
+          if (c.authorRole === "system" || c.authorRole === "ai") {
+            return;
+          }
+
+          // Técnicos só são notificados por mensagens do solicitante (colaborador).
+          // Colaboradores continuam recebendo respostas da TI nos próprios chamados.
+          const isUserRelevant = currentSession?.role === "tecnico"
+            ? c.authorRole === "colaborador"
+            : t.requesterName === currentSession?.name && c.authorRole === "tecnico";
 
           if (isUserRelevant) {
             shouldPlaySound = true;

@@ -9,6 +9,8 @@ import {
   RefreshCw
 } from "lucide-react";
 import logoImg from "../assets/images/logo.png";
+import logoBlack from "../assets/images/logo-black.png";
+import { Sun, Moon } from "lucide-react";
 import Gran7Brand from "./Gran7Brand";
 import LoginBackdrop from "./login-backdrop/LoginBackdrop";
 
@@ -25,6 +27,8 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [logoError, setLogoError] = useState(false);
+  // Tela de login SEMPRE abre no tema claro; o botão alterna só aqui (não altera a preferência do app).
+  const [dark, setDark] = useState(false);
   // Trava síncrona contra envios duplicados (o estado `loading` só reflete no próximo render).
   const submittingRef = useRef(false);
 
@@ -97,10 +101,20 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   return (
     <div
       id="login_container"
-      className="min-h-screen bg-[#08090B] flex flex-col justify-center items-center px-4 py-12 relative overflow-hidden font-sans"
+      className={`min-h-screen ${dark ? "bg-[#08090B]" : "bg-[#f5f7f8]"} flex flex-col justify-center items-center px-4 py-12 relative overflow-hidden font-sans`}
     >
       {/* Decorative 3D "7" + particles (behind everything, never intercepts input) */}
-      <LoginBackdrop />
+      <LoginBackdrop light={!dark} />
+
+      <button
+        type="button"
+        onClick={() => setDark((v) => !v)}
+        title={dark ? "Mudar para tema claro" : "Mudar para tema escuro"}
+        aria-label={dark ? "Mudar para tema claro" : "Mudar para tema escuro"}
+        className={`absolute top-4 right-4 z-20 w-9 h-9 flex items-center justify-center rounded-lg border transition-colors cursor-pointer ${dark ? "text-zinc-300 border-white/10 hover:bg-white/10" : "text-slate-600 border-slate-200 bg-white/70 hover:bg-white"}`}
+      >
+        {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      </button>
 
       <div className="w-full max-w-md space-y-6 z-10 relative lbd-reveal">
         
@@ -109,12 +123,12 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           {!logoError ? (
             <div className="flex flex-col items-center justify-center space-y-3">
               <img
-                src={logoImg}
+                src={dark ? logoImg : logoBlack}
                 alt="GRAN7 HELP"
                 className="h-16 sm:h-20 w-auto object-contain max-w-full"
                 onError={() => setLogoError(true)}
               />
-              <p className="font-sans font-semibold text-[10px] sm:text-[11px] text-zinc-400 uppercase tracking-[0.2em] flex items-center gap-2 justify-center">
+              <p className={`font-sans font-semibold text-[10px] sm:text-[11px] ${dark ? "text-zinc-400" : "text-slate-500"} uppercase tracking-[0.2em] flex items-center gap-2 justify-center`}>
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                 <span>HELP DESK INTELIGENTE CORPORATIVO</span>
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
@@ -126,14 +140,14 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         </div>
 
         {/* Login Box */}
-        <div className="bg-[#111317]/60 backdrop-blur-xl border border-white/10 transition-all duration-300 rounded-2xl p-8 shadow-[0_24px_70px_-12px_rgba(0,0,0,0.8),inset_0_1px_0_rgba(255,255,255,0.05)] space-y-6">
+        <div className={`border transition-colors duration-300 rounded-2xl p-8 space-y-6 ${dark ? "bg-[#111317]/85 border-white/10 shadow-[0_24px_70px_-12px_rgba(0,0,0,0.8),inset_0_1px_0_rgba(255,255,255,0.05)]" : "bg-white/95 border-slate-200 shadow-[0_24px_60px_-16px_rgba(24,33,43,0.18)]"}`}>
           
-          <div className="border-b border-white/10 pb-3 text-center">
-            <h2 className="text-xs font-bold text-zinc-400 tracking-wider uppercase">Acessar Conta Corporativa</h2>
+          <div className={`border-b pb-3 text-center ${dark ? "border-white/10" : "border-slate-200"}`}>
+            <h2 className={`text-xs font-bold tracking-wider uppercase ${dark ? "text-zinc-400" : "text-slate-600"}`}>Acessar Conta Corporativa</h2>
           </div>
 
           {error && (
-            <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-400 font-medium flex items-center gap-2 animate-shake">
+            <div className={`p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs ${dark ? "text-rose-400" : "text-rose-600"} font-medium flex items-center gap-2 animate-shake`}>
               <AlertCircle className="h-4 w-4 shrink-0" />
               <span>{error}</span>
             </div>
@@ -142,9 +156,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           {/* Form Login */}
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">E-mail Corporativo</label>
+              <label className={`text-[10px] font-bold uppercase tracking-wider block ${dark ? "text-zinc-400" : "text-slate-600"}`}>E-mail Corporativo</label>
               <div className="relative">
-                <Mail className="absolute left-3.5 top-2.5 h-4 w-4 text-zinc-500" />
+                <Mail className={`absolute left-3.5 top-2.5 h-4 w-4 ${dark ? "text-zinc-500" : "text-slate-400"}`} />
                 <input
                   type="email"
                   name="username"
@@ -153,15 +167,15 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   placeholder="usuario@gran7.com.br"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-black/30 border border-white/10 rounded-xl py-2.5 pl-10 pr-3 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:bg-black/40 transition-all duration-200"
+                  className={`w-full border rounded-xl py-2.5 pl-10 pr-3 text-xs focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all duration-200 ${dark ? "bg-black/30 border-white/10 text-zinc-100 placeholder-zinc-600 focus:bg-black/40" : "bg-white border-slate-300 text-slate-900 placeholder-slate-400"}`}
                 />
               </div>
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Senha de Acesso</label>
+              <label className={`text-[10px] font-bold uppercase tracking-wider block ${dark ? "text-zinc-400" : "text-slate-600"}`}>Senha de Acesso</label>
               <div className="relative">
-                <Lock className="absolute left-3.5 top-2.5 h-4 w-4 text-zinc-500" />
+                <Lock className={`absolute left-3.5 top-2.5 h-4 w-4 ${dark ? "text-zinc-500" : "text-slate-400"}`} />
                 <input
                   type="password"
                   name="current-password"
@@ -170,7 +184,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   placeholder="Sua senha corporativa"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-black/30 border border-white/10 rounded-xl py-2.5 pl-10 pr-3 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:bg-black/40 transition-all duration-200"
+                  className={`w-full border rounded-xl py-2.5 pl-10 pr-3 text-xs focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all duration-200 ${dark ? "bg-black/30 border-white/10 text-zinc-100 placeholder-zinc-600 focus:bg-black/40" : "bg-white border-slate-300 text-slate-900 placeholder-slate-400"}`}
                 />
               </div>
             </div>
@@ -180,9 +194,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 type="checkbox"
                 checked={rememberEmail}
                 onChange={(e) => setRememberEmail(e.target.checked)}
-                className="h-3.5 w-3.5 rounded border-white/20 accent-emerald-500 cursor-pointer"
+                className="h-3.5 w-3.5 rounded accent-emerald-500 cursor-pointer"
               />
-              <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
+              <span className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? "text-zinc-400" : "text-slate-600"}`}>
                 Lembrar meu e-mail neste dispositivo
               </span>
             </label>
@@ -208,9 +222,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         </div>
 
         {/* Footer signature */}
-        <div className="flex items-center justify-between text-[10px] text-zinc-500 font-medium pt-2 border-t border-white/10">
+        <div className={`flex items-center justify-between text-[10px] font-medium pt-2 border-t ${dark ? "text-zinc-500 border-white/10" : "text-slate-500 border-slate-200"}`}>
           <span>Gran7 Nutrição e Fisiologia Vegetal</span>
-          <span className="text-zinc-400 font-mono">v2.4</span>
+          <span className={`font-mono ${dark ? "text-zinc-400" : "text-slate-500"}`}>v2.4</span>
         </div>
       </div>
     </div>
